@@ -1,0 +1,1520 @@
+// content.js — UI orchestration, state, and business logic.
+// Dependencies (loaded first via manifest):
+//   config.js → window.__ccbRawConfig
+//   storage.js → window.__ccbStorage
+//   inject.js → window.__ccbInject
+//   push.js → window.__ccbPush
+//   ui-styles.js → window.__ccbCSS
+//   ui-template.js → window.__ccbTpl
+
+(() => {
+  if (window.__ccbInstalled) return;
+  window.__ccbInstalled = true;
+
+  const {
+    AUTO_OPEN_URLS,
+    SEND_BUTTON_SELECTOR,
+    SIDEBAR_WIDTH,
+    MSG_SELECTORS,
+    STORAGE_KEY,
+    GM_ID,
+    SUMMARY_PROMPT,
+    FRAMING,
+  } = window.__ccbRawConfig;
+
+  const CONFIG = { AUTO_OPEN_URLS, SEND_BUTTON_SELECTOR, SIDEBAR_WIDTH };
+  const { loadBlocks: _loadBlocks, saveBlocks: _saveBlocks } =
+    window.__ccbStorage;
+  const { findInput, injectIntoInput } = window.__ccbInject;
+  const { pushPage } = window.__ccbPush;
+  const CSS = window.__ccbCSS;
+  const { IC, PANEL_HTML } = window.__ccbTpl;
+  const isActiveSitePage = () =>
+    CONFIG.AUTO_OPEN_URLS.some((u) => location.href.startsWith(u));
+
+  // ============================================================
+  // State
+  // ============================================================
+  // DEBOUNCE: הערה את השורה להלן כדי להשבית את debouncing החיפוש
+  const ENABLE_SEARCH_DEBOUNCE = true; // false = השבתת debounce
+  const DEBOUNCE_MS = 300; // זמן ההשהיה (מילישניות)
+
+  let blocks = {};
+  let blocksLoaded = false;
+  let shadow = null;
+  let $el = null;
+  let selected = new Set();
+  let editingId = null;
+  let mounted = false;
+  let historySearchMode = "title";
+  let searchTimeout = null;
+  let lastInjectedConversationId = null; // שיחה מוזרקת כרגע
+  let autoSaveObserver = null; // Observer לשמירה אוטומטית
+  let autoSaveContainer = null; // container נוכחי של ההיסטוריה החיה
+  let autoSaveAttachTimer = null; // ניסיון חוזר אם ה-container עוד לא קיים
+  let lastSaveMessageCount = 0; // מספר ההודעות בשמירה אחרונה
+  let autoSaveTimeout = null; // Debounce לשמירה אוטומטית
+
+  async function loadBlocks() {
+    if (blocksLoaded) return;
+    blocks = await _loadBlocks(STORAGE_KEY);
+    blocksLoaded = true;
+  }
+
+  async function saveBlocks() {
+    await _saveBlocks(STORAGE_KEY, blocks);
+  }
+
+  // ============================================================
+  // Mount
+  // ============================================================
+  function mountUI() {
+    if (!isActiveSitePage()) return;
+    if (mounted) return;
+    mounted = true;
+    const host = document.createElement("div");
+    host.id = "ccb-host";
+    host.style.cssText =
+      "all:initial;position:fixed;top:0;left:0;width:0;height:0;z-index:2147483647;pointer-events:none;";
+    document.body.appendChild(host);
+    shadow = host.attachShadow({ mode: "open" });
+    const style = document.createElement("style");
+    style.textContent = CSS;
+    shadow.appendChild(style);
+    const wrap = document.createElement("div");
+    wrap.innerHTML = PANEL_HTML;
+    while (wrap.firstChild) shadow.appendChild(wrap.firstChild);
+    $el = (id) => shadow.getElementById(id);
+
+    $el("fab").style.pointerEvents = "auto";
+    $el("panel").style.pointerEvents = "auto";
+
+    wireEvents();
+  }
+
+  function moveTabIndicator(tab) {
+    const indicator = $el("tabIndicator");
+    if (!indicator) return;
+    indicator.style.left = tab.offsetLeft + "px";
+    indicator.style.width = tab.offsetWidth + "px";
+  }
+
+  // ============================================================
+  // Dialogs
+  // ============================================================
+  function showConfirm({ title, msg, confirmLabel, danger = false }) {
+    return new Promise((resolve) => {
+      $el("dialogTitle").textContent = title;
+      $el("dialogMsg").textContent = msg;
+      $el("dialogConfirm").textContent = confirmLabel;
+      $el("dialogConfirm").className =
+        "dialog-confirm" + (danger ? " danger" : "");
+      $el("dialogCancel").textContent = "ביטול";
+      const overlay = $el("dialogOverlay");
+      overlay.classList.add("show");
+
+      let settled = false;
+      const done = (result) => {
+        if (settled) return;
+        settled = true;
+        overlay.classList.remove("show");
+        resolve(result);
+      };
+      $el("dialogConfirm").addEventListener("click", () => done(true), {
+        once: true,
+      });
+      $el("dialogCancel").addEventListener("click", () => done(false), {
+        once: true,
+      });
+    });
+  }
+
+  function showChoice({ title, msg, primaryLabel, secondaryLabel }) {
+    return new Promise((resolve) => {
+      $el("dialogTitle").textContent = title;
+      $el("dialogMsg").textContent = msg;
+      $el("dialogConfirm").textContent = primaryLabel;
+      $el("dialogConfirm").className = "dialog-confirm";
+      $el("dialogCancel").textContent = secondaryLabel;
+      const overlay = $el("dialogOverlay");
+      overlay.classList.add("show");
+
+      let settled = false;
+      const done = (result) => {
+        if (settled) return;
+        settled = true;
+        overlay.classList.remove("show");
+        resolve(result);
+      };
+      $el("dialogConfirm").addEventListener("click", () => done("primary"), {
+        once: true,
+      });
+      $el("dialogCancel").addEventListener("click", () => done("secondary"), {
+        once: true,
+      });
+    });
+  }
+
+  function showPrompt({ title, defaultValue = "" }) {
+    return new Promise((resolve) => {
+      $el("dialogTitle").textContent = title;
+      $el("dialogMsg").textContent = "";
+      $el("dialogConfirm").textContent = "שמור";
+      $el("dialogConfirm").className = "dialog-confirm";
+      $el("dialogCancel").textContent = "ביטול";
+      const input = $el("dialogInput");
+      input.value = defaultValue;
+      input.style.display = "block";
+      const overlay = $el("dialogOverlay");
+      overlay.classList.add("show");
+      setTimeout(() => {
+        input.focus();
+        input.select();
+      }, 50);
+
+      let settled = false;
+      const done = (result) => {
+        if (settled) return;
+        settled = true;
+        input.style.display = "none";
+        overlay.classList.remove("show");
+        resolve(result);
+      };
+      $el("dialogConfirm").addEventListener(
+        "click",
+        () => done(input.value.trim() || defaultValue),
+        { once: true },
+      );
+      $el("dialogCancel").addEventListener("click", () => done(null), {
+        once: true,
+      });
+      input.addEventListener(
+        "keydown",
+        (e) => {
+          if (e.key === "Enter") done(input.value.trim() || defaultValue);
+          if (e.key === "Escape") done(null);
+        },
+        { once: true },
+      );
+    });
+  }
+
+  function openSettings() {
+    const overlay = $el("settingsOverlay");
+    const box = $el("settingsBox");
+    const btn = $el("settingsBtn");
+    if (!overlay || !box || !btn) return;
+    const panelRect = $el("panel").getBoundingClientRect();
+    const btnRect = btn.getBoundingClientRect();
+    const left = btnRect.left - panelRect.left;
+    const top = btnRect.bottom - panelRect.top + 10;
+    box.style.left = Math.max(12, Math.min(left, panelRect.width - 282)) + "px";
+    box.style.top = Math.max(12, top) + "px";
+    overlay.classList.add("show");
+  }
+
+  function closeSettings() {
+    const overlay = $el("settingsOverlay");
+    if (overlay) overlay.classList.remove("show");
+  }
+
+  async function exportBackup() {
+    await loadBlocks();
+    const blob = new Blob([JSON.stringify(blocks, null, 2)], {
+      type: "application/json;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "context-bank-backup.json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    closeSettings();
+    setStatus("הגיבוי יוצא ✓");
+  }
+
+  async function importBackupFile(file) {
+    if (!file) return;
+    const text = await file.text();
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      setStatus("קובץ JSON לא תקין", true);
+      return;
+    }
+
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+      setStatus("מבנה קובץ לא תקין", true);
+      return;
+    }
+
+    const ok = await showConfirm({
+      title: "ייבוא גיבוי",
+      msg: "הייבוא יחליף את כל הבלוקים הקיימים. להמשיך?",
+      confirmLabel: "ייבוא",
+      danger: true,
+    });
+    if (!ok) return;
+
+    blocks = parsed;
+    blocksLoaded = true;
+    selected.clear();
+    editingId = null;
+    await saveBlocks();
+    closeEdit();
+    closeSettings();
+    render();
+    updateInjectBtn();
+    setStatus("הייבוא הושלם ✓");
+  }
+
+  // ============================================================
+  // Wire events
+  // ============================================================
+  function hasUnsavedChanges() {
+    if (
+      !editingId &&
+      !$el("editTitle").value.trim() &&
+      !$el("editContent").value.trim()
+    )
+      return false;
+    const b = editingId ? blocks[editingId] : null;
+    if (!b)
+      return (
+        !!$el("editTitle").value.trim() || !!$el("editContent").value.trim()
+      );
+    return (
+      $el("editTitle").value.trim() !== (b.title || "") ||
+      $el("editContent").value.trim() !== (b.content || "")
+    );
+  }
+
+  function debouncedRender() {
+    if (!ENABLE_SEARCH_DEBOUNCE) {
+      render();
+      return;
+    }
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(render, DEBOUNCE_MS);
+  }
+
+  function wireEvents() {
+    $el("fab").addEventListener("click", togglePanel);
+    $el("settingsBtn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeSettings();
+      openSettings();
+    });
+    $el("settingsCloseBtn").addEventListener("click", closeSettings);
+    $el("settingsOverlay").addEventListener("click", (e) => {
+      if (e.target === $el("settingsOverlay")) closeSettings();
+    });
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeSettings();
+    });
+    $el("exportBackupBtn").addEventListener("click", exportBackup);
+    $el("importBackupBtn").addEventListener("click", () => {
+      closeSettings();
+      $el("importBackupInput").value = "";
+      $el("importBackupInput").click();
+    });
+    $el("importBackupInput").addEventListener("change", async () => {
+      const file = $el("importBackupInput").files?.[0];
+      await importBackupFile(file);
+      $el("importBackupInput").value = "";
+    });
+    $el("closeBtn").addEventListener("click", async () => {
+      if ($el("panel").classList.contains("editing") && hasUnsavedChanges()) {
+        const ok = await showConfirm({
+          title: "שינויים שלא נשמרו",
+          msg: "אם תצא עכשיו, השינויים שעשית יאבדו.",
+          confirmLabel: "צא בלי לשמור",
+        });
+        if (!ok) return;
+      }
+      setPanelOpen(false);
+    });
+    $el("searchHistory").addEventListener("input", debouncedRender);
+    $el("toggleSearchTitle").addEventListener("click", () => {
+      historySearchMode = "title";
+      $el("toggleSearchTitle").classList.add("active");
+      $el("toggleSearchContent").classList.remove("active");
+      $el("searchHistory").placeholder = "חיפוש בשיחות...";
+      renderHistoryList();
+    });
+    $el("toggleSearchContent").addEventListener("click", () => {
+      historySearchMode = "content";
+      $el("toggleSearchContent").classList.add("active");
+      $el("toggleSearchTitle").classList.remove("active");
+      $el("searchHistory").placeholder = "חיפוש מילה בתוכן...";
+      renderHistoryList();
+    });
+    $el("addBtn").addEventListener("click", () => openEdit(null));
+    $el("injectBtn").addEventListener("click", injectSelected);
+    $el("summarizeBtn").addEventListener("click", saveChat);
+    $el("summarizeBtnHistory").addEventListener("click", saveChat);
+    $el("saveBtn").addEventListener("click", saveEdit);
+    $el("cancelBtn").addEventListener("click", closeEdit);
+    $el("deleteBtn").addEventListener("click", deleteEdit);
+
+    shadow.querySelectorAll(".tab").forEach((tab) => {
+      tab.addEventListener("click", async () => {
+        if ($el("panel").classList.contains("editing")) {
+          if (hasUnsavedChanges()) {
+            const ok = await showConfirm({
+              title: "שינויים שלא נשמרו",
+              msg: "אם תצא עכשיו, השינויים שעשית יאבדו.",
+              confirmLabel: "צא בלי לשמור",
+            });
+            if (!ok) return;
+          }
+          closeEdit();
+        }
+        shadow.querySelectorAll(".tab").forEach((t) => {
+          t.classList.remove("active");
+          t.setAttribute("aria-selected", "false");
+        });
+        shadow
+          .querySelectorAll(".tab-pane")
+          .forEach((p) => p.classList.remove("active"));
+        tab.classList.add("active");
+        tab.setAttribute("aria-selected", "true");
+        shadow
+          .getElementById("pane-" + tab.dataset.tab)
+          .classList.add("active");
+        moveTabIndicator(tab);
+        render();
+        const isHistory = tab.dataset.tab === "history";
+        $el("mainFooter").style.display = isHistory ? "none" : "";
+        $el("historyFooter").style.display = isHistory ? "" : "none";
+      });
+    });
+    requestAnimationFrame(() => {
+      const activeTab = shadow.querySelector(".tab.active");
+      if (activeTab) moveTabIndicator(activeTab);
+    });
+  }
+
+  // ============================================================
+  // Panel open/close
+  // ============================================================
+  async function setPanelOpen(open) {
+    if (!isActiveSitePage()) return;
+    mountUI();
+    if (open) {
+      await loadBlocks();
+      $el("panel").classList.add("open");
+      $el("fab").classList.add("hidden");
+      pushPage(true);
+      render();
+      updateInjectBtn();
+      $el("searchHistory").focus();
+    } else {
+      $el("panel").classList.remove("open");
+      $el("fab").classList.remove("hidden");
+      pushPage(false);
+      closeEdit();
+    }
+  }
+
+  function togglePanel() {
+    if (!isActiveSitePage()) return;
+    mountUI();
+    setPanelOpen(!$el("panel").classList.contains("open"));
+  }
+
+  // ============================================================
+  // General Memory
+  // ============================================================
+  function getGM() {
+    return (
+      blocks[GM_ID] || {
+        id: GM_ID,
+        kind: "general_memory",
+        content: "",
+        autoLoad: false,
+      }
+    );
+  }
+
+  function renderGeneralMemory() {
+    const card = $el("gmCard");
+    if (!card) return;
+    const gm = getGM();
+    const on = !!gm.autoLoad;
+    const content = (gm.content || "").trim();
+    const selectedForInject = selected.has(GM_ID);
+
+    card.innerHTML = "";
+    const wrap = document.createElement("div");
+    wrap.className = "gm-card";
+
+    const header = document.createElement("div");
+    header.className = "gm-header";
+
+    const selectLabel = document.createElement("label");
+    selectLabel.className = "cb-wrap gm-select";
+    const selectInput = document.createElement("input");
+    selectInput.type = "checkbox";
+    selectInput.checked = selectedForInject;
+    selectInput.setAttribute("aria-label", "הוסף זיכרון כללי להזרקה");
+    selectInput.addEventListener("change", () => {
+      if (selectInput.checked) selected.add(GM_ID);
+      else selected.delete(GM_ID);
+      updateInjectBtn();
+    });
+    const selectBox = document.createElement("span");
+    selectBox.className = "cb-box";
+    selectBox.innerHTML =
+      '<svg class="cb-check" width="10" height="8" viewBox="0 0 10 8" fill="none"><polyline points="1,4 4,7 9,1" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    selectLabel.appendChild(selectInput);
+    selectLabel.appendChild(selectBox);
+
+    const toggleLabel = document.createElement("label");
+    toggleLabel.className = "toggle";
+    const toggleInput = document.createElement("input");
+    toggleInput.type = "checkbox";
+    toggleInput.checked = on;
+    toggleInput.addEventListener("change", async () => {
+      await loadBlocks();
+      const g = getGM();
+      g.autoLoad = toggleInput.checked;
+      g.kind = "general_memory";
+      g.id = GM_ID;
+      blocks[GM_ID] = g;
+      await saveBlocks();
+      renderGeneralMemory();
+    });
+    const toggleTrack = document.createElement("span");
+    toggleTrack.className = "toggle-track";
+    toggleLabel.appendChild(toggleInput);
+    toggleLabel.appendChild(toggleTrack);
+
+    const title = document.createElement("span");
+    title.className = "gm-title";
+    title.textContent = "זיכרון כללי";
+
+    const badge = document.createElement("span");
+    badge.className = "auto-badge";
+    badge.textContent = "נטען אוטומטית";
+    if (!on) badge.style.display = "none";
+
+    const editBtn = document.createElement("button");
+    editBtn.className = "gm-edit-btn";
+    editBtn.textContent = "עריכה";
+    editBtn.addEventListener("click", () =>
+      openEdit(GM_ID, { title: "זיכרון כללי", content, tags: "" }),
+    );
+
+    header.appendChild(selectLabel);
+    header.appendChild(toggleLabel);
+    header.appendChild(title);
+    header.appendChild(editBtn);
+    wrap.appendChild(header);
+
+    if (on) wrap.appendChild(badge);
+
+    card.appendChild(wrap);
+  }
+
+  async function tryAutoInject() {
+    const gm = getGM();
+    if (!gm.autoLoad || !(gm.content || "").trim()) return;
+    let tries = 0;
+    const poll = setInterval(() => {
+      tries++;
+      if (tries > 100) {
+        clearInterval(poll);
+        return;
+      }
+      const el = findInput();
+      if (!el) return;
+      clearInterval(poll);
+      injectIntoInput(FRAMING + gm.content, "prepend");
+      setTimeout(() => {
+        const btn = document.querySelector(CONFIG.SEND_BUTTON_SELECTOR);
+        if (btn) btn.click();
+      }, 100);
+    }, 100);
+  }
+
+  // ============================================================
+  // Render
+  // ============================================================
+  function dateGroup(ts) {
+    const now = new Date();
+    const d = new Date(ts);
+    const diffDays = Math.floor((Date.now() - ts) / 86400000);
+    if (diffDays === 0 && now.getDate() === d.getDate()) return "היום";
+    if (diffDays <= 1 && now.getDate() - d.getDate() === 1) return "אתמול";
+    if (diffDays < 7) return "השבוע";
+    if (diffDays < 30) return "החודש";
+    return "קודם";
+  }
+
+  const GROUP_ORDER = ["היום", "אתמול", "השבוע", "החודש", "קודם"];
+
+  function extractSnippet(text, q, fromIndex = 0) {
+    if (!text || !q) return null;
+    const haystack = text.toLowerCase();
+    const needle = q.toLowerCase();
+    const idx = haystack.indexOf(needle, fromIndex);
+    if (idx === -1) return null;
+    const start = Math.max(0, idx - 50);
+    const end = Math.min(text.length, idx + q.length + 50);
+    return {
+      idx,
+      prefix: start > 0 ? "…" : "",
+      before: text.slice(start, idx),
+      match: text.slice(idx, idx + q.length),
+      after: text.slice(idx + q.length, end),
+      suffix: end < text.length ? "…" : "",
+    };
+  }
+
+  function render() {
+    renderGeneralMemory();
+    renderContextList();
+    renderHistoryList();
+  }
+
+  function renderContextList() {
+    const items = Object.values(blocks)
+      .filter((b) => b.kind !== "conversation" && b.id !== GM_ID)
+      .sort((a, b) => (b.updated || 0) - (a.updated || 0));
+
+    const list = $el("list");
+    list.innerHTML = "";
+    if (!items.length) {
+      const div = document.createElement("div");
+      div.className = "empty";
+      div.textContent = "בנק ריק\nלחץ + להוספת בלוק ראשון";
+      list.appendChild(div);
+      return;
+    }
+    for (const b of items) {
+      const isSelected = selected.has(b.id);
+      const row = document.createElement("div");
+      row.className = "block" + (isSelected ? " selected" : "");
+
+      const cbWrap = document.createElement("label");
+      cbWrap.className = "cb-wrap";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = isSelected;
+      cb.setAttribute("aria-label", b.title);
+      cbWrap.addEventListener("click", (e) => e.stopPropagation());
+      cb.addEventListener("change", () => {
+        if (cb.checked) selected.add(b.id);
+        else selected.delete(b.id);
+        row.classList.toggle("selected", cb.checked);
+        updateInjectBtn();
+      });
+      const cbBox = document.createElement("span");
+      cbBox.className = "cb-box";
+      cbBox.innerHTML =
+        '<svg class="cb-check" width="10" height="8" viewBox="0 0 10 8" fill="none"><polyline points="1,4 4,7 9,1" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      cbWrap.appendChild(cb);
+      cbWrap.appendChild(cbBox);
+
+      const main = document.createElement("div");
+      main.className = "block-main";
+      const head = document.createElement("div");
+      head.className = "block-head";
+      const title = document.createElement("div");
+      title.className = "block-title";
+      title.textContent = b.title;
+      head.appendChild(title);
+
+      const tagCount = (b.tags || []).length;
+      if (tagCount) {
+        const meta = document.createElement("span");
+        meta.className = "block-meta";
+        meta.textContent = tagCount + " תגים";
+        head.appendChild(meta);
+      }
+      main.appendChild(head);
+      if (tagCount) {
+        const tagsRow = document.createElement("div");
+        tagsRow.className = "block-tags";
+        for (const t of b.tags || []) {
+          const span = document.createElement("span");
+          span.className = "tag";
+          span.textContent = t;
+          tagsRow.appendChild(span);
+        }
+        main.appendChild(tagsRow);
+      }
+
+      row.addEventListener("click", () => openEdit(b.id));
+      row.appendChild(cbWrap);
+      row.appendChild(main);
+      list.appendChild(row);
+    }
+  }
+
+  // ============================================================
+  // History
+  // ============================================================
+  function formatTranscript(messages) {
+    return messages
+      .map((m) => (m.role === "user" ? "User: " : "Assistant: ") + m.text)
+      .join("\n\n");
+  }
+
+  let historyBubbleObserver = null;
+  let historyBubbleTimer = null;
+
+  function stopHistoryBubbleObserver() {
+    if (historyBubbleObserver) {
+      historyBubbleObserver.disconnect();
+      historyBubbleObserver = null;
+    }
+    if (historyBubbleTimer) {
+      clearTimeout(historyBubbleTimer);
+      historyBubbleTimer = null;
+    }
+  }
+
+  function buildHistoryMessages(b) {
+    if (Array.isArray(b.messages) && b.messages.length) return b.messages;
+    const text = (b.content || "").trim();
+    return text ? [{ role: "ai", text }] : [];
+  }
+
+  function injectHistoryBubbles(messages, { persist = false } = {}) {
+    const container = document.querySelector(MSG_SELECTORS.messageList);
+    if (!container) return false;
+
+    stopHistoryBubbleObserver();
+
+    const prev = container.querySelector("[data-ccb-history]");
+    if (prev) prev.remove();
+
+    const wrapper = document.createElement("div");
+    wrapper.dataset.ccbHistory = "1";
+    wrapper.style.cssText =
+      "padding:16px;border-bottom:1px solid rgba(0,0,0,.1);" +
+      "background:rgba(0,0,0,.02);font-family:system-ui,sans-serif;";
+
+    const label = document.createElement("div");
+    label.style.cssText =
+      "font-size:11px;color:#888;text-align:center;margin-bottom:12px;";
+    label.textContent = "— היסטוריית שיחה קודמת —";
+    wrapper.appendChild(label);
+
+    for (const m of messages) {
+      const bubble = document.createElement("div");
+      bubble.style.cssText =
+        "margin:6px 0;padding:10px 14px;border-radius:12px;" +
+        "font-size:14px;line-height:1.5;max-width:80%;word-break:break-word;" +
+        "white-space:pre-wrap;" +
+        (m.role === "user"
+          ? "background:#e3f2fd;margin-left:auto;text-align:right;"
+          : "background:#f5f5f5;margin-right:auto;");
+      bubble.textContent = m.text;
+      wrapper.appendChild(bubble);
+    }
+
+    container.prepend(wrapper);
+
+    if (persist) {
+      historyBubbleObserver = new MutationObserver(() => {
+        if (!container.contains(wrapper)) container.prepend(wrapper);
+      });
+      historyBubbleObserver.observe(container, { childList: true });
+      historyBubbleTimer = setTimeout(() => {
+        stopHistoryBubbleObserver();
+      }, 10000);
+    }
+
+    return true;
+  }
+
+  async function loadConversation(b, mode = null) {
+    const messages = buildHistoryMessages(b);
+
+    if (!mode) {
+      const choice = await showChoice({
+        title: "איך לטעון את השיחה?",
+        msg: 'בחר אם רק להציג את ההיסטוריה ב-DOM, או להזריק את תוכן השיחה לצ\'אט.',
+        primaryLabel: "הזרקה לצ'אט",
+        secondaryLabel: "רק צפייה בהיסטוריה",
+      });
+      if (choice === "primary") mode = "inject";
+      else if (choice === "secondary") mode = "view";
+      else return;
+    }
+
+    // סמן את השיחה הזו כמוזרקת/נבחרת כרגע (לעדכון בעתיד)
+    lastInjectedConversationId = b.id;
+
+    if (mode === "view") {
+      injectHistoryBubbles(messages, { persist: false });
+      return;
+    }
+
+    const transcript = messages.length ? formatTranscript(messages) : "";
+
+    const r = injectIntoInput(FRAMING + transcript, "replace");
+    if (r.ok) {
+      setTimeout(() => {
+        const btn = document.querySelector(CONFIG.SEND_BUTTON_SELECTOR);
+        if (btn) btn.click();
+      }, 100);
+    } else {
+      setStatus(r.error || "נכשל", true);
+    }
+
+    if (messages.length && MSG_SELECTORS.messageList) {
+      const stableAncestor =
+        document.querySelector("chat-window") ||
+        document.querySelector("chat-window-content") ||
+        document.body;
+      let injected = false;
+      const waitObs = new MutationObserver(() => {
+        const container = document.querySelector(MSG_SELECTORS.messageList);
+        if (container && container.children.length > 0 && !injected) {
+          injected = true;
+          waitObs.disconnect();
+          injectHistoryBubbles(messages, { persist: true });
+          // התחל שמירה אוטומטית כשהשיחה מוזרקת
+          setupAutoSave();
+        }
+      });
+      waitObs.observe(stableAncestor, { childList: true, subtree: true });
+      setTimeout(() => waitObs.disconnect(), 15000);
+    }
+  }
+
+  let hiDropdownCleanup = null;
+
+  function openHiDropdown(b, menuBtn) {
+    closeHiDropdown();
+    const dd = $el("hiDropdown");
+
+    const pinItem = document.createElement("div");
+    pinItem.className = "hd-item";
+    pinItem.innerHTML = b.pinned
+      ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="21" x2="21" y2="3"/><path d="M14 3l7 7-1.5 1.5"/><path d="M3 14l1.5-1.5"/></svg> בטל הצמדה'
+      : '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg> הצמד';
+    pinItem.addEventListener("click", async () => {
+      closeHiDropdown();
+      await loadBlocks();
+      blocks[b.id].pinned = !b.pinned;
+      await saveBlocks();
+      renderHistoryList();
+    });
+
+    const sep = document.createElement("div");
+    sep.className = "hd-sep";
+
+    const renameItem = document.createElement("div");
+    renameItem.className = "hd-item";
+    renameItem.innerHTML =
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> שנה שם';
+    renameItem.addEventListener("click", async () => {
+      closeHiDropdown();
+      const newName = await showPrompt({
+        title: "שנה שם השיחה",
+        defaultValue: b.title,
+      });
+      if (newName === null || newName.trim() === "") return;
+      await loadBlocks();
+      blocks[b.id].title = newName.trim();
+      await saveBlocks();
+      renderHistoryList();
+    });
+
+    const delItem = document.createElement("div");
+    delItem.className = "hd-item danger";
+    delItem.innerHTML =
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> מחק';
+    delItem.addEventListener("click", async () => {
+      closeHiDropdown();
+      const ok = await showConfirm({
+        title: "מחיקת שיחה",
+        msg: 'למחוק את "' + b.title + '"? לא ניתן לשחזר.',
+        confirmLabel: "מחק",
+        danger: true,
+      });
+      if (!ok) return;
+      delete blocks[b.id];
+      await saveBlocks();
+      renderHistoryList();
+    });
+
+    dd.innerHTML = "";
+    dd.appendChild(pinItem);
+    dd.appendChild(sep);
+    dd.appendChild(renameItem);
+    dd.appendChild(delItem);
+
+    const rect = menuBtn.getBoundingClientRect();
+    dd.style.top = rect.top + "px";
+    dd.style.left = rect.right + 6 + "px";
+    dd.classList.add("open");
+
+    const onOutside = (e) => {
+      if (!dd.contains(e.target) && e.target !== menuBtn) closeHiDropdown();
+    };
+    document.addEventListener("click", onOutside, {
+      capture: true,
+      once: false,
+    });
+    hiDropdownCleanup = () =>
+      document.removeEventListener("click", onOutside, { capture: true });
+  }
+
+  function closeHiDropdown() {
+    const dd = $el("hiDropdown");
+    if (dd) dd.classList.remove("open");
+    if (hiDropdownCleanup) {
+      hiDropdownCleanup();
+      hiDropdownCleanup = null;
+    }
+  }
+
+  function renderHistoryList() {
+    closeHiDropdown();
+    const q = ($el("searchHistory")?.value || "").trim().toLowerCase();
+    const all = Object.values(blocks)
+      .filter((b) => b.kind === "conversation")
+      .sort((a, b) => (b.updated || 0) - (a.updated || 0));
+
+    const list = $el("historyList");
+    list.innerHTML = "";
+
+    if (!all.length) {
+      const div = document.createElement("div");
+      div.className = "empty";
+      div.textContent = q
+        ? "לא נמצא"
+        : 'אין סיכומי שיחה שמורים\nלחץ "סכם שיחה" לשמירה אוטומטית';
+      list.appendChild(div);
+      return;
+    }
+
+    const rows = [];
+    if (!q) {
+      for (const b of all) rows.push({ block: b, kind: "conversation" });
+    } else if (historySearchMode === "title") {
+      for (const b of all) {
+        if (b.title.toLowerCase().includes(q))
+          rows.push({ block: b, kind: "conversation" });
+      }
+    } else {
+      for (const b of all) {
+        for (const [index, m] of (b.messages || []).entries()) {
+          const text = (m?.text || "").trim();
+          if (!text) continue;
+          let fromIndex = 0;
+          while (true) {
+            const snippet = extractSnippet(text, q, fromIndex);
+            if (!snippet) break;
+            rows.push({
+              block: b,
+              kind: "message",
+              role: m.role || "user",
+              snippet,
+              messageIndex: index,
+            });
+            fromIndex = snippet.idx + Math.max(q.length, 1);
+          }
+        }
+      }
+    }
+
+    if (!rows.length) {
+      const div = document.createElement("div");
+      div.className = "empty";
+      div.textContent = "לא נמצא";
+      list.appendChild(div);
+      return;
+    }
+
+    const pinned = rows.filter((row) => row.block.pinned);
+    const rest = rows.filter((row) => !row.block.pinned);
+
+    function addItem(rowData) {
+      const b = rowData.block;
+      const row = document.createElement("div");
+      row.className =
+        "hi-item" +
+        (b.pinned ? " pinned" : "") +
+        (rowData.kind === "message" ? " search-content" : "");
+
+      const head = document.createElement("div");
+      head.className = "hi-head";
+      const title = document.createElement("div");
+      title.className = "hi-title";
+      title.textContent = b.title;
+
+      const menuBtn = document.createElement("button");
+      menuBtn.className = "hi-menu-btn";
+      menuBtn.innerHTML = "···";
+      menuBtn.title = "אפשרויות";
+      menuBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openHiDropdown(b, menuBtn);
+      });
+
+      row.addEventListener("click", () => loadConversation(b));
+
+      head.appendChild(title);
+      head.appendChild(menuBtn);
+      row.appendChild(head);
+
+      if (rowData.kind === "message") {
+        const snippetRow = document.createElement("div");
+        snippetRow.className = "hi-snippet-row";
+
+        const role = document.createElement("span");
+        role.className = "hi-match-role";
+        role.textContent = rowData.role === "ai" ? "ai" : "user";
+
+        const snippet = document.createElement("div");
+        snippet.className = "hi-snippet";
+        if (rowData.snippet.prefix)
+          snippet.appendChild(document.createTextNode(rowData.snippet.prefix));
+        snippet.appendChild(document.createTextNode(rowData.snippet.before));
+        const mark = document.createElement("mark");
+        mark.textContent = rowData.snippet.match;
+        snippet.appendChild(mark);
+        snippet.appendChild(document.createTextNode(rowData.snippet.after));
+        if (rowData.snippet.suffix)
+          snippet.appendChild(document.createTextNode(rowData.snippet.suffix));
+
+        snippetRow.appendChild(role);
+        snippetRow.appendChild(snippet);
+        row.appendChild(snippetRow);
+      }
+
+      list.appendChild(row);
+    }
+
+    if (pinned.length) {
+      const label = document.createElement("div");
+      label.className = "date-group-label";
+      label.textContent = "מוצמד";
+      list.appendChild(label);
+      pinned.forEach(addItem);
+    }
+
+    const groups = {};
+    for (const rowData of rest) {
+      const g = dateGroup(rowData.block.updated || 0);
+      if (!groups[g]) groups[g] = [];
+      groups[g].push(rowData);
+    }
+    for (const groupName of GROUP_ORDER) {
+      if (!groups[groupName]) continue;
+      const label = document.createElement("div");
+      label.className = "date-group-label";
+      label.textContent = groupName;
+      list.appendChild(label);
+      groups[groupName].forEach(addItem);
+    }
+  }
+
+  // ============================================================
+  // Edit form
+  // ============================================================
+  function openEdit(id, prefill) {
+    editingId = id;
+    const b = id ? blocks[id] : null;
+    $el("editTitle").value = b ? b.title : prefill?.title || "";
+    $el("editTags").value = b ? (b.tags || []).join(", ") : prefill?.tags || "";
+    $el("editContent").value = b ? b.content : prefill?.content || "";
+    $el("deleteBtn").style.display = id ? "block" : "none";
+    $el("panel").classList.add("editing");
+    $el("editTitle").focus();
+  }
+
+  function closeEdit() {
+    editingId = null;
+    if (!shadow) return;
+    $el("panel").classList.remove("editing");
+    setStatus("");
+  }
+
+  async function saveEdit() {
+    const title = $el("editTitle").value.trim();
+    const content = $el("editContent").value.trim();
+    const tags = $el("editTags")
+      .value.split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (!title || !content) {
+      setStatus("צריך כותרת ותוכן", true);
+      return;
+    }
+    const id =
+      editingId ||
+      "b_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
+    const existing = blocks[id];
+    blocks[id] = { id, title, content, tags, updated: Date.now() };
+    if (existing?.kind) blocks[id].kind = existing.kind;
+    if (existing?.autoLoad !== undefined)
+      blocks[id].autoLoad = existing.autoLoad;
+    await saveBlocks();
+    closeEdit();
+    render();
+  }
+
+  async function deleteEdit() {
+    if (!editingId) return;
+    const ok = await showConfirm({
+      title: "מחיקת בלוק",
+      msg: 'למחוק את "' + blocks[editingId].title + '"? לא ניתן לשחזר.',
+      confirmLabel: "מחק",
+      danger: true,
+    });
+    if (!ok) return;
+    delete blocks[editingId];
+    selected.delete(editingId);
+    await saveBlocks();
+    closeEdit();
+    render();
+  }
+
+  function updateInjectBtn() {
+    if (!shadow) return;
+    const btn = $el("injectBtn");
+    const n = selected.size;
+    btn.disabled = n === 0;
+    if (n > 0) {
+      btn.innerHTML =
+        IC.upload + ' טען נבחרים <span class="count-pill">' + n + "</span>";
+    } else {
+      btn.innerHTML = IC.upload + " טען נבחרים";
+    }
+  }
+
+  // ============================================================
+  // Inject selected context blocks
+  // ============================================================
+  function injectSelected() {
+    if (selected.size === 0) {
+      setStatus("בחר בלוקים תחילה", true);
+      return;
+    }
+    const orderedIds = selected.has(GM_ID)
+      ? [GM_ID, ...[...selected].filter((id) => id !== GM_ID)]
+      : [...selected];
+    const ordered = orderedIds
+      .map((id) => (id === GM_ID ? blocks[id] || getGM() : blocks[id]))
+      .filter(Boolean);
+    const text =
+      FRAMING +
+      ordered.map((b) => "## " + b.title + "\n" + b.content).join("\n\n") +
+      "\n\n---\n\n";
+    const r = injectIntoInput(text, "prepend");
+    if (r.ok) {
+      setStatus("הוזרק ✓");
+      setTimeout(() => {
+        const btn = document.querySelector(CONFIG.SEND_BUTTON_SELECTOR);
+        if (btn) btn.click();
+        else setStatus("לא נמצא כפתור שליחה", true);
+      }, 100);
+    } else {
+      setStatus(r.error || "נכשל", true);
+    }
+  }
+
+  // ============================================================
+  // Save chat
+  // ============================================================
+  function findScrollableAncestor() {
+    const isScrollable = (el) => {
+      const cs = getComputedStyle(el);
+      return (
+        (cs.overflowY === "auto" || cs.overflowY === "scroll") &&
+        el.scrollHeight - el.clientHeight > 50
+      );
+    };
+    let el = document.querySelector(MSG_SELECTORS.messageList);
+    while (el && el !== document.body) {
+      if (isScrollable(el)) return el;
+      el = el.parentElement;
+    }
+    for (const cand of document.querySelectorAll(
+      "main, [class*='scroll'], [class*='conversation']",
+    )) {
+      if (isScrollable(cand)) return cand;
+    }
+    return null;
+  }
+
+  function captureConversation() {
+    const container = document.querySelector(MSG_SELECTORS.messageList);
+    if (!container) return [];
+    const nodes = container.querySelectorAll(MSG_SELECTORS.message);
+    const messages = [];
+    for (const n of nodes) {
+      const text = MSG_SELECTORS.messageText(n) || "";
+      if (!text.trim()) continue;
+      if (text.includes("[[CCB:INJECTED]]")) continue;
+      // בדוק באמצעות userMessageMatch ו-aiMessageMatch אם זה קיים
+      let role = "user"; // ברירת מחדל
+      if (MSG_SELECTORS.aiMessageMatch && MSG_SELECTORS.aiMessageMatch(n)) {
+        role = "ai";
+      } else if (MSG_SELECTORS.userMessageMatch && MSG_SELECTORS.userMessageMatch(n)) {
+        role = "user";
+      }
+      messages.push({ role, text: text.trim() });
+    }
+    return messages;
+  }
+
+  function upsertConversationMessages(id, messages) {
+    const block = blocks[id];
+    if (!block) return false;
+    block.messages = messages;
+    block.updated = Date.now();
+    return true;
+  }
+
+  async function autoSaveConversation() {
+    const messages = captureConversation();
+    if (!messages.length) return;
+
+    await loadBlocks();
+
+    // אם יש שיחה מוזרקת כרגע, עדכן אותה במקום לפתוח חדשה
+    if (lastInjectedConversationId && blocks[lastInjectedConversationId]) {
+      upsertConversationMessages(lastInjectedConversationId, messages);
+      await saveBlocks();
+      lastSaveMessageCount = messages.length;
+      render(); // רענן את ההיסטוריה
+      return;
+    }
+
+    // אחרת, צור שיחה חדשה עם שם ברירת מחדל
+    const now = new Date();
+    const defaultTitle =
+      "שיחה — " +
+      now.toLocaleDateString("he-IL") +
+      " " +
+      now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
+
+    const id = "b_" + Date.now() + "_conv";
+    blocks[id] = {
+      id,
+      title: defaultTitle,
+      messages,
+      kind: "conversation",
+      updated: Date.now(),
+    };
+    lastInjectedConversationId = id;
+    await saveBlocks();
+    lastSaveMessageCount = messages.length;
+    render(); // רענן את ההיסטוריה להציג את השיחה החדשה
+  }
+
+  function setupAutoSave() {
+    if (!MSG_SELECTORS.messageList) return;
+
+    const attach = () => {
+      const container = document.querySelector(MSG_SELECTORS.messageList);
+      if (!container) {
+        if (!autoSaveAttachTimer) {
+          autoSaveAttachTimer = setTimeout(() => {
+            autoSaveAttachTimer = null;
+            setupAutoSave();
+          }, 500);
+        }
+        return;
+      }
+
+      if (autoSaveContainer === container && autoSaveObserver) return;
+
+      if (autoSaveObserver) autoSaveObserver.disconnect();
+      autoSaveContainer = container;
+
+      autoSaveObserver = new MutationObserver(() => {
+        clearTimeout(autoSaveTimeout);
+        autoSaveTimeout = setTimeout(async () => {
+          const currentMessages = captureConversation();
+          if (currentMessages.length > lastSaveMessageCount) {
+            await autoSaveConversation();
+          }
+        }, 500);
+      });
+
+      autoSaveObserver.observe(container, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+
+      lastSaveMessageCount = captureConversation().length;
+    };
+
+    attach();
+  }
+
+  function stopAutoSave() {
+    if (autoSaveAttachTimer) {
+      clearTimeout(autoSaveAttachTimer);
+      autoSaveAttachTimer = null;
+    }
+    if (autoSaveObserver) {
+      autoSaveObserver.disconnect();
+      autoSaveObserver = null;
+    }
+    autoSaveContainer = null;
+    if (autoSaveTimeout) {
+      clearTimeout(autoSaveTimeout);
+      autoSaveTimeout = null;
+    }
+    lastSaveMessageCount = 0;
+  }
+
+  async function scrollAndCaptureAll() {
+    const scroller = findScrollableAncestor();
+    if (!scroller) return;
+    return new Promise((resolve) => {
+      let lastCount = 0;
+      let stable = 0;
+      const check = setInterval(() => {
+        scroller.scrollTo({ top: 0 });
+        scroller.scrollTop = 0;
+        const count = document.querySelectorAll(MSG_SELECTORS.message).length;
+        if (count === lastCount) {
+          if (++stable >= 3) {
+            clearInterval(check);
+            resolve();
+          }
+        } else {
+          lastCount = count;
+          stable = 0;
+        }
+      }, 300);
+      setTimeout(() => {
+        clearInterval(check);
+        resolve();
+      }, 8000);
+    });
+  }
+
+  async function saveChat() {
+    if (!inlineReady()) {
+      const r = injectIntoInput(SUMMARY_PROMPT, "replace");
+      if (r.ok) {
+        setTimeout(() => {
+          const btn = document.querySelector(CONFIG.SEND_BUTTON_SELECTOR);
+          if (btn) btn.click();
+          else setStatus("לא נמצא כפתור שליחה", true);
+        }, 100);
+      } else {
+        setStatus(r.error || "נכשל", true);
+      }
+      return;
+    }
+
+    setStatus("גולל לתחילה…");
+    await scrollAndCaptureAll();
+    const messages = captureConversation();
+    if (!messages.length) {
+      setStatus("לא נמצאו הודעות — ודא MSG_SELECTORS", true);
+      return;
+    }
+
+    await loadBlocks();
+
+    // אם יש שיחה מוזרקת כרגע, עדכן אותה במקום לבקש שם חדש
+    if (lastInjectedConversationId && blocks[lastInjectedConversationId]) {
+      upsertConversationMessages(lastInjectedConversationId, messages);
+      await saveBlocks();
+      setStatus("השיחה עודכנה ✓");
+      lastSaveMessageCount = messages.length;
+      render();
+      return;
+    }
+
+    // אחרת, צור שיחה חדשה
+    const now = new Date();
+    const defaultTitle =
+      "שיחה — " +
+      now.toLocaleDateString("he-IL") +
+      " " +
+      now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
+    const chosenTitle = await showPrompt({
+      title: "שם לשיחה",
+      defaultValue: defaultTitle,
+    });
+    if (chosenTitle === null) {
+      setStatus("");
+      return;
+    }
+
+    const id = "b_" + Date.now() + "_conv";
+    blocks[id] = {
+      id,
+      title: chosenTitle,
+      messages,
+      kind: "conversation",
+      updated: Date.now(),
+    };
+    lastInjectedConversationId = id;
+    await saveBlocks();
+    setStatus("השיחה נשמרה ✓");
+    lastSaveMessageCount = messages.length;
+    render();
+  }
+
+  // ============================================================
+  // Toast / status
+  // ============================================================
+  let toastTimer = null;
+  function setStatus(msg, isError) {
+    if (!shadow) return;
+    if ($el("panel").classList.contains("editing")) {
+      const s = $el("status");
+      if (!s) return;
+      s.textContent = msg;
+      s.style.color = isError ? "#c53030" : "#2f855a";
+      s.style.display = msg ? "block" : "none";
+      return;
+    }
+    if (!msg) return;
+    const t = $el("toast");
+    if (!t) return;
+    t.textContent = msg;
+    t.className = "show" + (isError ? " error" : "");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      t.className = "";
+    }, 2500);
+  }
+
+  // ============================================================
+  // Inline save button on AI messages
+  // ============================================================
+  let msgObserver = null;
+  const SAVE_BTN_FLAG = "__ccbSaveBtn";
+
+  function inlineReady() {
+    return (
+      MSG_SELECTORS.messageList &&
+      MSG_SELECTORS.message &&
+      typeof MSG_SELECTORS.aiMessageMatch === "function" &&
+      typeof MSG_SELECTORS.messageText === "function"
+    );
+  }
+
+  function decorateMessage(node) {
+    if (!node || node[SAVE_BTN_FLAG]) return;
+    if (!MSG_SELECTORS.aiMessageMatch(node)) return;
+    node[SAVE_BTN_FLAG] = true;
+    const btn = document.createElement("button");
+    btn.textContent = "💾 שמור לבנק";
+    btn.style.cssText =
+      "all:revert;margin:4px;padding:2px 8px;font-size:12px;" +
+      "border:1px solid #ccc;border-radius:4px;background:#fff;" +
+      "cursor:pointer;font-family:system-ui,sans-serif;";
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await loadBlocks();
+      mountUI();
+      await setPanelOpen(true);
+      const text = MSG_SELECTORS.messageText(node) || "";
+      openEdit(null, { content: text });
+    });
+    node.appendChild(btn);
+  }
+
+  function startMsgObserver() {
+    if (!inlineReady() || msgObserver) return;
+    const container = document.querySelector(MSG_SELECTORS.messageList);
+    if (!container) return;
+    container.querySelectorAll(MSG_SELECTORS.message).forEach(decorateMessage);
+    msgObserver = new MutationObserver((muts) => {
+      for (const m of muts) {
+        m.addedNodes.forEach((n) => {
+          if (n.nodeType !== 1) return;
+          if (n.matches?.(MSG_SELECTORS.message)) decorateMessage(n);
+          n.querySelectorAll?.(MSG_SELECTORS.message).forEach(decorateMessage);
+        });
+      }
+    });
+    msgObserver.observe(container, { childList: true, subtree: true });
+  }
+
+  window.addEventListener("beforeunload", () => {
+    stopAutoSave();
+    msgObserver?.disconnect();
+    msgObserver = null;
+  });
+
+  // ============================================================
+  // Message router + keyboard shortcut
+  // ============================================================
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    (async () => {
+      if (msg?.action === "togglePanel") {
+        togglePanel();
+        sendResponse({ ok: true });
+      } else if (msg?.action === "inject") {
+        sendResponse(injectIntoInput(msg.text, msg.mode));
+      } else {
+        sendResponse({ ok: false, error: "unknown action" });
+      }
+    })().catch((e) => sendResponse({ ok: false, error: e.message }));
+    return true;
+  });
+
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.ctrlKey && e.shiftKey && (e.key === "L" || e.key === "l")) {
+        e.preventDefault();
+        togglePanel();
+      }
+    },
+    true,
+  );
+
+  // ============================================================
+  // Init
+  // ============================================================
+  function shouldAutoOpen() {
+    return CONFIG.AUTO_OPEN_URLS.some((u) => location.href.startsWith(u));
+  }
+
+  async function init() {
+    if (!isActiveSitePage()) return;
+    startMsgObserver();
+    await loadBlocks();
+    setupAutoSave();
+    tryAutoInject();
+    if (shouldAutoOpen()) setPanelOpen(true);
+  }
+
+  if (
+    document.readyState === "complete" ||
+    document.readyState === "interactive"
+  ) {
+    init();
+  } else {
+    window.addEventListener("DOMContentLoaded", init, { once: true });
+  }
+
+  // API for summarizer.js
+  window.__ccb = {
+    MSG_SELECTORS,
+    get blocks() {
+      return blocks;
+    },
+    saveBlocks,
+    loadBlocks,
+    setStatus,
+    renderPanel: () => {
+      if (shadow && $el("panel").classList.contains("open")) render();
+    },
+  };
+})();
