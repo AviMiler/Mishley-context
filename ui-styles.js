@@ -140,6 +140,11 @@ window.__ccbCSS = (() => {
     .context-toolbar {
       display: flex; gap: 8px; padding: 14px 18px 10px; align-items: center; flex-shrink: 0;
     }
+    #historyToolbar {
+      flex-direction: column;
+      gap: 8px;
+      align-items: stretch;
+    }
     .search-wrap { flex: 1; position: relative; }
     #search, #searchHistory {
       width: 100%; height: 36px;
@@ -152,6 +157,117 @@ window.__ccbCSS = (() => {
     }
     #search:focus, #searchHistory:focus { border-color: var(--text-faint); }
     #search::placeholder, #searchHistory::placeholder { color: var(--text-ghost); }
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 18px 4px;
+      flex-shrink: 0;
+    }
+    .section-head-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-ghost);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .collapse-btn {
+      width: 18px;
+      height: 18px;
+      border: none;
+      background: none;
+      padding: 0;
+      cursor: pointer;
+      color: var(--text-faint);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+    .collapse-btn:hover { color: var(--text-strong); }
+    .collapse-btn svg {
+      width: 12px;
+      height: 12px;
+      transition: transform var(--t-fast);
+      transform-origin: center;
+    }
+    .collapse-btn.collapsed svg { transform: rotate(0deg); }
+    .collapse-btn:not(.collapsed) svg { transform: rotate(90deg); }
+    #addProjectBtn {
+      width: 22px;
+      height: 22px;
+      border: 1px solid var(--border-input);
+      background: var(--bg-card);
+      border-radius: 5px;
+      cursor: pointer;
+      color: var(--text-mute);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+    #addProjectBtn:hover { background: var(--bg-tag); }
+    #projectsSection {
+      flex-shrink: 0;
+      padding-bottom: 8px;
+    }
+    #historySection {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    #projectsSection.collapsed #projectList,
+    #historySection.collapsed #historyList {
+      display: none;
+    }
+    #projectList {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 0 18px;
+    }
+    .project-card {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      border-radius: var(--r-input);
+      cursor: pointer;
+      transition: background var(--t-fast);
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+    }
+    .project-card:hover { background: var(--bg-tag); }
+    .project-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-faint);
+      flex-shrink: 0;
+    }
+    .project-name {
+      flex: 1;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-strong);
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .project-count {
+      font-size: 11px;
+      color: var(--text-ghost);
+      flex-shrink: 0;
+    }
     .hi-search-toggle {
       display: flex; gap: 4px;
       background: var(--bg-clear); border-radius: var(--r-input);
@@ -307,6 +423,15 @@ window.__ccbCSS = (() => {
       background: #fef08a; color: var(--text-strong);
       border-radius: 2px; padding: 0 1px;
     }
+    .hi-project-tag {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: var(--r-tag);
+      background: var(--bg-tag);
+      color: var(--text-mute);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
     .hi-menu-btn {
       width: 26px; height: 26px; flex-shrink: 0;
       border: none; background: none; border-radius: 6px;
@@ -349,6 +474,170 @@ window.__ccbCSS = (() => {
       padding: 40px 10px; text-align: center;
       color: var(--text-ghost); font-size: 13px; line-height: 1.6;
       white-space: pre-line;
+    }
+
+    #projectView {
+      flex: 1;
+      min-height: 0;
+      padding: 8px 18px 12px;
+    }
+    .project-view-shell {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      flex: 1;
+      gap: 8px;
+    }
+    .project-view-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .project-instructions-card {
+      margin: 2px 0 0;
+      padding: 12px 14px;
+    }
+    .project-instructions-card .gm-preview {
+      margin-top: 8px;
+    }
+    .project-instructions-header {
+      align-items: center;
+    }
+    .project-instructions-head {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      flex: 1;
+    }
+    #projectViewBack,
+    #projectViewMenuBtn {
+      width: 30px;
+      height: 30px;
+      border: none;
+      background: none;
+      border-radius: 8px;
+      cursor: pointer;
+      color: var(--text-faint);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #projectViewBack:hover,
+    #projectViewMenuBtn:hover {
+      background: rgba(0,0,0,.04);
+      color: var(--text-strong);
+    }
+    .project-view-title-wrap {
+      flex: 1;
+      min-width: 0;
+      text-align: center;
+    }
+    #projectViewTitle {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-strong);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .project-accordion-toggle {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      border: none;
+      background: none;
+      cursor: pointer;
+      color: var(--text-strong);
+      font-family: var(--font-he);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 0 2px;
+      text-align: right;
+    }
+    .project-accordion-arrow {
+      width: 16px;
+      height: 16px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-faint);
+      flex-shrink: 0;
+    }
+    .project-accordion-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .project-accordion-panel.collapsed {
+      display: none;
+    }
+    .project-view-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-ghost);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0 2px;
+    }
+    #projectViewInstructions {
+      width: 100%;
+      min-height: 120px;
+      resize: vertical;
+      border: 1px solid var(--border-input);
+      border-radius: var(--r-input);
+      padding: 10px;
+      font-size: 13px;
+      font-family: var(--font-he);
+      outline: none;
+      background: var(--bg-card);
+      color: var(--text-strong);
+    }
+    #projectViewSaveBtn {
+      height: 34px;
+      border: none;
+      border-radius: var(--r-input);
+      background: var(--text-strong);
+      color: var(--bg-app);
+      font-size: 13px;
+      font-weight: 600;
+      font-family: var(--font-he);
+      cursor: pointer;
+    }
+    #projectViewSaveBtn:hover { background: #2a2622; }
+    #projectViewConversations {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding-bottom: 4px;
+    }
+    .project-picker {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 8px;
+      max-height: 240px;
+      overflow-y: auto;
+    }
+    .project-picker-item {
+      width: 100%;
+      text-align: right;
+      border: 1px solid var(--border-input);
+      background: var(--bg-card);
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-family: var(--font-he);
+      cursor: pointer;
+      color: var(--text-body);
+    }
+    .project-picker-item:hover,
+    .project-picker-item.active {
+      background: var(--bg-tag);
     }
 
     /* ── Footer ── */

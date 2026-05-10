@@ -83,6 +83,9 @@ const ACTIVE_SITE = "gemini"; // ← שנה ל-"internal" לצ'אט הפנימי
 | `setPanelOpen(open)` | Opens or closes sidebar, loads blocks, renders |
 | `togglePanel()`      | Flips panel open/closed                        |
 
+`currentProjectId` tracks the active project detail view inside the history tab.
+`projectsCollapsed`, `historyCollapsed`, and `projectInstructionsOpen` track the section toggles in the history/project UI.
+
 ### General Memory
 
 | Function                | Description                                         |
@@ -97,17 +100,23 @@ const ACTIVE_SITE = "gemini"; // ← שנה ל-"internal" לצ'אט הפנימי
 | ------------------------------------------------ | -------------------------------------------------------------------------------------- |
 | `dateGroup(ts)`                                  | Returns Hebrew date bucket: היום/אתמול/השבוע/החודש/קודם                                |
 | `captureConversation()`                          | Reads all messages from DOM via MSG_SELECTORS → `[{role,text}]`                        |
+| `getProjects()` / `getProjectById(id)`           | Returns project blocks or a single project block                                        |
 | `formatTranscript(messages)`                     | Formats message array as "User: … / Assistant: …" text                                 |
+| `buildConversationInjectionText(messages, block)`| Builds FRAMING + GM + project instructions + transcript for chat injection             |
 | `injectHistoryBubbles(messages)`                 | Prepends styled chat bubbles into the page's messageList container, preserving line breaks |
 | `buildHistoryMessages(b)`                        | Normalizes conversation/summarized history into DOM-ready message bubbles               |
 | `showChoice({title,msg,primaryLabel,secondaryLabel})` | Two-button modal for choosing history view vs chat injection                      |
-| `loadConversation(b, mode?)`                     | Prompts for view/inject, swaps existing history DOM, and optionally sends transcript    |
-| `setupAutoSave()`                                | Attaches a live MutationObserver to the chat DOM and auto-saves the current conversation snapshot as new messages appear |
+| `showProjectPicker()`                            | Modal picker for assigning a conversation to a project                                  |
+| `loadConversation(b, mode?)`                     | Prompts for view/inject, swaps existing history DOM, and injects project context for project chats |
+| `openProjectView(projectId)` / `closeProjectView()` | Switches the history tab into project-management mode                                 |
+| `renderProjectList()` / `renderProjectView()`     | Renders the project cards and the active project detail screen with GM-style instructions editing |
+| `syncCollapsibleSections()` / `syncProjectInstructionsSection()` | Keeps the history/project section toggles in sync with state        |
 | `openHiDropdown(b, menuBtn)`                     | Opens pin/delete dropdown next to history item                                         |
+| `openProjectDropdown(project, menuBtn)`          | Opens rename/delete dropdown for a project                                              |
 | `closeHiDropdown()`                              | Closes the dropdown and removes outside-click listener                                 |
 | `extractSnippet(text, q, fromIndex)`             | Returns a 50-char context snippet with match boundaries for content search             |
-| `renderHistoryList()`                            | Renders history tab: title search or content search, with pinned section + date groups |
-| `render()`                                       | Full re-render (GM card + context list + history list)                                 |
+| `renderHistoryList()`                            | Renders history tab: title search or content search, with project tags + date groups   |
+| `render()`                                       | Full re-render (GM card + context list + project list + history list + project view)    |
 | `renderList({listId,searchId,isMatch,emptyMsg})` | Renders a filtered+sorted block list with checkboxes                                   |
 
 ### Edit form
@@ -127,7 +136,8 @@ const ACTIVE_SITE = "gemini"; // ← שנה ל-"internal" לצ'אט הפנימי
 | `injectSelected()`         | Injects all selected blocks with FRAMING, clicks send (GM first when selected)                                                                                                                                                      |
 | `findScrollableAncestor()` | Walks up from `MSG_SELECTORS.messageList` to find the real scrollable element (overflow auto/scroll + scrollHeight > clientHeight); falls back to scanning `main` / class-based candidates. Generic — survives Gemini DOM changes. |
 | `scrollAndCaptureAll()`    | Uses `findScrollableAncestor()`, then scrolls to top repeatedly until message count stabilizes (defeats virtual scrolling)                                                                                                         |
-| `saveChat()`               | If MSG_SELECTORS ready: scrolls to top → captures DOM → updates the current conversation snapshot or creates one. Else: injects SUMMARY_PROMPT (fallback)                                                                                                                |
+| `saveChat()`               | If MSG_SELECTORS ready: scrolls to top → captures DOM → appends new messages to the current conversation or creates one. Else: injects SUMMARY_PROMPT (fallback)                                                                                                                |
+| `saveProjectView()`        | Persists the active project instructions field                                                                                                                                        |
 
 ### Status / toast
 
@@ -149,7 +159,7 @@ const ACTIVE_SITE = "gemini"; // ← שנה ל-"internal" לצ'אט הפנימי
 | ------------------ | ------------------------------------------------------------------------------------- |
 | `shouldAutoOpen()` | True if current URL matches AUTO_OPEN_URLS                                            |
 | `isActiveSitePage()` | True if current URL matches the active site URL list; gates mount/toggle/init         |
-| `init()`           | Entry point — loads blocks, starts inline save + auto-save observers, runs tryAutoInject (always), opens panel if AUTO_OPEN_URL |
+| `init()`           | Entry point — loads blocks, starts inline save, runs tryAutoInject (always), opens panel if AUTO_OPEN_URL |
 
 ## summarizer.js
 
@@ -168,10 +178,11 @@ All data lives under `chrome.storage.local["blocks"]` as a flat object:
 {
   "b_<timestamp>_<rand>": {
     id, title,
-    content?: string,                          // old summary blocks (backward compat)
+    content?: string,                          // old summary blocks / project instructions
     messages?: [{role:"user"|"ai", text}],     // new full-conversation blocks
     tags?: string[],
-    kind?: "conversation" | "general_memory",  // undefined = context block
+    kind?: "conversation" | "general_memory" | "project",
+    projectId?: string | null,                 // only on conversation blocks
     updated: number,
     pinned?: boolean,
     autoLoad?: boolean                         // only on GM_ID block
@@ -181,4 +192,5 @@ All data lives under `chrome.storage.local["blocks"]` as a flat object:
 
 Special block: `GM_ID = "__general_memory"` — kind `"general_memory"`, has `autoLoad`.
 History list: blocks with `kind === "conversation"` (saved by summarizer.js).
-Context list: blocks without `kind` (and not GM_ID).
+Project list: blocks with `kind === "project"`.
+Context list: blocks without `kind` (and not GM_ID / project / conversation).

@@ -49,11 +49,10 @@
   let historySearchMode = "title";
   let searchTimeout = null;
   let lastInjectedConversationId = null; // שיחה מוזרקת כרגע
-  let autoSaveObserver = null; // Observer לשמירה אוטומטית
-  let autoSaveContainer = null; // container נוכחי של ההיסטוריה החיה
-  let autoSaveAttachTimer = null; // ניסיון חוזר אם ה-container עוד לא קיים
-  let lastSaveMessageCount = 0; // מספר ההודעות בשמירה אחרונה
-  let autoSaveTimeout = null; // Debounce לשמירה אוטומטית
+  let currentProjectId = null; // project view כרגע
+  let projectsCollapsed = false;
+  let historyCollapsed = false;
+  let projectInstructionsOpen = false;
 
   async function loadBlocks() {
     if (blocksLoaded) return;
@@ -337,6 +336,25 @@
       }
       setPanelOpen(false);
     });
+    $el("addProjectBtn").addEventListener("click", async () => {
+      await loadBlocks();
+      const title = await showPrompt({
+        title: "פרויקט חדש",
+        defaultValue: "פרויקט חדש",
+      });
+      if (title === null || !title.trim()) return;
+      const id = "proj_" + Date.now();
+      blocks[id] = {
+        id,
+        kind: "project",
+        title: title.trim(),
+        content: "",
+        updated: Date.now(),
+      };
+      await saveBlocks();
+      currentProjectId = id;
+      render();
+    });
     $el("searchHistory").addEventListener("input", debouncedRender);
     $el("toggleSearchTitle").addEventListener("click", () => {
       historySearchMode = "title";
@@ -352,6 +370,14 @@
       $el("searchHistory").placeholder = "חיפוש מילה בתוכן...";
       renderHistoryList();
     });
+    $el("projectsCollapseBtn").addEventListener("click", () => {
+      projectsCollapsed = !projectsCollapsed;
+      syncCollapsibleSections();
+    });
+    $el("historyCollapseBtn").addEventListener("click", () => {
+      historyCollapsed = !historyCollapsed;
+      syncCollapsibleSections();
+    });
     $el("addBtn").addEventListener("click", () => openEdit(null));
     $el("injectBtn").addEventListener("click", injectSelected);
     $el("summarizeBtn").addEventListener("click", saveChat);
@@ -359,6 +385,23 @@
     $el("saveBtn").addEventListener("click", saveEdit);
     $el("cancelBtn").addEventListener("click", closeEdit);
     $el("deleteBtn").addEventListener("click", deleteEdit);
+    $el("projectViewBack").addEventListener("click", closeProjectView);
+    $el("projectInstructionsToggle").addEventListener("click", () => {
+      projectInstructionsOpen = !projectInstructionsOpen;
+      syncProjectInstructionsSection();
+      if (projectInstructionsOpen) $el("projectViewInstructions")?.focus();
+    });
+    $el("projectInstructionsEditBtn").addEventListener("click", () => {
+      projectInstructionsOpen = !projectInstructionsOpen;
+      syncProjectInstructionsSection();
+      if (projectInstructionsOpen) $el("projectViewInstructions")?.focus();
+    });
+    $el("projectViewSaveBtn").addEventListener("click", saveProjectView);
+    $el("projectViewMenuBtn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      const project = getProjectById(currentProjectId);
+      if (project) openProjectDropdown(project, $el("projectViewMenuBtn"));
+    });
 
     shadow.querySelectorAll(".tab").forEach((tab) => {
       tab.addEventListener("click", async () => {
@@ -388,8 +431,9 @@
         moveTabIndicator(tab);
         render();
         const isHistory = tab.dataset.tab === "history";
-        $el("mainFooter").style.display = isHistory ? "none" : "";
-        $el("historyFooter").style.display = isHistory ? "" : "none";
+        const inProject = !!getProjectById(currentProjectId);
+        $el("mainFooter").style.display = inProject ? "none" : isHistory ? "none" : "";
+        $el("historyFooter").style.display = inProject ? "none" : isHistory ? "" : "none";
       });
     });
     requestAnimationFrame(() => {
@@ -411,7 +455,12 @@
       pushPage(true);
       render();
       updateInjectBtn();
-      $el("searchHistory").focus();
+      if (getProjectById(currentProjectId)) {
+        if (projectInstructionsOpen) $el("projectViewInstructions")?.focus();
+        else $el("projectInstructionsEditBtn")?.focus();
+      } else {
+        $el("searchHistory").focus();
+      }
     } else {
       $el("panel").classList.remove("open");
       $el("fab").classList.remove("hidden");
@@ -520,6 +569,48 @@
     card.appendChild(wrap);
   }
 
+  function syncCollapsibleSections() {
+    const projectsSection = $el("projectsSection");
+    const historySection = $el("historySection");
+    const projectsBtn = $el("projectsCollapseBtn");
+    const historyBtn = $el("historyCollapseBtn");
+
+    if (projectsSection) projectsSection.classList.toggle("collapsed", projectsCollapsed);
+    if (historySection) historySection.classList.toggle("collapsed", historyCollapsed);
+    if (projectsBtn) {
+      projectsBtn.classList.toggle("collapsed", projectsCollapsed);
+      projectsBtn.title = projectsCollapsed ? "פתח פרויקטים" : "סגור פרויקטים";
+      projectsBtn.setAttribute("aria-label", projectsCollapsed ? "פתח פרויקטים" : "סגור פרויקטים");
+    }
+    if (historyBtn) {
+      historyBtn.classList.toggle("collapsed", historyCollapsed);
+      historyBtn.title = historyCollapsed ? "פתח שיחות אחרונות" : "סגור שיחות אחרונות";
+      historyBtn.setAttribute("aria-label", historyCollapsed ? "פתח שיחות אחרונות" : "סגור שיחות אחרונות");
+    }
+  }
+
+  function syncProjectInstructionsSection() {
+    const panel = $el("projectInstructionsPanel");
+    const btn = $el("projectInstructionsToggle");
+    const editBtn = $el("projectInstructionsEditBtn");
+    if (panel) panel.classList.toggle("collapsed", !projectInstructionsOpen);
+    if (btn) {
+      btn.classList.toggle("collapsed", !projectInstructionsOpen);
+      btn.title = projectInstructionsOpen ? "סגור עריכת הנחיות" : "פתח עריכת הנחיות";
+      btn.setAttribute(
+        "aria-label",
+        projectInstructionsOpen ? "סגור עריכת הנחיות" : "פתח עריכת הנחיות",
+      );
+      btn.setAttribute("aria-expanded", String(projectInstructionsOpen));
+    }
+    if (editBtn) editBtn.textContent = projectInstructionsOpen ? "סגור" : "עריכה";
+    if (editBtn)
+      editBtn.setAttribute(
+        "aria-label",
+        projectInstructionsOpen ? "סגור עריכת הנחיות" : "פתח עריכת הנחיות",
+      );
+  }
+
   async function tryAutoInject() {
     const gm = getGM();
     if (!gm.autoLoad || !(gm.content || "").trim()) return;
@@ -578,12 +669,369 @@
   function render() {
     renderGeneralMemory();
     renderContextList();
+    syncCollapsibleSections();
+    renderProjectList();
     renderHistoryList();
+    renderProjectView();
+  }
+
+  function getProjects() {
+    return Object.values(blocks)
+      .filter((b) => b.kind === "project")
+      .sort((a, b) => (b.updated || 0) - (a.updated || 0));
+  }
+
+  function getProjectById(id) {
+    const project = id ? blocks[id] : null;
+    return project && project.kind === "project" ? project : null;
+  }
+
+  function getConversationProject(b) {
+    return getProjectById(b?.projectId || null);
+  }
+
+  function getProjectConversationCount(projectId) {
+    return Object.values(blocks).filter(
+      (b) => b.kind === "conversation" && b.projectId === projectId,
+    ).length;
+  }
+
+  function createHistoryRow(b, { kind = "conversation", snippet = null, role = "user", showProjectTag = true } = {}) {
+    const row = document.createElement("div");
+    row.className =
+      "hi-item" +
+      (b.pinned ? " pinned" : "") +
+      (kind === "message" ? " search-content" : "");
+
+    const head = document.createElement("div");
+    head.className = "hi-head";
+
+    const title = document.createElement("div");
+    title.className = "hi-title";
+    title.textContent = b.title;
+    head.appendChild(title);
+
+    const project = getConversationProject(b);
+    if (showProjectTag && project) {
+      const tag = document.createElement("span");
+      tag.className = "hi-project-tag";
+      tag.textContent = project.title;
+      head.appendChild(tag);
+    }
+
+    const menuBtn = document.createElement("button");
+    menuBtn.className = "hi-menu-btn";
+    menuBtn.innerHTML = "···";
+    menuBtn.title = "אפשרויות";
+    menuBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openHiDropdown(b, menuBtn);
+    });
+
+    row.addEventListener("click", () => loadConversation(b));
+
+    head.appendChild(menuBtn);
+    row.appendChild(head);
+
+    if (kind === "message" && snippet) {
+      const snippetRow = document.createElement("div");
+      snippetRow.className = "hi-snippet-row";
+
+      const roleLabel = document.createElement("span");
+      roleLabel.className = "hi-match-role";
+      roleLabel.textContent = role === "ai" ? "ai" : "user";
+
+      const snippetEl = document.createElement("div");
+      snippetEl.className = "hi-snippet";
+      if (snippet.prefix) snippetEl.appendChild(document.createTextNode(snippet.prefix));
+      snippetEl.appendChild(document.createTextNode(snippet.before));
+      const mark = document.createElement("mark");
+      mark.textContent = snippet.match;
+      snippetEl.appendChild(mark);
+      snippetEl.appendChild(document.createTextNode(snippet.after));
+      if (snippet.suffix) snippetEl.appendChild(document.createTextNode(snippet.suffix));
+
+      snippetRow.appendChild(roleLabel);
+      snippetRow.appendChild(snippetEl);
+      row.appendChild(snippetRow);
+    }
+
+    return row;
+  }
+
+  function renderProjectList() {
+    const list = $el("projectList");
+    if (!list) return;
+    list.innerHTML = "";
+
+    const projects = getProjects();
+    if (!projects.length) {
+      const empty = document.createElement("div");
+      empty.className = "empty";
+      empty.style.padding = "12px 0 2px";
+      empty.textContent = "אין פרויקטים עדיין";
+      list.appendChild(empty);
+      return;
+    }
+
+    for (const project of projects) {
+      const card = document.createElement("div");
+      card.className = "project-card";
+
+      const dot = document.createElement("span");
+      dot.className = "project-dot";
+      const name = document.createElement("span");
+      name.className = "project-name";
+      name.textContent = project.title;
+      const count = document.createElement("span");
+      count.className = "project-count";
+      count.textContent = getProjectConversationCount(project.id) + " שיחות";
+
+      card.appendChild(dot);
+      card.appendChild(name);
+      card.appendChild(count);
+      card.addEventListener("click", () => openProjectView(project.id));
+      list.appendChild(card);
+    }
+  }
+
+  function updateHistoryLayoutForProjectView() {
+    const inProject = !!getProjectById(currentProjectId);
+    const toolbar = $el("historyToolbar");
+    const projectsSection = $el("projectsSection");
+    const historySection = $el("historySection");
+    const view = $el("projectView");
+    const mainFooter = $el("mainFooter");
+    const historyFooter = $el("historyFooter");
+
+    if (toolbar) toolbar.style.display = inProject ? "none" : "";
+    if (projectsSection) projectsSection.style.display = inProject ? "none" : "";
+    if (historySection) historySection.style.display = inProject ? "none" : "";
+    if (view) view.style.display = inProject ? "flex" : "none";
+    if (mainFooter) mainFooter.style.display = inProject ? "none" : "";
+    if (historyFooter) historyFooter.style.display = inProject ? "none" : "";
+  }
+
+  function renderProjectViewConversations(project) {
+    const list = $el("projectViewConversations");
+    if (!list) return;
+    list.innerHTML = "";
+
+    const items = Object.values(blocks)
+      .filter((b) => b.kind === "conversation" && b.projectId === project.id)
+      .sort((a, b) => (b.updated || 0) - (a.updated || 0));
+
+    if (!items.length) {
+      const empty = document.createElement("div");
+      empty.className = "empty";
+      empty.style.padding = "24px 8px";
+      empty.textContent = "אין שיחות משויכות לפרויקט הזה";
+      list.appendChild(empty);
+      return;
+    }
+
+    for (const b of items) {
+      list.appendChild(createHistoryRow(b, { showProjectTag: false }));
+    }
+  }
+
+  function renderProjectView() {
+    const project = getProjectById(currentProjectId);
+    updateHistoryLayoutForProjectView();
+
+    const view = $el("projectView");
+    if (!view) return;
+    if (!project) {
+      currentProjectId = null;
+      updateHistoryLayoutForProjectView();
+      return;
+    }
+
+    $el("projectViewTitle").textContent = project.title;
+    if ($el("projectInstructionsPreview")) {
+      $el("projectInstructionsPreview").textContent =
+        (project.content || "").trim() || "אין עדיין הנחיות לפרויקט הזה";
+    }
+    $el("projectViewInstructions").value = project.content || "";
+    renderProjectViewConversations(project);
+    syncProjectInstructionsSection();
+  }
+
+  function openProjectView(projectId) {
+    const project = getProjectById(projectId);
+    if (!project) return;
+    currentProjectId = project.id;
+    projectInstructionsOpen = false;
+    render();
+  }
+
+  function closeProjectView() {
+    if (!currentProjectId) return;
+    currentProjectId = null;
+    projectInstructionsOpen = false;
+    render();
+  }
+
+  async function saveProjectView() {
+    const project = getProjectById(currentProjectId);
+    if (!project) return;
+    await loadBlocks();
+    const nextContent = ($el("projectViewInstructions")?.value || "").trim();
+    blocks[project.id].content = nextContent;
+    blocks[project.id].updated = Date.now();
+    await saveBlocks();
+    render();
+    setStatus("הפרויקט נשמר ✓");
+  }
+
+  function openProjectDropdown(project, menuBtn) {
+    closeHiDropdown();
+    const dd = $el("hiDropdown");
+
+    const renameItem = document.createElement("div");
+    renameItem.className = "hd-item";
+    renameItem.innerHTML =
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> שנה שם';
+    renameItem.addEventListener("click", async () => {
+      closeHiDropdown();
+      const nextTitle = await showPrompt({
+        title: "שנה שם הפרויקט",
+        defaultValue: project.title,
+      });
+      if (nextTitle === null || !nextTitle.trim()) return;
+      await loadBlocks();
+      blocks[project.id].title = nextTitle.trim();
+      blocks[project.id].updated = Date.now();
+      await saveBlocks();
+      render();
+    });
+
+    const sep = document.createElement("div");
+    sep.className = "hd-sep";
+
+    const delItem = document.createElement("div");
+    delItem.className = "hd-item danger";
+    delItem.innerHTML =
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> מחק';
+    delItem.addEventListener("click", async () => {
+      closeHiDropdown();
+      const ok = await showConfirm({
+        title: "מחיקת פרויקט",
+        msg: 'למחוק את "' + project.title + '"? השיחות לא יימחקו, רק השיוך.',
+        confirmLabel: "מחק",
+        danger: true,
+      });
+      if (!ok) return;
+      await loadBlocks();
+      delete blocks[project.id];
+      for (const b of Object.values(blocks)) {
+        if (b.kind === "conversation" && b.projectId === project.id) {
+          delete b.projectId;
+        }
+      }
+      if (currentProjectId === project.id) currentProjectId = null;
+      await saveBlocks();
+      render();
+    });
+
+    dd.innerHTML = "";
+    dd.appendChild(renameItem);
+    dd.appendChild(sep);
+    dd.appendChild(delItem);
+
+    const rect = menuBtn.getBoundingClientRect();
+    dd.style.top = rect.top + "px";
+    dd.style.left = rect.right + 6 + "px";
+    dd.classList.add("open");
+
+    const onOutside = (e) => {
+      if (!dd.contains(e.target) && e.target !== menuBtn) closeHiDropdown();
+    };
+    document.addEventListener("click", onOutside, {
+      capture: true,
+      once: false,
+    });
+    hiDropdownCleanup = () =>
+      document.removeEventListener("click", onOutside, { capture: true });
+  }
+
+  async function showProjectPicker({
+    title = "שייך לפרויקט",
+    currentId = null,
+    allowClear = true,
+  } = {}) {
+    await loadBlocks();
+    const projects = getProjects();
+    if (!projects.length) return null;
+
+    return new Promise((resolve) => {
+      const overlay = $el("dialogOverlay");
+      const dlgTitle = $el("dialogTitle");
+      const dlgMsg = $el("dialogMsg");
+      const confirm = $el("dialogConfirm");
+      const cancel = $el("dialogCancel");
+      const input = $el("dialogInput");
+
+      dlgTitle.textContent = title;
+      dlgMsg.innerHTML = "";
+      input.style.display = "none";
+      confirm.style.display = "none";
+      cancel.textContent = "ביטול";
+      overlay.classList.add("show");
+
+      const picker = document.createElement("div");
+      picker.className = "project-picker";
+
+      if (allowClear) {
+        const clearBtn = document.createElement("button");
+        clearBtn.type = "button";
+        clearBtn.className =
+          "project-picker-item" + (currentId === null ? " active" : "");
+        clearBtn.textContent = "ללא פרויקט";
+        clearBtn.addEventListener("click", () => done(null));
+        picker.appendChild(clearBtn);
+      }
+
+      for (const project of projects) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className =
+          "project-picker-item" + (currentId === project.id ? " active" : "");
+        btn.textContent = project.title;
+        btn.addEventListener("click", () => done(project.id));
+        picker.appendChild(btn);
+      }
+
+      dlgMsg.appendChild(picker);
+
+      let settled = false;
+      const cleanup = () => {
+        dlgMsg.innerHTML = "";
+        confirm.style.display = "";
+        input.style.display = "none";
+        overlay.classList.remove("show");
+      };
+      const done = (result) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(result);
+      };
+
+      cancel.addEventListener("click", () => done(undefined), { once: true });
+      overlay.addEventListener(
+        "click",
+        (e) => {
+          if (e.target === overlay) done(undefined);
+        },
+        { once: true },
+      );
+    });
   }
 
   function renderContextList() {
     const items = Object.values(blocks)
-      .filter((b) => b.kind !== "conversation" && b.id !== GM_ID)
+      .filter((b) => b.kind !== "conversation" && b.kind !== "project" && b.id !== GM_ID)
       .sort((a, b) => (b.updated || 0) - (a.updated || 0));
 
     const list = $el("list");
@@ -685,6 +1133,24 @@
     return text ? [{ role: "ai", text }] : [];
   }
 
+  function buildProjectSectionText(block) {
+    const project = getConversationProject(block);
+    if (!project) return "";
+    const content = (project.content || "").trim();
+    return "## " + project.title + "\n" + (content || "") + "\n\n";
+  }
+
+  function buildConversationInjectionText(messages, block) {
+    const gm = getGM();
+    const parts = [FRAMING];
+    if (gm.autoLoad && (gm.content || "").trim()) {
+      parts.push(gm.content.trim() + "\n\n");
+    }
+    parts.push(buildProjectSectionText(block));
+    parts.push("---\n\n" + formatTranscript(messages));
+    return parts.join("");
+  }
+
   function injectHistoryBubbles(messages, { persist = false } = {}) {
     const container = document.querySelector(MSG_SELECTORS.messageList);
     if (!container) return false;
@@ -753,13 +1219,26 @@
     lastInjectedConversationId = b.id;
 
     if (mode === "view") {
+      const projectText = buildProjectSectionText(b);
+      if (projectText) {
+        const r = injectIntoInput(FRAMING + projectText, "replace");
+        if (r.ok) {
+          setTimeout(() => {
+            const btn = document.querySelector(CONFIG.SEND_BUTTON_SELECTOR);
+            if (btn) btn.click();
+          }, 100);
+        } else {
+          setStatus(r.error || "נכשל", true);
+        }
+      }
       injectHistoryBubbles(messages, { persist: false });
       return;
     }
 
-    const transcript = messages.length ? formatTranscript(messages) : "";
+    // תמיד בנה את הנחיות הפרויקט גם אם אין הודעות
+    const transcript = buildConversationInjectionText(messages, b);
 
-    const r = injectIntoInput(FRAMING + transcript, "replace");
+    const r = injectIntoInput(transcript, "replace");
     if (r.ok) {
       setTimeout(() => {
         const btn = document.querySelector(CONFIG.SEND_BUTTON_SELECTOR);
@@ -781,8 +1260,6 @@
           injected = true;
           waitObs.disconnect();
           injectHistoryBubbles(messages, { persist: true });
-          // התחל שמירה אוטומטית כשהשיחה מוזרקת
-          setupAutoSave();
         }
       });
       waitObs.observe(stableAncestor, { childList: true, subtree: true });
@@ -847,10 +1324,33 @@
       renderHistoryList();
     });
 
+    const projectItem = document.createElement("div");
+    projectItem.className = "hd-item";
+    projectItem.innerHTML =
+      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6l2 2h10v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 7V5a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v2"/></svg> שייך לפרויקט';
+    projectItem.addEventListener("click", async () => {
+      closeHiDropdown();
+      const pick = await showProjectPicker({
+        title: "שייך לפרויקט",
+        currentId: b.projectId || null,
+        allowClear: true,
+      });
+      if (pick === undefined) return;
+      await loadBlocks();
+      if (!blocks[b.id]) return;
+      if (pick === null) delete blocks[b.id].projectId;
+      else blocks[b.id].projectId = pick;
+      blocks[b.id].updated = Date.now();
+      await saveBlocks();
+      render();
+    });
+
     dd.innerHTML = "";
     dd.appendChild(pinItem);
     dd.appendChild(sep);
     dd.appendChild(renameItem);
+    dd.appendChild(projectItem);
+    dd.appendChild(sep.cloneNode());
     dd.appendChild(delItem);
 
     const rect = menuBtn.getBoundingClientRect();
@@ -879,10 +1379,14 @@
   }
 
   function renderHistoryList() {
+    if (currentProjectId && !getProjectById(currentProjectId)) {
+      currentProjectId = null;
+    }
     closeHiDropdown();
     const q = ($el("searchHistory")?.value || "").trim().toLowerCase();
     const all = Object.values(blocks)
       .filter((b) => b.kind === "conversation")
+      .filter((b) => !currentProjectId || b.projectId === currentProjectId)
       .sort((a, b) => (b.updated || 0) - (a.updated || 0));
 
     const list = $el("historyList");
@@ -893,7 +1397,7 @@
       div.className = "empty";
       div.textContent = q
         ? "לא נמצא"
-        : 'אין סיכומי שיחה שמורים\nלחץ "סכם שיחה" לשמירה אוטומטית';
+        : 'אין סיכומי שיחה שמורים\nלחץ "סכם שיחה" לשמירה';
       list.appendChild(div);
       return;
     }
@@ -940,60 +1444,14 @@
     const rest = rows.filter((row) => !row.block.pinned);
 
     function addItem(rowData) {
-      const b = rowData.block;
-      const row = document.createElement("div");
-      row.className =
-        "hi-item" +
-        (b.pinned ? " pinned" : "") +
-        (rowData.kind === "message" ? " search-content" : "");
-
-      const head = document.createElement("div");
-      head.className = "hi-head";
-      const title = document.createElement("div");
-      title.className = "hi-title";
-      title.textContent = b.title;
-
-      const menuBtn = document.createElement("button");
-      menuBtn.className = "hi-menu-btn";
-      menuBtn.innerHTML = "···";
-      menuBtn.title = "אפשרויות";
-      menuBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openHiDropdown(b, menuBtn);
-      });
-
-      row.addEventListener("click", () => loadConversation(b));
-
-      head.appendChild(title);
-      head.appendChild(menuBtn);
-      row.appendChild(head);
-
-      if (rowData.kind === "message") {
-        const snippetRow = document.createElement("div");
-        snippetRow.className = "hi-snippet-row";
-
-        const role = document.createElement("span");
-        role.className = "hi-match-role";
-        role.textContent = rowData.role === "ai" ? "ai" : "user";
-
-        const snippet = document.createElement("div");
-        snippet.className = "hi-snippet";
-        if (rowData.snippet.prefix)
-          snippet.appendChild(document.createTextNode(rowData.snippet.prefix));
-        snippet.appendChild(document.createTextNode(rowData.snippet.before));
-        const mark = document.createElement("mark");
-        mark.textContent = rowData.snippet.match;
-        snippet.appendChild(mark);
-        snippet.appendChild(document.createTextNode(rowData.snippet.after));
-        if (rowData.snippet.suffix)
-          snippet.appendChild(document.createTextNode(rowData.snippet.suffix));
-
-        snippetRow.appendChild(role);
-        snippetRow.appendChild(snippet);
-        row.appendChild(snippetRow);
-      }
-
-      list.appendChild(row);
+      list.appendChild(
+        createHistoryRow(rowData.block, {
+          kind: rowData.kind,
+          snippet: rowData.snippet,
+          role: rowData.role,
+          showProjectTag: true,
+        }),
+      );
     }
 
     if (pinned.length) {
@@ -1170,108 +1628,31 @@
     return messages;
   }
 
+  function messageListsEqual(a, b) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if ((a[i]?.role || "") !== (b[i]?.role || "")) return false;
+      if ((a[i]?.text || "").trim() !== (b[i]?.text || "").trim()) return false;
+    }
+    return true;
+  }
+
+  function appendConversationMessages(existing, incoming) {
+    if (!Array.isArray(existing) || !Array.isArray(incoming)) return incoming;
+    if (!incoming.length) return existing;
+    if (messageListsEqual(existing.slice(-incoming.length), incoming)) return existing;
+    if (existing.length && incoming.length >= existing.length && messageListsEqual(incoming.slice(0, existing.length), existing)) {
+      return incoming;
+    }
+    return [...existing, ...incoming];
+  }
+
   function upsertConversationMessages(id, messages) {
     const block = blocks[id];
     if (!block) return false;
     block.messages = messages;
     block.updated = Date.now();
     return true;
-  }
-
-  async function autoSaveConversation() {
-    const messages = captureConversation();
-    if (!messages.length) return;
-
-    await loadBlocks();
-
-    // אם יש שיחה מוזרקת כרגע, עדכן אותה במקום לפתוח חדשה
-    if (lastInjectedConversationId && blocks[lastInjectedConversationId]) {
-      upsertConversationMessages(lastInjectedConversationId, messages);
-      await saveBlocks();
-      lastSaveMessageCount = messages.length;
-      render(); // רענן את ההיסטוריה
-      return;
-    }
-
-    // אחרת, צור שיחה חדשה עם שם ברירת מחדל
-    const now = new Date();
-    const defaultTitle =
-      "שיחה — " +
-      now.toLocaleDateString("he-IL") +
-      " " +
-      now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
-
-    const id = "b_" + Date.now() + "_conv";
-    blocks[id] = {
-      id,
-      title: defaultTitle,
-      messages,
-      kind: "conversation",
-      updated: Date.now(),
-    };
-    lastInjectedConversationId = id;
-    await saveBlocks();
-    lastSaveMessageCount = messages.length;
-    render(); // רענן את ההיסטוריה להציג את השיחה החדשה
-  }
-
-  function setupAutoSave() {
-    if (!MSG_SELECTORS.messageList) return;
-
-    const attach = () => {
-      const container = document.querySelector(MSG_SELECTORS.messageList);
-      if (!container) {
-        if (!autoSaveAttachTimer) {
-          autoSaveAttachTimer = setTimeout(() => {
-            autoSaveAttachTimer = null;
-            setupAutoSave();
-          }, 500);
-        }
-        return;
-      }
-
-      if (autoSaveContainer === container && autoSaveObserver) return;
-
-      if (autoSaveObserver) autoSaveObserver.disconnect();
-      autoSaveContainer = container;
-
-      autoSaveObserver = new MutationObserver(() => {
-        clearTimeout(autoSaveTimeout);
-        autoSaveTimeout = setTimeout(async () => {
-          const currentMessages = captureConversation();
-          if (currentMessages.length > lastSaveMessageCount) {
-            await autoSaveConversation();
-          }
-        }, 500);
-      });
-
-      autoSaveObserver.observe(container, {
-        childList: true,
-        subtree: true,
-        characterData: true,
-      });
-
-      lastSaveMessageCount = captureConversation().length;
-    };
-
-    attach();
-  }
-
-  function stopAutoSave() {
-    if (autoSaveAttachTimer) {
-      clearTimeout(autoSaveAttachTimer);
-      autoSaveAttachTimer = null;
-    }
-    if (autoSaveObserver) {
-      autoSaveObserver.disconnect();
-      autoSaveObserver = null;
-    }
-    autoSaveContainer = null;
-    if (autoSaveTimeout) {
-      clearTimeout(autoSaveTimeout);
-      autoSaveTimeout = null;
-    }
-    lastSaveMessageCount = 0;
   }
 
   async function scrollAndCaptureAll() {
@@ -1328,10 +1709,12 @@
 
     // אם יש שיחה מוזרקת כרגע, עדכן אותה במקום לבקש שם חדש
     if (lastInjectedConversationId && blocks[lastInjectedConversationId]) {
-      upsertConversationMessages(lastInjectedConversationId, messages);
+      const block = blocks[lastInjectedConversationId];
+      const existing = Array.isArray(block.messages) ? block.messages : [];
+      const merged = appendConversationMessages(existing, messages);
+      upsertConversationMessages(lastInjectedConversationId, merged);
       await saveBlocks();
       setStatus("השיחה עודכנה ✓");
-      lastSaveMessageCount = messages.length;
       render();
       return;
     }
@@ -1352,18 +1735,28 @@
       return;
     }
 
+    const projects = getProjects();
+    let projectId = null;
+    if (projects.length) {
+      const picked = await showProjectPicker({
+        title: "שייך את השיחה לפרויקט",
+        allowClear: true,
+      });
+      if (picked !== undefined) projectId = picked;
+    }
+
     const id = "b_" + Date.now() + "_conv";
     blocks[id] = {
       id,
       title: chosenTitle,
       messages,
       kind: "conversation",
+      projectId,
       updated: Date.now(),
     };
     lastInjectedConversationId = id;
     await saveBlocks();
     setStatus("השיחה נשמרה ✓");
-    lastSaveMessageCount = messages.length;
     render();
   }
 
@@ -1446,7 +1839,6 @@
   }
 
   window.addEventListener("beforeunload", () => {
-    stopAutoSave();
     msgObserver?.disconnect();
     msgObserver = null;
   });
@@ -1490,7 +1882,6 @@
     if (!isActiveSitePage()) return;
     startMsgObserver();
     await loadBlocks();
-    setupAutoSave();
     tryAutoInject();
     if (shouldAutoOpen()) setPanelOpen(true);
   }

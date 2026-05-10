@@ -3,6 +3,7 @@ window.__ccbTpl = (() => {
   const IC = {
     menu: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>`,
     x: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+    chevronRight: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`,
     context: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="12" y2="16"/></svg>`,
     clock: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
     search: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
@@ -48,7 +49,7 @@ window.__ccbTpl = (() => {
       </div>
 
       <div class="tab-pane active" id="pane-history">
-        <div class="context-toolbar" style="flex-direction:column; gap:8px;">
+        <div class="context-toolbar" id="historyToolbar" style="flex-direction:column; gap:8px;">
           <div class="hi-search-toggle">
             <button class="hi-toggle-btn active" id="toggleSearchTitle">חיפוש שיחה</button>
             <button class="hi-toggle-btn" id="toggleSearchContent">חיפוש בתוכן</button>
@@ -58,7 +59,56 @@ window.__ccbTpl = (() => {
             <span class="search-icon">${IC.search}</span>
           </div>
         </div>
-        <div id="historyList"></div>
+
+        <div id="projectsSection">
+          <div class="section-header">
+            <div class="section-head-left">
+              <button id="projectsCollapseBtn" type="button" class="collapse-btn" aria-label="סגור פרויקטים" title="סגור פרויקטים">${IC.chevronRight}</button>
+              <span class="section-label">פרויקטים</span>
+            </div>
+            <button id="addProjectBtn" type="button" aria-label="פרויקט חדש" title="פרויקט חדש">${IC.plus}</button>
+          </div>
+          <div id="projectList"></div>
+        </div>
+
+        <div id="historySection">
+          <div class="section-header">
+            <div class="section-head-left">
+              <button id="historyCollapseBtn" type="button" class="collapse-btn" aria-label="סגור שיחות אחרונות" title="סגור שיחות אחרונות">${IC.chevronRight}</button>
+              <span class="section-label">שיחות אחרונות</span>
+            </div>
+          </div>
+          <div id="historyList"></div>
+        </div>
+
+        <div id="projectView" style="display:none">
+          <div class="project-view-shell">
+            <div class="project-view-head">
+              <button id="projectViewBack" type="button" aria-label="חזרה">${IC.x}</button>
+              <div class="project-view-title-wrap">
+                <div id="projectViewTitle"></div>
+              </div>
+              <button id="projectViewMenuBtn" type="button" aria-label="אפשרויות">${IC.menu}</button>
+            </div>
+            <div class="gm-card project-instructions-card">
+              <div class="gm-header project-instructions-header">
+                <div class="project-instructions-head">
+                  <button id="projectInstructionsToggle" type="button" class="collapse-btn collapsed" aria-label="פתח או סגור עריכת הנחיות" title="פתח או סגור עריכת הנחיות">${IC.chevronRight}</button>
+                  <span class="gm-title">הנחיות הפרויקט</span>
+                </div>
+                <button id="projectInstructionsEditBtn" type="button" class="gm-edit-btn">עריכה</button>
+              </div>
+              <div id="projectInstructionsPreview" class="gm-preview"></div>
+              <div id="projectInstructionsPanel" class="project-accordion-panel collapsed">
+                <div class="project-view-label">הנחיות</div>
+                <textarea id="projectViewInstructions" placeholder="הנחיות הפרויקט..."></textarea>
+                <button id="projectViewSaveBtn" type="button">שמור</button>
+              </div>
+            </div>
+            <div class="project-view-label" style="margin-top:8px;">שיחות בפרויקט</div>
+            <div id="projectViewConversations"></div>
+          </div>
+        </div>
       </div>
 
       <div id="hiDropdown"></div>
