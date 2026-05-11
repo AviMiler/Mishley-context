@@ -1,4 +1,4 @@
-// content.js — UI orchestration, state, and business logic.
+﻿// content.js — UI orchestration, state, and business logic.
 // Dependencies (loaded first via manifest):
 //   config.js → window.__ccbRawConfig
 //   storage.js → window.__ccbStorage
@@ -20,6 +20,8 @@
     GM_ID,
     SUMMARY_PROMPT,
     FRAMING,
+    CTX_WINDOW_DEFAULT,
+    CHARS_PER_TOKEN,
   } = window.__ccbRawConfig;
 
   const CONFIG = { AUTO_OPEN_URLS, SEND_BUTTON_SELECTOR, SIDEBAR_WIDTH };
@@ -35,7 +37,6 @@
   // ============================================================
   // State
   // ============================================================
-  // DEBOUNCE: הערה את השורה להלן כדי להשבית את debouncing החיפוש
   const ENABLE_SEARCH_DEBOUNCE = true; // false = השבתת debounce
   const DEBOUNCE_MS = 300; // זמן ההשהיה (מילישניות)
 
@@ -48,11 +49,14 @@
   let mounted = false;
   let historySearchMode = "title";
   let searchTimeout = null;
-  let lastInjectedConversationId = null; // שיחה מוזרקת כרגע
-  let currentProjectId = null; // project view כרגע
+  let lastInjectedConversationId = null;
+  let currentProjectId = null;
   let projectsCollapsed = false;
   let historyCollapsed = false;
   let projectInstructionsOpen = false;
+  let ctxWindow = CTX_WINDOW_DEFAULT;
+  let ctxWindowLoaded = false;
+  let ctxExpandBound = false;
 
   async function loadBlocks() {
     if (blocksLoaded) return;
@@ -62,6 +66,20 @@
 
   async function saveBlocks() {
     await _saveBlocks(STORAGE_KEY, blocks);
+  }
+
+  async function loadCtxWindow() {
+    if (ctxWindowLoaded) return;
+    const data = await new Promise((r) => chrome.storage.local.get("ctxWindow", r));
+    ctxWindow = data.ctxWindow || CTX_WINDOW_DEFAULT;
+    ctxWindowLoaded = true;
+  }
+
+  async function setCtxWindow(k) {
+    const val = Math.max(4, Math.min(2048, k)) * 1000;
+    ctxWindow = val;
+    await new Promise((r) => chrome.storage.local.set({ ctxWindow: val }, r));
+    return val;
   }
 
   // ============================================================
@@ -84,6 +102,16 @@
     wrap.innerHTML = PANEL_HTML;
     while (wrap.firstChild) shadow.appendChild(wrap.firstChild);
     $el = (id) => shadow.getElementById(id);
+
+    window.__ccbCtxMeter.init({
+      getShadow: () => shadow,
+      MSG_SELECTORS,
+      CHARS_PER_TOKEN,
+      CTX_WINDOW_DEFAULT,
+      getCtxWindow: () => ctxWindow,
+      closeDropdown: () => closeHiDropdown(),
+      setDropdownCleanup: (fn) => { hiDropdownCleanup = fn; },
+    });
 
     $el("fab").style.pointerEvents = "auto";
     $el("panel").style.pointerEvents = "auto";
@@ -198,7 +226,7 @@
     });
   }
 
-  function openSettings() {
+  async function openSettings() {
     const overlay = $el("settingsOverlay");
     const box = $el("settingsBox");
     const btn = $el("settingsBtn");
@@ -209,6 +237,9 @@
     const top = btnRect.bottom - panelRect.top + 10;
     box.style.left = Math.max(12, Math.min(left, panelRect.width - 282)) + "px";
     box.style.top = Math.max(12, top) + "px";
+    await loadCtxWindow();
+    const input = $el("ccb-ctx-size");
+    if (input) input.value = String(Math.round(ctxWindow / 1000));
     overlay.classList.add("show");
   }
 
@@ -305,7 +336,7 @@
     $el("settingsBtn").addEventListener("click", (e) => {
       e.stopPropagation();
       closeSettings();
-      openSettings();
+      void openSettings();
     });
     $el("settingsCloseBtn").addEventListener("click", closeSettings);
     $el("settingsOverlay").addEventListener("click", (e) => {
@@ -324,6 +355,32 @@
       const file = $el("importBackupInput").files?.[0];
       await importBackupFile(file);
       $el("importBackupInput").value = "";
+    });
+    $el("ccb-files-row").addEventListener("click", (e) => {
+      e.stopPropagation();
+      window.__ccbCtxMeter.openFilesDropdown($el("ccb-files-row"));
+    });
+    $el("ccb-ctx-size").addEventListener("change", async () => {
+      const input = $el("ccb-ctx-size");
+      const raw = input?.value?.trim() || "";
+      if (!raw) {
+        input.value = String(Math.round(ctxWindow / 1000));
+        return;
+      }
+      const value = Number(raw);
+      if (!Number.isFinite(value)) {
+        input.value = String(Math.round(ctxWindow / 1000));
+        return;
+      }
+      try {
+        const next = await setCtxWindow(value);
+        input.value = String(Math.round(next / 1000));
+        window.__ccbCtxMeter.update();
+      } catch (e) {
+        console.error("Failed to save ctxWindow", e);
+        input.value = String(Math.round(ctxWindow / 1000));
+        setStatus("לא ניתן לשמור את חלון הקונטקסט", true);
+      }
     });
     $el("closeBtn").addEventListener("click", async () => {
       if ($el("panel").classList.contains("editing") && hasUnsavedChanges()) {
@@ -380,7 +437,6 @@
     });
     $el("addBtn").addEventListener("click", () => openEdit(null));
     $el("injectBtn").addEventListener("click", injectSelected);
-    $el("summarizeBtn").addEventListener("click", saveChat);
     $el("summarizeBtnHistory").addEventListener("click", saveChat);
     $el("saveBtn").addEventListener("click", saveEdit);
     $el("cancelBtn").addEventListener("click", closeEdit);
@@ -396,6 +452,29 @@
       syncProjectInstructionsSection();
       if (projectInstructionsOpen) $el("projectViewInstructions")?.focus();
     });
+    const ctxExpand = $el("ccb-ctx-expand");
+    if (ctxExpand) {
+      ctxExpand.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const expanded = $el("ccb-ctx-expanded");
+        const chevron = ctxExpand.querySelector(".collapse-btn");
+        if (!expanded) return;
+        const open =
+          expanded.style.display !== "" && expanded.style.display !== "block";
+        if (open) {
+          expanded.style.display = "block";
+          expanded.setAttribute("aria-hidden", "false");
+          ctxExpand.setAttribute("aria-expanded", "true");
+          chevron?.classList.remove("collapsed");
+        } else {
+          expanded.style.display = "none";
+          expanded.setAttribute("aria-hidden", "true");
+          ctxExpand.setAttribute("aria-expanded", "false");
+          chevron?.classList.add("collapsed");
+        }
+        window.__ccbCtxMeter.update();
+      });
+    }
     $el("projectViewSaveBtn").addEventListener("click", saveProjectView);
     $el("projectViewMenuBtn").addEventListener("click", (e) => {
       e.stopPropagation();
@@ -430,10 +509,7 @@
           .classList.add("active");
         moveTabIndicator(tab);
         render();
-        const isHistory = tab.dataset.tab === "history";
-        const inProject = !!getProjectById(currentProjectId);
-        $el("mainFooter").style.display = inProject ? "none" : isHistory ? "none" : "";
-        $el("historyFooter").style.display = inProject ? "none" : isHistory ? "" : "none";
+        window.__ccbCtxMeter.update();
       });
     });
     requestAnimationFrame(() => {
@@ -448,6 +524,34 @@
   async function setPanelOpen(open) {
     if (!isActiveSitePage()) return;
     mountUI();
+
+    // ensure delegated listener for ctx expand exists
+    if (shadow && !ctxExpandBound) {
+      shadow.addEventListener("click", (e) => {
+        const path = e.composedPath ? e.composedPath() : [e.target];
+        const btn = path.find((n) => n && n.id === "ccb-ctx-expand");
+        if (!btn) return;
+        const expanded = shadow.getElementById("ccb-ctx-expanded");
+        if (!expanded) return;
+        const open =
+          expanded.style.display !== "" && expanded.style.display !== "block";
+        const chevron = btn.querySelector(".collapse-btn");
+        if (open) {
+          expanded.style.display = "block";
+          expanded.setAttribute("aria-hidden", "false");
+          btn.setAttribute("aria-expanded", "true");
+          chevron?.classList.remove("collapsed");
+        } else {
+          expanded.style.display = "none";
+          expanded.setAttribute("aria-hidden", "true");
+          btn.setAttribute("aria-expanded", "false");
+          chevron?.classList.add("collapsed");
+        }
+        window.__ccbCtxMeter.update();
+      });
+      ctxExpandBound = true;
+    }
+
     if (open) {
       await loadBlocks();
       $el("panel").classList.add("open");
@@ -455,6 +559,7 @@
       pushPage(true);
       render();
       updateInjectBtn();
+      window.__ccbCtxMeter.update();
       if (getProjectById(currentProjectId)) {
         if (projectInstructionsOpen) $el("projectViewInstructions")?.focus();
         else $el("projectInstructionsEditBtn")?.focus();
@@ -575,17 +680,27 @@
     const projectsBtn = $el("projectsCollapseBtn");
     const historyBtn = $el("historyCollapseBtn");
 
-    if (projectsSection) projectsSection.classList.toggle("collapsed", projectsCollapsed);
-    if (historySection) historySection.classList.toggle("collapsed", historyCollapsed);
+    if (projectsSection)
+      projectsSection.classList.toggle("collapsed", projectsCollapsed);
+    if (historySection)
+      historySection.classList.toggle("collapsed", historyCollapsed);
     if (projectsBtn) {
       projectsBtn.classList.toggle("collapsed", projectsCollapsed);
       projectsBtn.title = projectsCollapsed ? "פתח פרויקטים" : "סגור פרויקטים";
-      projectsBtn.setAttribute("aria-label", projectsCollapsed ? "פתח פרויקטים" : "סגור פרויקטים");
+      projectsBtn.setAttribute(
+        "aria-label",
+        projectsCollapsed ? "פתח פרויקטים" : "סגור פרויקטים",
+      );
     }
     if (historyBtn) {
       historyBtn.classList.toggle("collapsed", historyCollapsed);
-      historyBtn.title = historyCollapsed ? "פתח שיחות אחרונות" : "סגור שיחות אחרונות";
-      historyBtn.setAttribute("aria-label", historyCollapsed ? "פתח שיחות אחרונות" : "סגור שיחות אחרונות");
+      historyBtn.title = historyCollapsed
+        ? "פתח שיחות אחרונות"
+        : "סגור שיחות אחרונות";
+      historyBtn.setAttribute(
+        "aria-label",
+        historyCollapsed ? "פתח שיחות אחרונות" : "סגור שיחות אחרונות",
+      );
     }
   }
 
@@ -596,14 +711,17 @@
     if (panel) panel.classList.toggle("collapsed", !projectInstructionsOpen);
     if (btn) {
       btn.classList.toggle("collapsed", !projectInstructionsOpen);
-      btn.title = projectInstructionsOpen ? "סגור עריכת הנחיות" : "פתח עריכת הנחיות";
+      btn.title = projectInstructionsOpen
+        ? "סגור עריכת הנחיות"
+        : "פתח עריכת הנחיות";
       btn.setAttribute(
         "aria-label",
         projectInstructionsOpen ? "סגור עריכת הנחיות" : "פתח עריכת הנחיות",
       );
       btn.setAttribute("aria-expanded", String(projectInstructionsOpen));
     }
-    if (editBtn) editBtn.textContent = projectInstructionsOpen ? "סגור" : "עריכה";
+    if (editBtn)
+      editBtn.textContent = projectInstructionsOpen ? "סגור" : "עריכה";
     if (editBtn)
       editBtn.setAttribute(
         "aria-label",
@@ -673,6 +791,8 @@
     renderProjectList();
     renderHistoryList();
     renderProjectView();
+    window.__ccbCtxMeter.watchConversation();
+    window.__ccbCtxMeter.update();
   }
 
   function getProjects() {
@@ -696,7 +816,15 @@
     ).length;
   }
 
-  function createHistoryRow(b, { kind = "conversation", snippet = null, role = "user", showProjectTag = true } = {}) {
+  function createHistoryRow(
+    b,
+    {
+      kind = "conversation",
+      snippet = null,
+      role = "user",
+      showProjectTag = true,
+    } = {},
+  ) {
     const row = document.createElement("div");
     row.className =
       "hi-item" +
@@ -743,13 +871,15 @@
 
       const snippetEl = document.createElement("div");
       snippetEl.className = "hi-snippet";
-      if (snippet.prefix) snippetEl.appendChild(document.createTextNode(snippet.prefix));
+      if (snippet.prefix)
+        snippetEl.appendChild(document.createTextNode(snippet.prefix));
       snippetEl.appendChild(document.createTextNode(snippet.before));
       const mark = document.createElement("mark");
       mark.textContent = snippet.match;
       snippetEl.appendChild(mark);
       snippetEl.appendChild(document.createTextNode(snippet.after));
-      if (snippet.suffix) snippetEl.appendChild(document.createTextNode(snippet.suffix));
+      if (snippet.suffix)
+        snippetEl.appendChild(document.createTextNode(snippet.suffix));
 
       snippetRow.appendChild(roleLabel);
       snippetRow.appendChild(snippetEl);
@@ -801,15 +931,11 @@
     const projectsSection = $el("projectsSection");
     const historySection = $el("historySection");
     const view = $el("projectView");
-    const mainFooter = $el("mainFooter");
-    const historyFooter = $el("historyFooter");
-
     if (toolbar) toolbar.style.display = inProject ? "none" : "";
-    if (projectsSection) projectsSection.style.display = inProject ? "none" : "";
+    if (projectsSection)
+      projectsSection.style.display = inProject ? "none" : "";
     if (historySection) historySection.style.display = inProject ? "none" : "";
     if (view) view.style.display = inProject ? "flex" : "none";
-    if (mainFooter) mainFooter.style.display = inProject ? "none" : "";
-    if (historyFooter) historyFooter.style.display = inProject ? "none" : "";
   }
 
   function renderProjectViewConversations(project) {
@@ -1031,7 +1157,10 @@
 
   function renderContextList() {
     const items = Object.values(blocks)
-      .filter((b) => b.kind !== "conversation" && b.kind !== "project" && b.id !== GM_ID)
+      .filter(
+        (b) =>
+          b.kind !== "conversation" && b.kind !== "project" && b.id !== GM_ID,
+      )
       .sort((a, b) => (b.updated || 0) - (a.updated || 0));
 
     const list = $el("list");
@@ -1206,7 +1335,7 @@
     if (!mode) {
       const choice = await showChoice({
         title: "איך לטעון את השיחה?",
-        msg: 'בחר אם רק להציג את ההיסטוריה ב-DOM, או להזריק את תוכן השיחה לצ\'אט.',
+        msg: "בחר אם רק להציג את ההיסטוריה ב-DOM, או להזריק את תוכן השיחה לצ'אט.",
         primaryLabel: "הזרקה לצ'אט",
         secondaryLabel: "רק צפייה בהיסטוריה",
       });
@@ -1371,7 +1500,14 @@
 
   function closeHiDropdown() {
     const dd = $el("hiDropdown");
-    if (dd) dd.classList.remove("open");
+    if (dd) {
+      dd.classList.remove("open", "ctx-files-dropdown");
+      dd.dataset.menuType = "";
+      dd.innerHTML = "";
+      dd.style.minWidth = "";
+      dd.style.maxWidth = "";
+      dd.style.maxHeight = "";
+    }
     if (hiDropdownCleanup) {
       hiDropdownCleanup();
       hiDropdownCleanup = null;
@@ -1620,7 +1756,10 @@
       let role = "user"; // ברירת מחדל
       if (MSG_SELECTORS.aiMessageMatch && MSG_SELECTORS.aiMessageMatch(n)) {
         role = "ai";
-      } else if (MSG_SELECTORS.userMessageMatch && MSG_SELECTORS.userMessageMatch(n)) {
+      } else if (
+        MSG_SELECTORS.userMessageMatch &&
+        MSG_SELECTORS.userMessageMatch(n)
+      ) {
         role = "user";
       }
       messages.push({ role, text: text.trim() });
@@ -1629,7 +1768,8 @@
   }
 
   function messageListsEqual(a, b) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length)
+      return false;
     for (let i = 0; i < a.length; i++) {
       if ((a[i]?.role || "") !== (b[i]?.role || "")) return false;
       if ((a[i]?.text || "").trim() !== (b[i]?.text || "").trim()) return false;
@@ -1640,8 +1780,13 @@
   function appendConversationMessages(existing, incoming) {
     if (!Array.isArray(existing) || !Array.isArray(incoming)) return incoming;
     if (!incoming.length) return existing;
-    if (messageListsEqual(existing.slice(-incoming.length), incoming)) return existing;
-    if (existing.length && incoming.length >= existing.length && messageListsEqual(incoming.slice(0, existing.length), existing)) {
+    if (messageListsEqual(existing.slice(-incoming.length), incoming))
+      return existing;
+    if (
+      existing.length &&
+      incoming.length >= existing.length &&
+      messageListsEqual(incoming.slice(0, existing.length), existing)
+    ) {
       return incoming;
     }
     return [...existing, ...incoming];
@@ -1735,15 +1880,7 @@
       return;
     }
 
-    const projects = getProjects();
-    let projectId = null;
-    if (projects.length) {
-      const picked = await showProjectPicker({
-        title: "שייך את השיחה לפרויקט",
-        allowClear: true,
-      });
-      if (picked !== undefined) projectId = picked;
-    }
+    const projectId = null;
 
     const id = "b_" + Date.now() + "_conv";
     blocks[id] = {
@@ -1841,6 +1978,7 @@
   window.addEventListener("beforeunload", () => {
     msgObserver?.disconnect();
     msgObserver = null;
+    window.__ccbCtxMeter?.cleanup();
   });
 
   // ============================================================
@@ -1880,7 +2018,10 @@
 
   async function init() {
     if (!isActiveSitePage()) return;
+    await loadCtxWindow();
     startMsgObserver();
+    window.__ccbCtxMeter.watchFileInputs();
+    window.__ccbCtxMeter.watchConversation();
     await loadBlocks();
     tryAutoInject();
     if (shouldAutoOpen()) setPanelOpen(true);

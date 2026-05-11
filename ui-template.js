@@ -2,8 +2,9 @@
 window.__ccbTpl = (() => {
   const IC = {
     menu: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>`,
+    menuDots: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="12" cy="19" r="1.2"/></svg>`,
     x: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
-    chevronRight: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`,
+    chevronRight: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>`,
     context: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="12" y2="16"/></svg>`,
     clock: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
     search: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
@@ -30,25 +31,50 @@ window.__ccbTpl = (() => {
                 <span class="sidebar-title" style="font-size: 30px; line-height: 1; margin: 0;">משלי קוד</span>
               </div>
             </div>
-            <span class="sidebar-subtitle">בחר בלוקים לטעינה לשיחה</span>
           </div>
         </div>
-        <div class="tabs" role="tablist">
+      <div class="tabs" role="tablist">
           <div class="tab active" data-tab="history" role="tab" aria-selected="true">${IC.clock} שיחות אחרונות</div>
-          <div class="tab" data-tab="context" role="tab" aria-selected="false">${IC.context} קונטקסט</div>
+          <div class="tab" data-tab="context" role="tab" aria-selected="false">${IC.context} Context</div>
           <div class="tab-indicator" id="tabIndicator"></div>
         </div>
+
       </div>
 
       <div class="tab-pane" id="pane-context">
+        <div class="tab-scroll">
+        <div class="ctx-meter" id="ccb-ctx-meter">
+          <div class="ctx-meter-header" id="ccb-ctx-expand" role="button" aria-expanded="false" tabindex="0">
+            <button type="button" class="collapse-btn collapsed" tabindex="-1" aria-hidden="true">${IC.chevronRight}</button>
+            <span class="ctx-label">Context window</span>
+            <span class="ctx-count" id="ccb-ctx-count">—</span>
+          </div>
+          <div class="ctx-meter-bottom">
+            <div class="ctx-bar-track">
+              <div class="ctx-bar-fill" id="ccb-ctx-fill"></div>
+            </div>
+            <span class="ctx-pct" id="ccb-ctx-pct">0%</span>
+          </div>
+          <div id="ccb-ctx-expanded" class="ctx-expanded" style="display:none" aria-hidden="true"></div>
+          <div class="ctx-files" id="ccb-files-row" style="display:none" role="button" aria-label="קבצים מצורפים">
+            <span class="ctx-files-icon">📎</span>
+            <span class="ctx-files-label" id="ccb-files-label">0 קבצים</span>
+            <span class="ctx-files-tokens" id="ccb-files-tokens"></span>
+          </div>
+        </div>
         <div class="context-toolbar">
           <button id="addBtn" title="בלוק חדש" aria-label="הוסף בלוק חדש">${IC.plus}</button>
         </div>
         <div id="gmCard"></div>
         <div id="list"></div>
+        </div><!-- /tab-scroll -->
+        <footer id="footerContext">
+          <button id="injectBtn" disabled style="flex:1">${IC.upload} טען נבחרים</button>
+        </footer>
       </div>
 
       <div class="tab-pane active" id="pane-history">
+        <div class="tab-scroll">
         <div class="context-toolbar" id="historyToolbar" style="flex-direction:column; gap:8px;">
           <div class="hi-search-toggle">
             <button class="hi-toggle-btn active" id="toggleSearchTitle">חיפוש שיחה</button>
@@ -88,7 +114,7 @@ window.__ccbTpl = (() => {
               <div class="project-view-title-wrap">
                 <div id="projectViewTitle"></div>
               </div>
-              <button id="projectViewMenuBtn" type="button" aria-label="אפשרויות">${IC.menu}</button>
+              <button id="projectViewMenuBtn" type="button" aria-label="אפשרויות">${IC.menuDots}</button>
             </div>
             <div class="gm-card project-instructions-card">
               <div class="gm-header project-instructions-header">
@@ -107,8 +133,13 @@ window.__ccbTpl = (() => {
             </div>
             <div class="project-view-label" style="margin-top:8px;">שיחות בפרויקט</div>
             <div id="projectViewConversations"></div>
+
           </div>
         </div>
+        </div><!-- /tab-scroll -->
+        <footer id="footerHistory">
+          <button id="summarizeBtnHistory" style="flex:1">${IC.msg} שמור שיחה</button>
+        </footer>
       </div>
 
       <div id="hiDropdown"></div>
@@ -132,6 +163,13 @@ window.__ccbTpl = (() => {
             <div class="settings-title">אפשרויות מתקדמות</div>
             <button class="settings-close" id="settingsCloseBtn" aria-label="סגור">${IC.x}</button>
           </div>
+          <div class="setting-row">
+            <div class="setting-row-label">
+              <span class="setting-row-title">Context window</span>
+              <span class="setting-row-sub">K Toekn</span>
+            </div>
+            <input id="ccb-ctx-size" type="number" min="4" max="2048" step="4" value="128" />
+          </div>
           <div class="settings-list">
             <button class="settings-item" id="exportBackupBtn" type="button">
               <span class="settings-item-icon">${IC.download}</span>
@@ -152,15 +190,6 @@ window.__ccbTpl = (() => {
       </div>
 
       <input id="importBackupInput" type="file" accept="application/json,.json" style="display:none" />
-
-      <footer id="mainFooter">
-        <button id="summarizeBtn">${IC.msg} שמור שיחה</button>
-        <button id="injectBtn" disabled>${IC.upload} טען נבחרים</button>
-      </footer>
-
-      <footer id="historyFooter" style="display:none">
-        <button id="summarizeBtnHistory" style="flex:1">${IC.msg} שמור שיחה</button>
-      </footer>
 
       <div id="editView">
         <label>כותרת</label>

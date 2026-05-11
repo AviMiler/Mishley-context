@@ -122,9 +122,120 @@ window.__ccbCSS = (() => {
       transition: left var(--t-medium), width var(--t-medium);
     }
 
+    .ctx-meter {
+      padding: 8px 18px 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-app);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .ctx-meter-info {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      direction: ltr;
+      font-size: 10px;
+      color: var(--text-ghost);
+    }
+    .ctx-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-ghost);
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+      transition: color var(--t-fast);
+    }
+    .ctx-count {
+      font-size: 10px;
+      font-variant-numeric: tabular-nums;
+      color: var(--text-ghost);
+      white-space: nowrap;
+      margin-right: auto;
+    }
+    .ctx-meter-bottom {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      direction: ltr;
+    }
+    .ctx-bar-track {
+      flex: 1;
+      height: 6px;
+      border-radius: 3px;
+      background: var(--border-subtle);
+      overflow: hidden;
+      cursor: help;
+      direction: ltr;
+    }
+    .ctx-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      width: 0%;
+      background: linear-gradient(90deg, #22c55e, #4ade80);
+      transition: width 0.4s ease, background 0.4s ease;
+    }
+    .ctx-bar-fill.warn { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    .ctx-bar-fill.high { background: linear-gradient(90deg, #f97316, #fb923c); }
+    .ctx-bar-fill.crit {
+      background: linear-gradient(90deg, #ef4444, #f87171);
+      animation: ctx-pulse 1.5s ease-in-out infinite;
+    }
+    .ctx-pct {
+      min-width: 42px;
+      font-size: 10px;
+      color: var(--text-ghost);
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .ctx-files {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding-top: 1px;
+      direction: ltr;
+      font-size: 10px;
+      color: var(--text-ghost);
+      cursor: pointer;
+      user-select: none;
+    }
+    .ctx-files:hover { color: var(--text-mute); }
+    .ctx-files-icon { flex-shrink: 0; }
+    .ctx-files-label {
+      min-width: 0;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .ctx-files-tokens {
+      flex-shrink: 0;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    @keyframes ctx-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
     /* ── Tab panes ── */
     .tab-pane { display: none; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
     .tab-pane.active { display: flex; }
+    .tab-scroll {
+      flex: 1; min-height: 0;
+      overflow-y: auto; overflow-x: hidden;
+    }
+    #pane-context #list {
+      overflow: visible;
+      flex: none;
+    }
+    #pane-history #historyList {
+      overflow: visible;
+      flex: none;
+    }
 
     /* Coming soon */
     .coming-soon {
@@ -138,12 +249,15 @@ window.__ccbCSS = (() => {
 
     /* ── Search row ── */
     .context-toolbar {
-      display: flex; gap: 8px; padding: 14px 18px 10px; align-items: center; flex-shrink: 0;
+      display: flex; gap: 8px; padding: 14px 18px 10px; align-items: center;
     }
     #historyToolbar {
       flex-direction: column;
       gap: 8px;
       align-items: stretch;
+    }
+    #pane-context .context-toolbar {
+      flex-shrink: 0;
     }
     .search-wrap { flex: 1; position: relative; }
     #search, #searchHistory {
@@ -199,7 +313,7 @@ window.__ccbCSS = (() => {
       transform-origin: center;
     }
     .collapse-btn.collapsed svg { transform: rotate(0deg); }
-    .collapse-btn:not(.collapsed) svg { transform: rotate(90deg); }
+    .collapse-btn:not(.collapsed) svg { transform: rotate(-90deg); }
     #addProjectBtn {
       width: 22px;
       height: 22px;
@@ -219,10 +333,8 @@ window.__ccbCSS = (() => {
       padding-bottom: 8px;
     }
     #historySection {
-      flex: 1;
+      flex: 0;
       min-height: 0;
-      display: flex;
-      flex-direction: column;
     }
     #projectsSection.collapsed #projectList,
     #historySection.collapsed #historyList {
@@ -302,9 +414,16 @@ window.__ccbCSS = (() => {
 
     /* ── Block list ── */
     #list, #historyList {
-      flex: 1; overflow-y: auto; min-height: 0;
+      min-height: 0;
       padding: 4px 18px 14px;
       display: flex; flex-direction: column; gap: 8px;
+    }
+    #list {
+      flex: 1;
+    }
+    #historyList {
+      overflow: visible;
+      flex: none;
     }
 
     /* ── Block card ── */
@@ -431,6 +550,10 @@ window.__ccbCSS = (() => {
       color: var(--text-mute);
       white-space: nowrap;
       flex-shrink: 0;
+      min-width: 0;
+      max-width: 42%;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .hi-menu-btn {
       width: 26px; height: 26px; flex-shrink: 0;
@@ -456,6 +579,12 @@ window.__ccbCSS = (() => {
       display: none;
     }
     #hiDropdown.open { display: block; }
+    #hiDropdown.ctx-files-dropdown {
+      min-width: 220px;
+      max-width: 360px;
+      max-height: 260px;
+      overflow-y: auto;
+    }
     .hd-item {
       display: flex; align-items: center; gap: 8px;
       padding: 8px 10px; border-radius: 8px;
@@ -469,6 +598,38 @@ window.__ccbCSS = (() => {
     .hd-sep {
       height: 1px; background: var(--border-subtle); margin: 4px 0;
     }
+    .ctx-file-item {
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .ctx-file-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+    .ctx-file-tokens {
+      flex-shrink: 0;
+      color: var(--text-faint);
+      font-variant-numeric: tabular-nums;
+    }
+    .ctx-meter-header {
+      display: flex; align-items: center; gap: 6px;
+      cursor: pointer; user-select: none; padding: 0;
+    }
+    .ctx-meter-header:hover .ctx-label { color: var(--text-strong); }
+    .ctx-meter-header:hover .collapse-btn { color: var(--text-strong); }
+    .ctx-meter-header[aria-expanded="true"] .collapse-btn { transform: none; }
+    .ctx-meter-header[aria-expanded="true"] .collapse-btn svg { transform: rotate(-90deg); }
+    .ctx-meter-header[aria-expanded="false"] .collapse-btn svg { transform: rotate(0deg); }
+    .ctx-expanded {
+      padding: 8px 0 2px; font-size: 12px; color: var(--text-body);
+      border-top: 1px solid var(--border-subtle); margin-top: 8px;
+    }
+    .ctx-expanded .row { display:flex; justify-content: space-between; align-items: center; padding: 3px 0; }
+    .ctx-expanded .row .label { color: var(--text-mute); }
+    .ctx-expanded .row .value { font-variant-numeric: tabular-nums; color: var(--text-strong); font-weight: 500; }
 
     .empty {
       padding: 40px 10px; text-align: center;
@@ -492,10 +653,14 @@ window.__ccbCSS = (() => {
       display: flex;
       align-items: center;
       gap: 8px;
+      min-width: 0;
+      overflow: hidden;
+      position: relative; /* allow absolutely-positioned title to center safely */
     }
     .project-instructions-card {
       margin: 2px 0 0;
       padding: 12px 14px;
+      overflow: hidden;
     }
     .project-instructions-card .gm-preview {
       margin-top: 8px;
@@ -531,15 +696,34 @@ window.__ccbCSS = (() => {
     .project-view-title-wrap {
       flex: 1;
       min-width: 0;
+      overflow: hidden;
       text-align: center;
+      /* ensure the title never grows past the space between the two 30px buttons */
+      max-width: calc(100% - 72px);
     }
     #projectViewTitle {
+      display: block;
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: auto;
+      max-width: calc(100% - 96px); /* leave room for two 30px buttons + gaps/padding */
+      min-width: 0;
+      box-sizing: border-box;
+      padding: 0 12px;
       font-size: 16px;
       font-weight: 700;
       color: var(--text-strong);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      z-index: 3; /* keep above the side buttons */
+      text-align: center;
+    }
+    /* Ensure project-related names respect RTL and truncate instead of expanding */
+    #projectViewTitle, .project-accordion-toggle, .project-picker-item, .project-name {
+      direction: rtl;
     }
     .project-accordion-toggle {
       width: 100%;
@@ -634,6 +818,9 @@ window.__ccbCSS = (() => {
       font-family: var(--font-he);
       cursor: pointer;
       color: var(--text-body);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .project-picker-item:hover,
     .project-picker-item.active {
@@ -828,6 +1015,51 @@ window.__ccbCSS = (() => {
     .settings-head {
       display: flex; align-items: center; justify-content: space-between;
       gap: 10px; margin-bottom: 12px;
+    }
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      background: var(--bg-app);
+    }
+    .setting-row-label {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .setting-row-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-strong);
+      line-height: 1.2;
+    }
+    .setting-row-sub {
+      font-size: 11px;
+      color: var(--text-ghost);
+      line-height: 1.2;
+    }
+    .setting-row input[type="number"] {
+      width: 92px;
+      height: 32px;
+      border: 1px solid var(--border-input);
+      border-radius: 10px;
+      padding: 0 10px;
+      font-family: var(--font-en);
+      font-size: 13px;
+      color: var(--text-strong);
+      background: var(--bg-card);
+      outline: none;
+      text-align: center;
+    }
+    .setting-row input[type="number"]:focus {
+      border-color: var(--text-faint);
+      box-shadow: 0 0 0 2px rgba(28,25,23,.08);
     }
     .settings-title {
       font-size: 14px; font-weight: 600; color: var(--text-strong);

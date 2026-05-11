@@ -32,6 +32,8 @@ const ACTIVE_SITE = "gemini"; // ← שנה ל-"internal" לצ'אט הפנימי
 | `INPUT_FALLBACKS`      | string[]     | Fallback selectors when CHAT_INPUT_SELECTOR fails    |
 | `STORAGE_KEY`          | string       | chrome.storage key (`"blocks"`)                      |
 | `GM_ID`                | string       | ID of general memory block (`"__general_memory"`)    |
+| `CTX_WINDOW_DEFAULT`   | number       | Default context window in tokens (128000)            |
+| `CHARS_PER_TOKEN`      | number       | Approximate chars/token ratio for meter estimation   |
 | `SUMMARY_PROMPT`       | string       | Prompt sent to AI when user clicks "סכם שיחה"        |
 | `FRAMING`              | string       | Preamble injected before any context handoff         |
 
@@ -71,6 +73,8 @@ const ACTIVE_SITE = "gemini"; // ← שנה ל-"internal" לצ'אט הפנימי
 | `showConfirm({title,msg,confirmLabel,danger})` | Custom in-shadow confirm dialog → Promise<bool>                        |
 | `showPrompt({title,defaultValue})`             | In-shadow text-input dialog → Promise<string\|null> (null = cancelled) |
 | `openSettings()` / `closeSettings()`           | Show/hide and position the advanced options popover                    |
+| `loadCtxWindow()` / `setCtxWindow(k)`          | Load and persist the context-window size used by the meter             |
+| `watchFileInputs()`                            | Tracks attached files from page file inputs and estimates token cost   |
 | `exportBackup()`                               | Downloads `context-bank-backup.json` with the full blocks object       |
 | `importBackupFile(file)`                       | Validates and restores blocks from a JSON backup file                  |
 | `hasUnsavedChanges()`                          | Checks if edit form differs from saved block                           |
@@ -85,39 +89,44 @@ const ACTIVE_SITE = "gemini"; // ← שנה ל-"internal" לצ'אט הפנימי
 
 `currentProjectId` tracks the active project detail view inside the history tab.
 `projectsCollapsed`, `historyCollapsed`, and `projectInstructionsOpen` track the section toggles in the history/project UI.
+`ccb-ctx-meter` is rendered inside `#pane-context`, so the context-window meter appears only in the Context tab.
+The meter combines live DOM message tokens with tracked uploaded-file tokens.
+Both tabs now scroll at the pane level (`#pane-context`, `#pane-history`), so search/toolbars + content scroll together.
 
 ### General Memory
 
-| Function                | Description                                         |
-| ----------------------- | --------------------------------------------------- |
-| `getGM()`               | Returns GM block from `blocks` (with defaults)      |
+| Function                | Description                                                                         |
+| ----------------------- | ----------------------------------------------------------------------------------- |
+| `getGM()`               | Returns GM block from `blocks` (with defaults)                                      |
 | `renderGeneralMemory()` | Renders the GM card in the context tab and lets it be selected for manual injection |
-| `tryAutoInject()`       | Polls for input readiness, injects GM + clicks send |
+| `tryAutoInject()`       | Polls for input readiness, injects GM + clicks send                                 |
 
 ### Render
 
-| Function                                         | Description                                                                            |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| `dateGroup(ts)`                                  | Returns Hebrew date bucket: היום/אתמול/השבוע/החודש/קודם                                |
-| `captureConversation()`                          | Reads all messages from DOM via MSG_SELECTORS → `[{role,text}]`                        |
-| `getProjects()` / `getProjectById(id)`           | Returns project blocks or a single project block                                        |
-| `formatTranscript(messages)`                     | Formats message array as "User: … / Assistant: …" text                                 |
-| `buildConversationInjectionText(messages, block)`| Builds FRAMING + GM + project instructions + transcript for chat injection             |
-| `injectHistoryBubbles(messages)`                 | Prepends styled chat bubbles into the page's messageList container, preserving line breaks |
-| `buildHistoryMessages(b)`                        | Normalizes conversation/summarized history into DOM-ready message bubbles               |
-| `showChoice({title,msg,primaryLabel,secondaryLabel})` | Two-button modal for choosing history view vs chat injection                      |
-| `showProjectPicker()`                            | Modal picker for assigning a conversation to a project                                  |
-| `loadConversation(b, mode?)`                     | Prompts for view/inject, swaps existing history DOM, and injects project context for project chats |
-| `openProjectView(projectId)` / `closeProjectView()` | Switches the history tab into project-management mode                                 |
-| `renderProjectList()` / `renderProjectView()`     | Renders the project cards and the active project detail screen with GM-style instructions editing |
-| `syncCollapsibleSections()` / `syncProjectInstructionsSection()` | Keeps the history/project section toggles in sync with state        |
-| `openHiDropdown(b, menuBtn)`                     | Opens pin/delete dropdown next to history item                                         |
-| `openProjectDropdown(project, menuBtn)`          | Opens rename/delete dropdown for a project                                              |
-| `closeHiDropdown()`                              | Closes the dropdown and removes outside-click listener                                 |
-| `extractSnippet(text, q, fromIndex)`             | Returns a 50-char context snippet with match boundaries for content search             |
-| `renderHistoryList()`                            | Renders history tab: title search or content search, with project tags + date groups   |
-| `render()`                                       | Full re-render (GM card + context list + project list + history list + project view)    |
-| `renderList({listId,searchId,isMatch,emptyMsg})` | Renders a filtered+sorted block list with checkboxes                                   |
+| Function                                                         | Description                                                                                                                                         |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dateGroup(ts)`                                                  | Returns Hebrew date bucket: היום/אתמול/השבוע/החודש/קודם                                                                                             |
+| `captureConversation()`                                          | Reads all messages from DOM via MSG_SELECTORS → `[{role,text}]`                                                                                     |
+| `getProjects()` / `getProjectById(id)`                           | Returns project blocks or a single project block                                                                                                    |
+| `formatTranscript(messages)`                                     | Formats message array as "User: … / Assistant: …" text                                                                                              |
+| `buildConversationInjectionText(messages, block)`                | Builds FRAMING + GM + project instructions + transcript for chat injection                                                                          |
+| `injectHistoryBubbles(messages)`                                 | Prepends styled chat bubbles into the page's messageList container, preserving line breaks                                                          |
+| `buildHistoryMessages(b)`                                        | Normalizes conversation/summarized history into DOM-ready message bubbles                                                                           |
+| `showChoice({title,msg,primaryLabel,secondaryLabel})`            | Two-button modal for choosing history view vs chat injection                                                                                        |
+| `showProjectPicker()`                                            | Modal picker for assigning a conversation to a project                                                                                              |
+| `loadConversation(b, mode?)`                                     | Prompts for view/inject, swaps existing history DOM, and injects project context for project chats                                                  |
+| `openProjectView(projectId)` / `closeProjectView()`              | Switches the history tab into project-management mode                                                                                               |
+| `renderProjectList()` / `renderProjectView()`                    | Renders the project cards and the active project detail screen with GM-style instructions editing and dots menu; long names are truncated in the UI |
+| `estimateTokens()` / `updateCtxMeter()` / `watchConversation()`  | Estimates live DOM token usage and keeps the meter updated                                                                                          |
+| `syncUploadedFiles()` / `watchFileInputs()`                      | Tracks file input selections and folds their tokens into the meter                                                                                  |
+| `syncCollapsibleSections()` / `syncProjectInstructionsSection()` | Keeps the history/project section toggles in sync with state                                                                                        |
+| `openHiDropdown(b, menuBtn)`                                     | Opens pin/delete dropdown next to history item                                                                                                      |
+| `openProjectDropdown(project, menuBtn)`                          | Opens rename/delete dropdown for a project                                                                                                          |
+| `closeHiDropdown()`                                              | Closes the dropdown and removes outside-click listener                                                                                              |
+| `extractSnippet(text, q, fromIndex)`                             | Returns a 50-char context snippet with match boundaries for content search                                                                          |
+| `renderHistoryList()`                                            | Renders history tab: title search or content search, with project tags + date groups; long project tags truncate instead of expanding the row       |
+| `render()`                                                       | Full re-render (GM card + context list + project list + history list + project view)                                                                |
+| `renderList({listId,searchId,isMatch,emptyMsg})`                 | Renders a filtered+sorted block list with checkboxes                                                                                                |
 
 ### Edit form
 
@@ -133,11 +142,11 @@ const ACTIVE_SITE = "gemini"; // ← שנה ל-"internal" לצ'אט הפנימי
 | Function                   | Description                                                                                                                                                                                                                        |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `updateInjectBtn()`        | Updates "טען נבחרים" button state + count pill                                                                                                                                                                                     |
-| `injectSelected()`         | Injects all selected blocks with FRAMING, clicks send (GM first when selected)                                                                                                                                                      |
+| `injectSelected()`         | Injects all selected blocks with FRAMING, clicks send (GM first when selected)                                                                                                                                                     |
 | `findScrollableAncestor()` | Walks up from `MSG_SELECTORS.messageList` to find the real scrollable element (overflow auto/scroll + scrollHeight > clientHeight); falls back to scanning `main` / class-based candidates. Generic — survives Gemini DOM changes. |
 | `scrollAndCaptureAll()`    | Uses `findScrollableAncestor()`, then scrolls to top repeatedly until message count stabilizes (defeats virtual scrolling)                                                                                                         |
-| `saveChat()`               | If MSG_SELECTORS ready: scrolls to top → captures DOM → appends new messages to the current conversation or creates one. Else: injects SUMMARY_PROMPT (fallback)                                                                                                                |
-| `saveProjectView()`        | Persists the active project instructions field                                                                                                                                        |
+| `saveChat()`               | If MSG_SELECTORS ready: scrolls to top → captures DOM → appends new messages to the current conversation or creates one. Else: injects SUMMARY_PROMPT (fallback)                                                                   |
+| `saveProjectView()`        | Persists the active project instructions field                                                                                                                                                                                     |
 
 ### Status / toast
 
@@ -155,11 +164,11 @@ const ACTIVE_SITE = "gemini"; // ← שנה ל-"internal" לצ'אט הפנימי
 
 ### Init
 
-| Function           | Description                                                                           |
-| ------------------ | ------------------------------------------------------------------------------------- |
-| `shouldAutoOpen()` | True if current URL matches AUTO_OPEN_URLS                                            |
-| `isActiveSitePage()` | True if current URL matches the active site URL list; gates mount/toggle/init         |
-| `init()`           | Entry point — loads blocks, starts inline save, runs tryAutoInject (always), opens panel if AUTO_OPEN_URL |
+| Function             | Description                                                                                               |
+| -------------------- | --------------------------------------------------------------------------------------------------------- |
+| `shouldAutoOpen()`   | True if current URL matches AUTO_OPEN_URLS                                                                |
+| `isActiveSitePage()` | True if current URL matches the active site URL list; gates mount/toggle/init                             |
+| `init()`             | Entry point — loads blocks, starts inline save, runs tryAutoInject (always), opens panel if AUTO_OPEN_URL |
 
 ## summarizer.js
 

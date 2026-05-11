@@ -50,6 +50,7 @@ History bubbles preserve line breaks with `white-space: pre-wrap`, so saved conv
 General Memory now has its own manual injection checkbox in the context card and is injected first when selected.
 The sidebar header now includes a left-aligned gear button labeled with the tooltip "אפשרויות מתקדמות".
 That menu is a floating popover styled like a UX side menu and includes backup export/import for `context-bank-backup.json`; import replaces the current blocks after confirmation.
+Long project names in history tags and project picker items now truncate with ellipsis instead of pushing the layout off-screen.
 
 ## Rules
 
