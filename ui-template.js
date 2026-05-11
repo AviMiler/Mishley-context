@@ -207,6 +207,38 @@ window.__ccbTpl = (() => {
       </div>
 
     </div>
+
+    <div id="conversationView" aria-hidden="true">
+      <div class="cv-shell">
+        <div class="cv-header">
+          <button id="cvBack" type="button" aria-label="חזרה">${IC.chevronRight}</button>
+          <div class="cv-title-wrap">
+            <div id="cvTitle"></div>
+            <div id="cvMeta" class="cv-meta"></div>
+          </div>
+        </div>
+
+        <div class="cv-search-wrap">
+          <input id="cvSearch" type="search" placeholder="חיפוש בשיחה..." autocomplete="off" />
+          <span class="cv-search-icon">${IC.search}</span>
+          <span id="cvSearchCount" class="cv-search-count"></span>
+          <button id="cvNavPrev" type="button" class="cv-nav-btn" title="תוצאה קודמת" disabled>${IC.chevronRight}</button>
+          <button id="cvNavNext" type="button" class="cv-nav-btn cv-nav-next" title="תוצאה הבאה" disabled>${IC.chevronRight}</button>
+        </div>
+
+        <div class="cv-messages" id="cvMessages"></div>
+
+        <div class="cv-sel-bar">
+          <button id="cvSelAll" type="button" class="cv-sel-btn">בחר הכל</button>
+          <button id="cvSelNone" type="button" class="cv-sel-btn">בטל הכל</button>
+          <span id="cvSelCount" class="cv-sel-count"></span>
+        </div>
+
+        <div class="cv-footer">
+          <button id="cvLoadBtn" type="button" class="cv-load-btn" disabled>${IC.upload} טען נבחרים</button>
+        </div>
+      </div>
+    </div>
   `;
 
   return { IC, PANEL_HTML };

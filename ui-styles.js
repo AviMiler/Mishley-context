@@ -978,6 +978,292 @@ window.__ccbCSS = (() => {
       font-family: var(--font-he); cursor: pointer;
       transition: background var(--t-fast);
     }
+
+    /* ── Conversation Preview Panel ── */
+    #conversationView {
+      position: fixed;
+      top: 0;
+      left: ${w}px;
+      right: 0;
+      height: 100vh;
+      background: var(--bg-app);
+      font-family: var(--font-he);
+      font-size: 13px;
+      direction: rtl;
+      color: var(--text-strong);
+      z-index: 5;
+      display: none;
+      flex-direction: column;
+      pointer-events: auto;
+    }
+    #conversationView.cv-open { display: flex; }
+    .cv-shell {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    /* Header */
+    .cv-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 18px 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      flex-shrink: 0;
+    }
+    #cvBack {
+      width: 30px;
+      height: 30px;
+      border: none;
+      background: none;
+      border-radius: 8px;
+      cursor: pointer;
+      color: var(--text-faint);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    #cvBack:hover { background: rgba(0,0,0,.04); color: var(--text-strong); }
+    #cvBack svg { transform: rotate(180deg); }
+    .cv-title-wrap { flex: 1; min-width: 0; }
+    #cvTitle {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-strong);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      direction: rtl;
+    }
+    .cv-meta {
+      font-size: 11px;
+      color: var(--text-ghost);
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      direction: rtl;
+    }
+
+    /* Search */
+    .cv-search-wrap {
+      position: relative;
+      padding: 8px 18px;
+      border-bottom: 1px solid var(--border-subtle);
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    #cvSearch {
+      flex: 1;
+      height: 32px;
+      padding: 0 30px 0 8px;
+      border: 1px solid var(--border-input);
+      border-radius: var(--r-input);
+      font-size: 13px;
+      font-family: var(--font-he);
+      background: var(--bg-card);
+      outline: none;
+      color: var(--text-strong);
+      transition: border-color var(--t-fast);
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    #cvSearch:focus { border-color: var(--text-faint); }
+    #cvSearch::placeholder { color: var(--text-ghost); }
+    .cv-search-icon {
+      position: absolute;
+      right: 26px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-ghost);
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+    }
+    .cv-search-count {
+      font-size: 11px;
+      color: var(--text-ghost);
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+      min-width: 32px;
+      text-align: center;
+    }
+    .cv-nav-btn {
+      width: 24px;
+      height: 24px;
+      border: 1px solid var(--border-input);
+      background: var(--bg-card);
+      border-radius: 6px;
+      cursor: pointer;
+      color: var(--text-faint);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .cv-nav-btn:not(:disabled):hover { color: var(--text-strong); background: var(--bg-tag); }
+    .cv-nav-btn:disabled { opacity: 0.35; cursor: default; }
+    .cv-nav-btn svg { width: 11px; height: 11px; }
+    /* prev = points right (→), next = points left (←) */
+    #cvNavPrev svg { transform: rotate(180deg); }
+
+    /* Messages */
+    .cv-messages {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 14px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .cv-msg {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      max-width: 88%;
+      position: relative;
+      transition: opacity var(--t-fast);
+      cursor: pointer;
+    }
+    .cv-msg.cv-msg-user { align-self: flex-end; align-items: flex-end; }
+    .cv-msg.cv-msg-ai { align-self: flex-start; align-items: flex-start; }
+    .cv-msg.cv-dim { opacity: 0.2; }
+    .cv-msg.cv-deselected { opacity: 0.35; }
+    .cv-msg-role {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-ghost);
+      padding: 0 6px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .cv-msg-check {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      border: 1.5px solid var(--border-input);
+      background: var(--bg-card);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background var(--t-fast), border-color var(--t-fast);
+    }
+    .cv-msg.cv-selected .cv-msg-check {
+      background: var(--text-strong);
+      border-color: var(--text-strong);
+    }
+    .cv-msg.cv-selected .cv-msg-check::after {
+      content: '';
+      display: block;
+      width: 8px;
+      height: 5px;
+      border-left: 2px solid var(--bg-app);
+      border-bottom: 2px solid var(--bg-app);
+      transform: rotate(-45deg) translateY(-1px);
+    }
+    .cv-msg-bubble {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 9px 13px;
+      font-size: 13px;
+      line-height: 1.55;
+      color: var(--text-body);
+      word-break: break-word;
+      white-space: pre-wrap;
+      transition: border-color var(--t-fast);
+    }
+    .cv-msg-user .cv-msg-bubble {
+      background: var(--text-strong);
+      color: var(--bg-app);
+      border-color: var(--text-strong);
+      border-radius: 12px 4px 12px 12px;
+    }
+    .cv-msg-ai .cv-msg-bubble { border-radius: 4px 12px 12px 12px; }
+    .cv-msg.cv-selected .cv-msg-bubble { border-color: var(--text-faint); }
+
+    /* Search highlights */
+    .cv-msg-bubble mark {
+      background: #fef08a;
+      color: var(--text-strong);
+      border-radius: 2px;
+      padding: 0 1px;
+    }
+    .cv-msg-user .cv-msg-bubble mark { background: #fbbf24; color: #1c1917; }
+    .cv-msg-bubble mark.cv-match-active { background: #f97316; color: #fff; }
+
+    /* Selection bar */
+    .cv-sel-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 18px;
+      border-top: 1px solid var(--border-subtle);
+      background: var(--bg-app);
+      flex-shrink: 0;
+    }
+    .cv-sel-btn {
+      height: 26px;
+      padding: 0 10px;
+      border: 1px solid var(--border-input);
+      background: var(--bg-card);
+      border-radius: var(--r-input);
+      font-size: 12px;
+      font-family: var(--font-he);
+      cursor: pointer;
+      color: var(--text-body);
+      transition: background var(--t-fast);
+    }
+    .cv-sel-btn:hover { background: var(--bg-tag); }
+    .cv-sel-count {
+      margin-right: auto;
+      font-size: 11px;
+      color: var(--text-ghost);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Footer */
+    .cv-footer {
+      padding: 10px 18px 14px;
+      border-top: 1px solid var(--border-subtle);
+      background: var(--bg-app);
+      flex-shrink: 0;
+    }
+    .cv-load-btn {
+      width: 100%;
+      height: 40px;
+      border: none;
+      background: var(--text-strong);
+      color: var(--bg-app);
+      border-radius: var(--r-input);
+      font-size: 13px;
+      font-weight: 600;
+      font-family: var(--font-he);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background var(--t-fast);
+    }
+    .cv-load-btn:hover:not(:disabled) { background: #2a2622; }
+    .cv-load-btn:disabled {
+      background: var(--bg-clear);
+      color: var(--text-ghost);
+      cursor: not-allowed;
+    }
     .dialog-confirm:hover { background: #2a2622; }
     .dialog-confirm.danger { background: #c53030; }
     .dialog-confirm.danger:hover { background: #9b2c2c; }

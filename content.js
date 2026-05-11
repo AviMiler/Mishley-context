@@ -58,6 +58,26 @@
   let ctxWindowLoaded = false;
   let ctxExpandBound = false;
 
+  // Conversation View (preview panel)
+  let currentConversationViewId = null;
+  let cvSelectedIndices = new Set();
+  let cvMatchElements = [];
+  let cvMatchIndex = 0;
+
+  function formatAge(ts) {
+    const t = Number(ts || 0);
+    if (!t) return "";
+    const diff = Date.now() - t;
+    const sec = Math.max(0, Math.floor(diff / 1000));
+    const min = Math.floor(sec / 60);
+    const hr = Math.floor(min / 60);
+    const day = Math.floor(hr / 24);
+    if (day > 0) return `לפני ${day} ימים`;
+    if (hr > 0) return `לפני ${hr} שעות`;
+    if (min > 0) return `לפני ${min} דקות`;
+    return "עכשיו";
+  }
+
   async function loadBlocks() {
     if (blocksLoaded) return;
     blocks = await _loadBlocks(STORAGE_KEY);
@@ -70,7 +90,9 @@
 
   async function loadCtxWindow() {
     if (ctxWindowLoaded) return;
-    const data = await new Promise((r) => chrome.storage.local.get("ctxWindow", r));
+    const data = await new Promise((r) =>
+      chrome.storage.local.get("ctxWindow", r),
+    );
     ctxWindow = data.ctxWindow || CTX_WINDOW_DEFAULT;
     ctxWindowLoaded = true;
   }
@@ -110,7 +132,9 @@
       CTX_WINDOW_DEFAULT,
       getCtxWindow: () => ctxWindow,
       closeDropdown: () => closeHiDropdown(),
-      setDropdownCleanup: (fn) => { hiDropdownCleanup = fn; },
+      setDropdownCleanup: (fn) => {
+        hiDropdownCleanup = fn;
+      },
     });
 
     $el("fab").style.pointerEvents = "auto";
@@ -482,8 +506,76 @@
       if (project) openProjectDropdown(project, $el("projectViewMenuBtn"));
     });
 
+    // Conversation View controls
+    $el("cvBack")?.addEventListener("click", closeConversationView);
+
+    let cvSearchTimer = null;
+    $el("cvSearch")?.addEventListener("input", () => {
+      clearTimeout(cvSearchTimer);
+      cvSearchTimer = setTimeout(() => {
+        const b = currentConversationViewId
+          ? blocks[currentConversationViewId]
+          : null;
+        if (b)
+          renderConversationMessages(b, ($el("cvSearch")?.value || "").trim());
+      }, DEBOUNCE_MS);
+    });
+
+    $el("cvNavPrev")?.addEventListener("click", () => {
+      if (!cvMatchElements.length) return;
+      cvMatchIndex =
+        (cvMatchIndex - 1 + cvMatchElements.length) % cvMatchElements.length;
+      updateNavMatch();
+    });
+    $el("cvNavNext")?.addEventListener("click", () => {
+      if (!cvMatchElements.length) return;
+      cvMatchIndex = (cvMatchIndex + 1) % cvMatchElements.length;
+      updateNavMatch();
+    });
+
+    $el("cvSelAll")?.addEventListener("click", () => {
+      const b = currentConversationViewId
+        ? blocks[currentConversationViewId]
+        : null;
+      if (!b) return;
+      cvSelectedIndices = new Set(buildHistoryMessages(b).map((_, i) => i));
+      renderConversationMessages(b, ($el("cvSearch")?.value || "").trim());
+    });
+    $el("cvSelNone")?.addEventListener("click", () => {
+      cvSelectedIndices = new Set();
+      const b = currentConversationViewId
+        ? blocks[currentConversationViewId]
+        : null;
+      if (b)
+        renderConversationMessages(b, ($el("cvSearch")?.value || "").trim());
+      else updateCvFooter();
+    });
+
+    $el("cvLoadBtn")?.addEventListener("click", () => {
+      const b = currentConversationViewId
+        ? blocks[currentConversationViewId]
+        : null;
+      if (!b || !cvSelectedIndices.size) return;
+      const allMsgs = buildHistoryMessages(b);
+      const selectedMsgs = allMsgs.filter((_, i) => cvSelectedIndices.has(i));
+      const text = buildConversationInjectionText(selectedMsgs, b, {
+        includeGeneralMemory: false,
+      });
+      const r = injectIntoInput(text, "replace");
+      if (r.ok) {
+        closeConversationView();
+        setTimeout(
+          () => document.querySelector(CONFIG.SEND_BUTTON_SELECTOR)?.click(),
+          100,
+        );
+      } else {
+        setStatus(r.error || "נכשל", true);
+      }
+    });
+
     shadow.querySelectorAll(".tab").forEach((tab) => {
       tab.addEventListener("click", async () => {
+        closeConversationView();
         if ($el("panel").classList.contains("editing")) {
           if (hasUnsavedChanges()) {
             const ok = await showConfirm({
@@ -567,6 +659,7 @@
         $el("searchHistory").focus();
       }
     } else {
+      closeConversationView();
       $el("panel").classList.remove("open");
       $el("fab").classList.remove("hidden");
       pushPage(false);
@@ -856,7 +949,7 @@
       openHiDropdown(b, menuBtn);
     });
 
-    row.addEventListener("click", () => loadConversation(b));
+    row.addEventListener("click", () => openConversationView(b));
 
     head.appendChild(menuBtn);
     row.appendChild(head);
@@ -986,6 +1079,7 @@
   function openProjectView(projectId) {
     const project = getProjectById(projectId);
     if (!project) return;
+    closeConversationView();
     currentProjectId = project.id;
     projectInstructionsOpen = false;
     render();
@@ -996,6 +1090,193 @@
     currentProjectId = null;
     projectInstructionsOpen = false;
     render();
+  }
+
+  function openConversationView(b) {
+    if (!b) return;
+    closeProjectView();
+
+    const messages = buildHistoryMessages(b);
+    currentConversationViewId = b.id;
+    cvSelectedIndices = new Set(messages.map((_, i) => i));
+    cvMatchElements = [];
+    cvMatchIndex = 0;
+
+    $el("cvTitle").textContent = b.title || "שיחה";
+    const project = getConversationProject(b);
+    const parts = [];
+    const age = formatAge(b.updated);
+    if (age) parts.push(age);
+    parts.push(messages.length + " הודעות");
+    if (project?.title) parts.push(project.title);
+    $el("cvMeta").textContent = parts.join(" · ");
+
+    const view = $el("conversationView");
+    view?.classList.add("cv-open");
+    view?.setAttribute("aria-hidden", "false");
+    const s = $el("cvSearch");
+    if (s) s.value = "";
+    renderConversationMessages(b, "");
+    const msgBox = $el("cvMessages");
+    if (msgBox) msgBox.scrollTop = 0;
+    setTimeout(() => $el("cvSearch")?.focus(), 10);
+  }
+
+  function closeConversationView() {
+    currentConversationViewId = null;
+    cvSelectedIndices = new Set();
+    cvMatchElements = [];
+    cvMatchIndex = 0;
+    const view = $el("conversationView");
+    view?.classList.remove("cv-open");
+    view?.setAttribute("aria-hidden", "true");
+    if ($el("cvSearch")) $el("cvSearch").value = "";
+  }
+
+  function updateNavMatch() {
+    cvMatchElements.forEach((m) => m.classList.remove("cv-match-active"));
+    const countEl = $el("cvSearchCount");
+    const prevBtn = $el("cvNavPrev");
+    const nextBtn = $el("cvNavNext");
+
+    if (!cvMatchElements.length) {
+      if (countEl) countEl.textContent = "";
+      if (prevBtn) prevBtn.disabled = true;
+      if (nextBtn) nextBtn.disabled = true;
+      return;
+    }
+
+    if (cvMatchIndex < 0) cvMatchIndex = 0;
+    if (cvMatchIndex >= cvMatchElements.length)
+      cvMatchIndex = cvMatchElements.length - 1;
+
+    const active = cvMatchElements[cvMatchIndex];
+    active.classList.add("cv-match-active");
+    try {
+      active.scrollIntoView({ behavior: "smooth", block: "center" });
+    } catch {
+      active.scrollIntoView();
+    }
+
+    if (countEl)
+      countEl.textContent = `${cvMatchIndex + 1}/${cvMatchElements.length}`;
+    if (prevBtn) prevBtn.disabled = false;
+    if (nextBtn) nextBtn.disabled = false;
+  }
+
+  function updateCvFooter() {
+    const n = cvSelectedIndices.size;
+    const count = $el("cvSelCount");
+    if (count) count.textContent = n + " נבחרו";
+    const btn = $el("cvLoadBtn");
+    if (btn) {
+      btn.disabled = n === 0;
+      btn.textContent = `טען נבחרים (${n})`;
+    }
+  }
+
+  function escapeRegExp(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function buildHighlightedNodes(text, query) {
+    const frag = document.createDocumentFragment();
+    const raw = String(text || "");
+    const q = String(query || "").trim();
+    if (!q) {
+      frag.appendChild(document.createTextNode(raw));
+      return frag;
+    }
+    let re = null;
+    try {
+      re = new RegExp(escapeRegExp(q), "gi");
+    } catch {
+      frag.appendChild(document.createTextNode(raw));
+      return frag;
+    }
+    let last = 0;
+    for (const m of raw.matchAll(re)) {
+      const idx = m.index ?? -1;
+      if (idx < 0) continue;
+      if (idx > last)
+        frag.appendChild(document.createTextNode(raw.slice(last, idx)));
+      const mark = document.createElement("mark");
+      mark.textContent = raw.slice(idx, idx + m[0].length);
+      frag.appendChild(mark);
+      last = idx + m[0].length;
+    }
+    if (last < raw.length)
+      frag.appendChild(document.createTextNode(raw.slice(last)));
+    return frag;
+  }
+
+  function renderConversationMessages(b, query) {
+    const box = $el("cvMessages");
+    if (!box) return;
+    box.innerHTML = "";
+
+    const messages = buildHistoryMessages(b);
+    const q = String(query || "").trim();
+    cvMatchElements = [];
+    cvMatchIndex = 0;
+
+    messages.forEach((m, i) => {
+      const role = m.role === "user" ? "user" : "ai";
+      const msg = document.createElement("div");
+      msg.className = `cv-msg cv-msg-${role}`;
+
+      const selectedNow = cvSelectedIndices.has(i);
+      msg.classList.toggle("cv-selected", selectedNow);
+      msg.classList.toggle("cv-deselected", !selectedNow);
+
+      const roleRow = document.createElement("div");
+      roleRow.className = "cv-msg-role";
+
+      const check = document.createElement("span");
+      check.className = "cv-msg-check";
+      roleRow.appendChild(check);
+
+      const label = document.createElement("span");
+      label.textContent = role === "user" ? "אתה" : "AI";
+      roleRow.appendChild(label);
+
+      const bubble = document.createElement("div");
+      bubble.className = "cv-msg-bubble";
+      bubble.appendChild(buildHighlightedNodes(m.text || "", q));
+
+      if (q) {
+        const hasMatch = bubble.querySelector("mark");
+        msg.classList.toggle("cv-dim", !hasMatch);
+      }
+
+      msg.appendChild(roleRow);
+      msg.appendChild(bubble);
+
+      msg.addEventListener("click", () => {
+        if (cvSelectedIndices.has(i)) cvSelectedIndices.delete(i);
+        else cvSelectedIndices.add(i);
+        msg.classList.toggle("cv-selected", cvSelectedIndices.has(i));
+        msg.classList.toggle("cv-deselected", !cvSelectedIndices.has(i));
+        updateCvFooter();
+      });
+
+      box.appendChild(msg);
+    });
+
+    // collect match marks for navigation
+    if (q) {
+      cvMatchElements = Array.from(box.querySelectorAll("mark"));
+    } else {
+      cvMatchElements = [];
+    }
+
+    const prevBtn = $el("cvNavPrev");
+    const nextBtn = $el("cvNavNext");
+    if (prevBtn) prevBtn.disabled = cvMatchElements.length === 0;
+    if (nextBtn) nextBtn.disabled = cvMatchElements.length === 0;
+
+    updateNavMatch();
+    updateCvFooter();
   }
 
   async function saveProjectView() {
@@ -1269,10 +1550,14 @@
     return "## " + project.title + "\n" + (content || "") + "\n\n";
   }
 
-  function buildConversationInjectionText(messages, block) {
+  function buildConversationInjectionText(
+    messages,
+    block,
+    { includeGeneralMemory = true } = {},
+  ) {
     const gm = getGM();
     const parts = [FRAMING];
-    if (gm.autoLoad && (gm.content || "").trim()) {
+    if (includeGeneralMemory && gm.autoLoad && (gm.content || "").trim()) {
       parts.push(gm.content.trim() + "\n\n");
     }
     parts.push(buildProjectSectionText(block));

@@ -239,7 +239,7 @@
     summaryLabel.textContent = `${uploadedFiles.length} קבצים`;
     const summaryTokens = document.createElement("span");
     summaryTokens.className = "ctx-file-tokens";
-    summaryTokens.textContent = `+${fmt(total)} טוקן`;
+    summaryTokens.textContent = `+${fmt(total)} Tokens`;
     summary.append(summaryLabel, summaryTokens);
     dd.appendChild(summary);
 
@@ -339,7 +339,7 @@
         const fileSummary = uploadedFiles
           .map((f) => `${f.name} (${fmt(f.tokens || 0)})`)
           .join(", ");
-        addRow("קבצים", `${fileSummary} (+${fmt(fileTokens)} טוקן)`);
+        addRow("קבצים", `${fileSummary} (+${fmt(fileTokens)} Tokens)`);
       }
       addRow("סה״כ טוקנים", fmt(totalTokens));
       addRow("נותרו", fmt(remaining));
@@ -348,7 +348,7 @@
     if (filesRow && filesLabel && filesTokens) {
       filesRow.style.display = uploadedFiles.length ? "" : "none";
       filesLabel.textContent = `${uploadedFiles.length} ${uploadedFiles.length === 1 ? "קובץ" : "קבצים"}`;
-      filesTokens.textContent = `+${fmt(fileTokens)} טוקן`;
+      filesTokens.textContent = `+${fmt(fileTokens)} Tokens`;
     }
 
     const dd = $el("hiDropdown");
