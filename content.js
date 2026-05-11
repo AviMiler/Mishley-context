@@ -355,6 +355,36 @@
     searchTimeout = setTimeout(render, DEBOUNCE_MS);
   }
 
+  // Reset per-tab defaults when user explicitly clicks a tab
+  function resetTabDefaults(tabName) {
+    try {
+      if (tabName === "history") {
+        historySearchMode = "title";
+        $el("toggleSearchTitle")?.classList.add("active");
+        $el("toggleSearchContent")?.classList.remove("active");
+        if ($el("searchHistory")) $el("searchHistory").value = "";
+        projectsCollapsed = false;
+        historyCollapsed = false;
+        closeProjectView();
+        closeConversationView();
+      } else if (tabName === "context") {
+        // reset context-related UI to defaults
+        selected.clear();
+        updateInjectBtn();
+        closeHiDropdown();
+        // also reset ctx meter dropdowns
+        const expanded = $el("ccb-ctx-expanded");
+        if (expanded) {
+          expanded.style.display = "none";
+          expanded.setAttribute("aria-hidden", "true");
+          $el("ccb-ctx-expand")?.setAttribute("aria-expanded", "false");
+        }
+      }
+    } catch (e) {
+      console.error("resetTabDefaults error", e);
+    }
+  }
+
   function wireEvents() {
     $el("fab").addEventListener("click", togglePanel);
     $el("settingsBtn").addEventListener("click", (e) => {
@@ -576,6 +606,8 @@
     shadow.querySelectorAll(".tab").forEach((tab) => {
       tab.addEventListener("click", async () => {
         closeConversationView();
+        // reset UI to tab defaults when user clicks the tab
+        resetTabDefaults(tab.dataset.tab);
         if ($el("panel").classList.contains("editing")) {
           if (hasUnsavedChanges()) {
             const ok = await showConfirm({
