@@ -185,6 +185,89 @@ window.__ccbTpl = (() => {
                 <span class="settings-item-sub">טוען קובץ JSON ומחליף את הבלוקים</span>
               </span>
             </button>
+            <button class="settings-item" id="editPromptsBtn" type="button">
+              <span class="settings-item-icon">✏️</span>
+              <span class="settings-item-text">
+                <span class="settings-item-title">עריכת פרומפטים</span>
+                <span class="settings-item-sub">מסגרות הזרקה (FRAMING)</span>
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="prompts-overlay" id="promptsOverlay" aria-hidden="true">
+        <div class="prompts-box">
+          <div class="prompts-head">
+            <div class="prompts-title">עריכת פרומפטים</div>
+          </div>
+
+          <div class="prompts-body">
+            <div class="prompts-section">
+              <div class="prompts-section-head">
+                <div class="prompts-section-title">FRAMING</div>
+                <button id="resetFramingBtn" type="button" class="prompts-reset">איפוס הכל</button>
+              </div>
+              <div class="prompts-label">Prefix נעול (קוד)</div>
+              <div id="promptFramingLocked" class="prompts-locked"></div>
+
+              <!-- 1) Manual injection -->
+              <div class="prompts-subsection">
+                <div class="prompts-subhead">
+                  <div class="prompts-subtitle">1) טעינה ידנית</div>
+                  <button id="resetFramingManualBtn" type="button" class="prompts-reset">איפוס</button>
+                </div>
+                <div class="prompts-sublabel">הוראות לפני הקונטקסט</div>
+                <textarea id="promptFramingManualIntro" spellcheck="false"></textarea>
+                <div class="prompts-locked prompts-locked-tag">&lt;context&gt; … &lt;/context&gt;</div>
+                <div class="prompts-sublabel">הוראות אחרי הקונטקסט</div>
+                <textarea id="promptFramingManualOutro" spellcheck="false"></textarea>
+              </div>
+
+              <!-- 2) GM auto-inject -->
+              <div class="prompts-subsection">
+                <div class="prompts-subhead">
+                  <div class="prompts-subtitle">2) זיכרון כללי</div>
+                  <button id="resetFramingGmBtn" type="button" class="prompts-reset">איפוס</button>
+                </div>
+                <div class="prompts-sublabel">הוראות לפני הזיכרון</div>
+                <textarea id="promptFramingGmIntro" spellcheck="false"></textarea>
+                <div class="prompts-locked prompts-locked-tag">&lt;memory&gt; … &lt;/memory&gt;</div>
+                <div class="prompts-sublabel">הוראות אחרי הזיכרון</div>
+                <textarea id="promptFramingGmOutro" spellcheck="false"></textarea>
+              </div>
+
+              <!-- 3) Conversation wrapper -->
+              <div class="prompts-subsection">
+                <div class="prompts-subhead">
+                  <div class="prompts-subtitle">3) מעטפת שיחה</div>
+                  <button id="resetFramingConvBtn" type="button" class="prompts-reset">איפוס</button>
+                </div>
+                <div class="prompts-sublabel">הוראות לפני השיחה</div>
+                <textarea id="promptFramingConvIntro" spellcheck="false"></textarea>
+                <div class="prompts-locked prompts-locked-tag">&lt;transcript&gt; … &lt;/transcript&gt;</div>
+                <div class="prompts-sublabel">הוראות אחרי השיחה</div>
+                <textarea id="promptFramingConvOutro" spellcheck="false"></textarea>
+              </div>
+
+              <!-- 4) Project instructions wrapper -->
+              <div class="prompts-subsection">
+                <div class="prompts-subhead">
+                  <div class="prompts-subtitle">4) מעטפת הנחיות פרויקט</div>
+                  <button id="resetFramingProjBtn" type="button" class="prompts-reset">איפוס</button>
+                </div>
+                <div class="prompts-sublabel">הוראות לפני ההנחיות</div>
+                <textarea id="promptFramingProjIntro" spellcheck="false"></textarea>
+                <div class="prompts-locked prompts-locked-tag">&lt;project&gt; … &lt;/project&gt;</div>
+                <div class="prompts-sublabel">הוראות אחרי ההנחיות</div>
+                <textarea id="promptFramingProjOutro" spellcheck="false"></textarea>
+              </div>
+            </div>
+          </div>
+
+          <div class="prompts-footer">
+            <button id="savePromptsBtn" type="button" class="prompts-save">שמור</button>
+            <button id="cancelPromptsBtn" type="button" class="prompts-cancel">בטל</button>
           </div>
         </div>
       </div>
@@ -232,6 +315,16 @@ window.__ccbTpl = (() => {
           <button id="cvSelAll" type="button" class="cv-sel-btn">בחר הכל</button>
           <button id="cvSelNone" type="button" class="cv-sel-btn">בטל הכל</button>
           <span id="cvSelCount" class="cv-sel-count"></span>
+        </div>
+
+        <div class="cv-project-bar" id="cvProjectBar" style="display:none;">
+          <label class="cv-project-toggle">
+            <span class="cb-wrap">
+              <input type="checkbox" id="cvIncludeProject" />
+              <span class="cb-box"><svg class="cb-check" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+            </span>
+            <span class="cv-project-label">כלול הנחיות פרויקט</span>
+          </label>
         </div>
 
         <div class="cv-footer">

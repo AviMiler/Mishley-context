@@ -7,9 +7,16 @@
 //   ui-styles.js → window.__ccbCSS
 //   ui-template.js → window.__ccbTpl
 
-(() => {
+(async () => {
   if (window.__ccbInstalled) return;
   window.__ccbInstalled = true;
+
+  // Wait for prompts.js overrides (if present) before reading config.
+  try {
+    if (window.__ccbPromptsAPI?.ready) await window.__ccbPromptsAPI.ready;
+  } catch {
+    // ignore
+  }
 
   const {
     AUTO_OPEN_URLS,
@@ -18,11 +25,28 @@
     MSG_SELECTORS,
     STORAGE_KEY,
     GM_ID,
-    SUMMARY_PROMPT,
-    FRAMING,
     CTX_WINDOW_DEFAULT,
     CHARS_PER_TOKEN,
   } = window.__ccbRawConfig;
+
+  let SUMMARY_PROMPT = window.__ccbRawConfig.SUMMARY_PROMPT;
+  let FRAMING_MANUAL =
+    window.__ccbRawConfig.FRAMING_MANUAL || window.__ccbRawConfig.FRAMING;
+  let FRAMING_MANUAL_PRE =
+    window.__ccbRawConfig.FRAMING_MANUAL_PRE || window.__ccbRawConfig.FRAMING;
+  let FRAMING_MANUAL_POST = window.__ccbRawConfig.FRAMING_MANUAL_POST || "";
+  let FRAMING_GM =
+    window.__ccbRawConfig.FRAMING_GM || window.__ccbRawConfig.FRAMING;
+  let FRAMING_GM_PRE =
+    window.__ccbRawConfig.FRAMING_GM_PRE || window.__ccbRawConfig.FRAMING;
+  let FRAMING_GM_POST = window.__ccbRawConfig.FRAMING_GM_POST || "";
+  let FRAMING_CONV_PRE = window.__ccbRawConfig.FRAMING_CONV_PRE || "";
+  let FRAMING_CONV_POST = window.__ccbRawConfig.FRAMING_CONV_POST || "";
+  let FRAMING_PROJ_PRE = window.__ccbRawConfig.FRAMING_PROJ_PRE || "";
+  let FRAMING_PROJ_POST = window.__ccbRawConfig.FRAMING_PROJ_POST || "";
+
+  // Backward-compat: some code paths may still refer to FRAMING.
+  let FRAMING = FRAMING_MANUAL;
 
   const CONFIG = { AUTO_OPEN_URLS, SEND_BUTTON_SELECTOR, SIDEBAR_WIDTH };
   const { loadBlocks: _loadBlocks, saveBlocks: _saveBlocks } =
@@ -33,6 +57,25 @@
   const { IC, PANEL_HTML } = window.__ccbTpl;
   const isActiveSitePage = () =>
     CONFIG.AUTO_OPEN_URLS.some((u) => location.href.startsWith(u));
+
+  function refreshPromptsFromRawConfig() {
+    SUMMARY_PROMPT = window.__ccbRawConfig.SUMMARY_PROMPT;
+    FRAMING_MANUAL =
+      window.__ccbRawConfig.FRAMING_MANUAL || window.__ccbRawConfig.FRAMING;
+    FRAMING_MANUAL_PRE =
+      window.__ccbRawConfig.FRAMING_MANUAL_PRE || window.__ccbRawConfig.FRAMING;
+    FRAMING_MANUAL_POST = window.__ccbRawConfig.FRAMING_MANUAL_POST || "";
+    FRAMING_GM =
+      window.__ccbRawConfig.FRAMING_GM || window.__ccbRawConfig.FRAMING;
+    FRAMING_GM_PRE =
+      window.__ccbRawConfig.FRAMING_GM_PRE || window.__ccbRawConfig.FRAMING;
+    FRAMING_GM_POST = window.__ccbRawConfig.FRAMING_GM_POST || "";
+    FRAMING_CONV_PRE = window.__ccbRawConfig.FRAMING_CONV_PRE || "";
+    FRAMING_CONV_POST = window.__ccbRawConfig.FRAMING_CONV_POST || "";
+    FRAMING_PROJ_PRE = window.__ccbRawConfig.FRAMING_PROJ_PRE || "";
+    FRAMING_PROJ_POST = window.__ccbRawConfig.FRAMING_PROJ_POST || "";
+    FRAMING = FRAMING_MANUAL;
+  }
 
   // ============================================================
   // State
@@ -58,11 +101,14 @@
   let ctxWindowLoaded = false;
   let ctxExpandBound = false;
 
+  let gmAutoInjected = false;
+
   // Conversation View (preview panel)
   let currentConversationViewId = null;
   let cvSelectedIndices = new Set();
   let cvMatchElements = [];
   let cvMatchIndex = 0;
+  let cvOpenedFromProject = false;
 
   function formatAge(ts) {
     const t = Number(ts || 0);
@@ -405,11 +451,44 @@
       $el("importBackupInput").value = "";
       $el("importBackupInput").click();
     });
+    $el("editPromptsBtn")?.addEventListener("click", () => {
+      openPromptsEditor();
+    });
     $el("importBackupInput").addEventListener("change", async () => {
       const file = $el("importBackupInput").files?.[0];
       await importBackupFile(file);
       $el("importBackupInput").value = "";
     });
+
+    $el("savePromptsBtn")?.addEventListener(
+      "click",
+      () => void savePromptsEditor(),
+    );
+    $el("cancelPromptsBtn")?.addEventListener("click", closePromptsEditor);
+    $el("resetFramingBtn")?.addEventListener(
+      "click",
+      () => void resetPromptsEditor("framingAll"),
+    );
+    $el("resetFramingManualBtn")?.addEventListener(
+      "click",
+      () => void resetPromptsEditor("framingManual"),
+    );
+    $el("resetFramingGmBtn")?.addEventListener(
+      "click",
+      () => void resetPromptsEditor("framingGm"),
+    );
+    $el("resetFramingConvBtn")?.addEventListener(
+      "click",
+      () => void resetPromptsEditor("framingConv"),
+    );
+    $el("resetFramingProjBtn")?.addEventListener(
+      "click",
+      () => void resetPromptsEditor("framingProj"),
+    );
+    $el("resetSummaryBtn")?.addEventListener(
+      "click",
+      () => void resetPromptsEditor("summary"),
+    );
     $el("ccb-files-row").addEventListener("click", (e) => {
       e.stopPropagation();
       window.__ccbCtxMeter.openFilesDropdown($el("ccb-files-row"));
@@ -588,8 +667,9 @@
       if (!b || !cvSelectedIndices.size) return;
       const allMsgs = buildHistoryMessages(b);
       const selectedMsgs = allMsgs.filter((_, i) => cvSelectedIndices.has(i));
+      const includeProject = !!$el("cvIncludeProject")?.checked;
       const text = buildConversationInjectionText(selectedMsgs, b, {
-        includeGeneralMemory: false,
+        includeProjectInstructions: includeProject,
       });
       const r = injectIntoInput(text, "replace");
       if (r.ok) {
@@ -640,6 +720,123 @@
       const activeTab = shadow.querySelector(".tab.active");
       if (activeTab) moveTabIndicator(activeTab);
     });
+  }
+
+  function openPromptsEditor() {
+    const api = window.__ccbPromptsAPI;
+    if (!api) {
+      setStatus("מערכת פרומפטים לא נטענה", true);
+      return;
+    }
+
+    const editable = api.getEditable();
+    const locked = api.getLocked ? api.getLocked() : null;
+    if ($el("promptFramingLocked"))
+      $el("promptFramingLocked").textContent = locked?.injectedMarker || "[[CCB:INJECTED]]";
+    if ($el("promptSummaryLocked"))
+      $el("promptSummaryLocked").textContent = locked?.summarySuffix || "";
+    if ($el("promptFramingManualIntro"))
+      $el("promptFramingManualIntro").value = editable.manualIntro || "";
+    if ($el("promptFramingManualOutro"))
+      $el("promptFramingManualOutro").value = editable.manualOutro || "";
+    if ($el("promptFramingGmIntro"))
+      $el("promptFramingGmIntro").value = editable.gmIntro || "";
+    if ($el("promptFramingGmOutro"))
+      $el("promptFramingGmOutro").value = editable.gmOutro || "";
+    if ($el("promptFramingConvIntro"))
+      $el("promptFramingConvIntro").value = editable.convIntro || "";
+    if ($el("promptFramingConvOutro"))
+      $el("promptFramingConvOutro").value = editable.convOutro || "";
+    if ($el("promptFramingProjIntro"))
+      $el("promptFramingProjIntro").value = editable.projIntro || "";
+    if ($el("promptFramingProjOutro"))
+      $el("promptFramingProjOutro").value = editable.projOutro || "";
+    if ($el("promptSummaryBody"))
+      $el("promptSummaryBody").value = editable.summaryBody || "";
+
+    const overlay = $el("promptsOverlay");
+    overlay?.classList.add("show");
+    overlay?.setAttribute("aria-hidden", "false");
+    closeSettings();
+    setTimeout(() => $el("promptFramingManualIntro")?.focus(), 10);
+  }
+
+  function closePromptsEditor() {
+    const overlay = $el("promptsOverlay");
+    overlay?.classList.remove("show");
+    overlay?.setAttribute("aria-hidden", "true");
+  }
+
+  async function savePromptsEditor() {
+    const api = window.__ccbPromptsAPI;
+    if (!api) return;
+    const manualIntro  = ($el("promptFramingManualIntro")?.value  || "").trim();
+    const manualOutro  = ($el("promptFramingManualOutro")?.value  || "").trim();
+    const gmIntro      = ($el("promptFramingGmIntro")?.value      || "").trim();
+    const gmOutro      = ($el("promptFramingGmOutro")?.value      || "").trim();
+    const convIntro    = ($el("promptFramingConvIntro")?.value    || "").trim();
+    const convOutro    = ($el("promptFramingConvOutro")?.value    || "").trim();
+    const projIntro    = ($el("promptFramingProjIntro")?.value    || "").trim();
+    const projOutro    = ($el("promptFramingProjOutro")?.value    || "").trim();
+
+    if (!manualIntro || !gmIntro) {
+      setStatus("הוראות לפני הקונטקסט לא יכולות להיות ריקות", true);
+      return;
+    }
+
+    const payload = { manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro };
+    const summaryEl = $el("promptSummaryBody");
+    if (summaryEl) {
+      const summaryBody = (summaryEl.value || "").trim();
+      if (!summaryBody) {
+        setStatus("פרומפט הסיכום לא יכול להיות ריק", true);
+        return;
+      }
+      payload.summaryBody = summaryBody;
+    }
+
+    await api.save(payload);
+    refreshPromptsFromRawConfig();
+    closePromptsEditor();
+    setStatus("הפרומפטים עודכנו ✓");
+  }
+
+  async function resetPromptsEditor(key) {
+    const api = window.__ccbPromptsAPI;
+    if (!api) return;
+    await api.reset(key);
+    refreshPromptsFromRawConfig();
+    const editable = api.getEditable();
+    const refreshManual = () => {
+      if ($el("promptFramingManualIntro")) $el("promptFramingManualIntro").value = editable.manualIntro || "";
+      if ($el("promptFramingManualOutro")) $el("promptFramingManualOutro").value = editable.manualOutro || "";
+    };
+    const refreshConv = () => {
+      if ($el("promptFramingConvIntro")) $el("promptFramingConvIntro").value = editable.convIntro || "";
+      if ($el("promptFramingConvOutro")) $el("promptFramingConvOutro").value = editable.convOutro || "";
+    };
+    const refreshProj = () => {
+      if ($el("promptFramingProjIntro")) $el("promptFramingProjIntro").value = editable.projIntro || "";
+      if ($el("promptFramingProjOutro")) $el("promptFramingProjOutro").value = editable.projOutro || "";
+    };
+    if (key === "framingAll") {
+      refreshManual();
+      refreshConv();
+      refreshProj();
+      if ($el("promptFramingGmBody")) $el("promptFramingGmBody").value = editable.gmBody || "";
+    } else if (key === "framingManual") {
+      refreshManual();
+    } else if (key === "framingGm") {
+      if ($el("promptFramingGmIntro")) $el("promptFramingGmIntro").value = editable.gmIntro || "";
+      if ($el("promptFramingGmOutro")) $el("promptFramingGmOutro").value = editable.gmOutro || "";
+    } else if (key === "framingConv") {
+      refreshConv();
+    } else if (key === "framingProj") {
+      refreshProj();
+    } else if (key === "summary" && $el("promptSummaryBody")) {
+      $el("promptSummaryBody").value = editable.summaryBody || "";
+    }
+    setStatus("הפרומפט אופס ✓");
   }
 
   // ============================================================
@@ -856,6 +1053,7 @@
 
   async function tryAutoInject() {
     const gm = getGM();
+    if (gmAutoInjected) return;
     if (!gm.autoLoad || !(gm.content || "").trim()) return;
     let tries = 0;
     const poll = setInterval(() => {
@@ -866,8 +1064,24 @@
       }
       const el = findInput();
       if (!el) return;
+
+      // Only inject at the beginning of a conversation (avoid re-injecting on an existing chat).
+      try {
+        if (MSG_SELECTORS?.message) {
+          const msgCount = document.querySelectorAll(
+            MSG_SELECTORS.message,
+          ).length;
+          if (msgCount > 0) {
+            clearInterval(poll);
+            return;
+          }
+        }
+      } catch {
+        // ignore
+      }
       clearInterval(poll);
-      injectIntoInput(FRAMING + gm.content, "prepend");
+      gmAutoInjected = true;
+      injectIntoInput(FRAMING_GM_PRE + gm.content + FRAMING_GM_POST, "prepend");
       setTimeout(() => {
         const btn = document.querySelector(CONFIG.SEND_BUTTON_SELECTOR);
         if (btn) btn.click();
@@ -948,6 +1162,7 @@
       snippet = null,
       role = "user",
       showProjectTag = true,
+      openedFromProject = false,
     } = {},
   ) {
     const row = document.createElement("div");
@@ -981,7 +1196,9 @@
       openHiDropdown(b, menuBtn);
     });
 
-    row.addEventListener("click", () => openConversationView(b));
+    row.addEventListener("click", () =>
+      openConversationView(b, { openedFromProject }),
+    );
 
     head.appendChild(menuBtn);
     row.appendChild(head);
@@ -1082,7 +1299,9 @@
     }
 
     for (const b of items) {
-      list.appendChild(createHistoryRow(b, { showProjectTag: false }));
+      list.appendChild(
+        createHistoryRow(b, { showProjectTag: false, openedFromProject: true }),
+      );
     }
   }
 
@@ -1124,9 +1343,11 @@
     render();
   }
 
-  function openConversationView(b) {
+  function openConversationView(b, { openedFromProject = false } = {}) {
     if (!b) return;
     closeProjectView();
+
+    cvOpenedFromProject = !!openedFromProject;
 
     const messages = buildHistoryMessages(b);
     currentConversationViewId = b.id;
@@ -1142,6 +1363,17 @@
     parts.push(messages.length + " הודעות");
     if (project?.title) parts.push(project.title);
     $el("cvMeta").textContent = parts.join(" · ");
+
+    // Show project-include toggle only if conversation belongs to a project
+    const projectBar = $el("cvProjectBar");
+    const projectCheckbox = $el("cvIncludeProject");
+    if (project) {
+      if (projectBar) projectBar.style.display = "";
+      if (projectCheckbox) projectCheckbox.checked = !!openedFromProject;
+    } else {
+      if (projectBar) projectBar.style.display = "none";
+      if (projectCheckbox) projectCheckbox.checked = false;
+    }
 
     const view = $el("conversationView");
     view?.classList.add("cv-open");
@@ -1585,16 +1817,24 @@
   function buildConversationInjectionText(
     messages,
     block,
-    { includeGeneralMemory = true } = {},
+    { includeProjectInstructions = false } = {},
   ) {
-    const gm = getGM();
-    const parts = [FRAMING];
-    if (includeGeneralMemory && gm.autoLoad && (gm.content || "").trim()) {
-      parts.push(gm.content.trim() + "\n\n");
+    const INJECTED_PREFIX = "[[CCB:INJECTED]]\n";
+    const transcript = formatTranscript(messages);
+
+    // Build project instructions block if needed (comes FIRST)
+    let projectBlock = "";
+    if (includeProjectInstructions) {
+      const projectSection = buildProjectSectionText(block);
+      if (projectSection) {
+        projectBlock = (FRAMING_PROJ_PRE || INJECTED_PREFIX) + projectSection + (FRAMING_PROJ_POST || "\n\n");
+      }
     }
-    parts.push(buildProjectSectionText(block));
-    parts.push("---\n\n" + formatTranscript(messages));
-    return parts.join("");
+
+    // Build conversation block with its wrapper (comes SECOND)
+    const conversationBlock = (FRAMING_CONV_PRE || INJECTED_PREFIX) + transcript + (FRAMING_CONV_POST || "\n\n");
+
+    return projectBlock + conversationBlock;
   }
 
   function injectHistoryBubbles(messages, { persist = false } = {}) {
@@ -1648,6 +1888,8 @@
 
   async function loadConversation(b, mode = null) {
     const messages = buildHistoryMessages(b);
+    const isProjectOrigin =
+      !!getProjectById(currentProjectId) && b?.projectId === currentProjectId;
 
     if (!mode) {
       const choice = await showChoice({
@@ -1666,8 +1908,9 @@
 
     if (mode === "view") {
       const projectText = buildProjectSectionText(b);
-      if (projectText) {
-        const r = injectIntoInput(FRAMING + projectText, "replace");
+      if (isProjectOrigin && projectText) {
+        const wrapped = (FRAMING_PROJ_PRE || "[[CCB:INJECTED]]\n") + projectText + (FRAMING_PROJ_POST || "\n\n");
+        const r = injectIntoInput(wrapped, "replace");
         if (r.ok) {
           setTimeout(() => {
             const btn = document.querySelector(CONFIG.SEND_BUTTON_SELECTOR);
@@ -1682,7 +1925,9 @@
     }
 
     // תמיד בנה את הנחיות הפרויקט גם אם אין הודעות
-    const transcript = buildConversationInjectionText(messages, b);
+    const transcript = buildConversationInjectionText(messages, b, {
+      includeProjectInstructions: isProjectOrigin,
+    });
 
     const r = injectIntoInput(transcript, "replace");
     if (r.ok) {
@@ -2019,10 +2264,14 @@
     const ordered = orderedIds
       .map((id) => (id === GM_ID ? blocks[id] || getGM() : blocks[id]))
       .filter(Boolean);
-    const text =
-      FRAMING +
-      ordered.map((b) => "## " + b.title + "\n" + b.content).join("\n\n") +
-      "\n\n---\n\n";
+
+    const isGmOnly = ordered.length === 1 && ordered[0]?.id === GM_ID;
+    const blocksBody = ordered
+      .map((b) => "## " + b.title + "\n" + b.content)
+      .join("\n\n");
+    const text = isGmOnly
+      ? FRAMING_GM_PRE + blocksBody + FRAMING_GM_POST
+      : FRAMING_MANUAL_PRE + blocksBody + "\n\n---\n\n" + FRAMING_MANUAL_POST;
     const r = injectIntoInput(text, "prepend");
     if (r.ok) {
       setStatus("הוזרק ✓");
@@ -2197,7 +2446,9 @@
       return;
     }
 
-    const projectId = null;
+    const projectId = getProjectById(currentProjectId)
+      ? currentProjectId
+      : null;
 
     const id = "b_" + Date.now() + "_conv";
     blocks[id] = {
@@ -2333,6 +2584,48 @@
     return CONFIG.AUTO_OPEN_URLS.some((u) => location.href.startsWith(u));
   }
 
+  let urlWatchInstalled = false;
+  function installUrlChangeWatcher() {
+    if (urlWatchInstalled) return;
+    urlWatchInstalled = true;
+
+    const notify = () => {
+      try {
+        window.dispatchEvent(new Event("ccb:urlchange"));
+      } catch {
+        // ignore
+      }
+    };
+
+    try {
+      const origPush = history.pushState;
+      const origReplace = history.replaceState;
+      history.pushState = function (...args) {
+        const r = origPush.apply(this, args);
+        notify();
+        return r;
+      };
+      history.replaceState = function (...args) {
+        const r = origReplace.apply(this, args);
+        notify();
+        return r;
+      };
+    } catch {
+      // ignore
+    }
+
+    window.addEventListener("popstate", notify, true);
+    window.addEventListener(
+      "ccb:urlchange",
+      () => {
+        if (!isActiveSitePage()) return;
+        gmAutoInjected = false;
+        tryAutoInject();
+      },
+      true,
+    );
+  }
+
   async function init() {
     if (!isActiveSitePage()) return;
     await loadCtxWindow();
@@ -2340,6 +2633,7 @@
     window.__ccbCtxMeter.watchFileInputs();
     window.__ccbCtxMeter.watchConversation();
     await loadBlocks();
+    installUrlChangeWatcher();
     tryAutoInject();
     if (shouldAutoOpen()) setPanelOpen(true);
   }

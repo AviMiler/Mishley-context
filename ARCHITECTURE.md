@@ -2,12 +2,34 @@
 
 ## Files
 
-| File            | Purpose                                                               | Lines |
-| --------------- | --------------------------------------------------------------------- | ----- |
-| `config.js`     | All user-configurable constants — edit this to adapt to any chat site | ~70   |
-| `content.js`    | Full sidebar UI + logic (Shadow DOM, storage, inject, render)         | ~1500 |
-| `summarizer.js` | Watches DOM for `[[CCB:SAVE]]` trigger, auto-saves summaries          | ~115  |
-| `manifest.json` | MV3 manifest — load order: config → content → summarizer              | —     |
+| File            | Purpose                                                                   | Lines |
+| --------------- | ------------------------------------------------------------------------- | ----- |
+| `config.js`     | All user-configurable constants — edit this to adapt to any chat site     | ~70   |
+| `prompts.js`    | Loads prompt overrides (editable parts only) and patches `__ccbRawConfig` | ~80   |
+| `content.js`    | Full sidebar UI + logic (Shadow DOM, storage, inject, render)             | ~1500 |
+| `summarizer.js` | Watches DOM for `[[CCB:SAVE]]` trigger, auto-saves summaries              | ~115  |
+| `manifest.json` | MV3 manifest — load order: config → prompts → … → content → summarizer    | —     |
+
+`prompts.js` keeps technical markers locked:
+
+- FRAMING locked prefix: `[[CCB:INJECTED]]\n`
+- SUMMARY_PROMPT locked suffix: the last 2 lines (template for `[[CCB:TITLE:...]]` and `[[CCB:SAVE]]`)
+
+It exposes `window.__ccbPromptsAPI`:
+
+- `ready` (Promise) — resolves after loading overrides from storage
+- `getEditable()` → `{ manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro, summaryBody }`
+- `save({ manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro, summaryBody? })` — persists overrides + updates `window.__ccbRawConfig`
+- `reset("framingAll"|"framingManual"|"framingGm"|"framingConv"|"framingProj"|"summary")` — clears override(s) and restores default
+
+Runtime config keys patched by `prompts.js`:
+
+- `FRAMING_MANUAL` — used when injecting selected context blocks
+- `FRAMING_GM` — used when auto-injecting General Memory at chat start
+- `FRAMING_CONV` — wrapper for conversation transcript injection
+- `FRAMING_PROJ` — wrapper for project instructions injection
+
+Note: The prompts UI currently exposes only the FRAMING editors; SUMMARY_PROMPT editing is intentionally hidden for now.
 
 ## config.js — site switching
 
@@ -20,22 +42,30 @@ const ACTIVE_SITE = "gemini"; // ← שנה ל-"internal" לצ'אט הפנימי
 
 ## config.js exports (`window.__ccbRawConfig`)
 
-| Key                    | Type         | Description                                          |
-| ---------------------- | ------------ | ---------------------------------------------------- |
-| `AUTO_OPEN_URLS`       | string[]     | URLs where sidebar auto-opens                        |
-| `CHAT_INPUT_SELECTOR`  | string       | CSS selector for chat textarea                       |
-| `SEND_BUTTON_SELECTOR` | string       | CSS selector for send button                         |
-| `PUSH_SELECTOR`        | string\|null | Root element to push right when sidebar opens        |
-| `PUSH_FIXED_SELECTORS` | string[]     | Fixed-position elements to push separately           |
-| `SIDEBAR_WIDTH`        | number       | Sidebar width in px (default 300)                    |
-| `MSG_SELECTORS`        | object       | Selectors for inline-save feature (fill in per site) |
-| `INPUT_FALLBACKS`      | string[]     | Fallback selectors when CHAT_INPUT_SELECTOR fails    |
-| `STORAGE_KEY`          | string       | chrome.storage key (`"blocks"`)                      |
-| `GM_ID`                | string       | ID of general memory block (`"__general_memory"`)    |
-| `CTX_WINDOW_DEFAULT`   | number       | Default context window in tokens (128000)            |
-| `CHARS_PER_TOKEN`      | number       | Approximate chars/token ratio for meter estimation   |
-| `SUMMARY_PROMPT`       | string       | Prompt sent to AI when user clicks "סכם שיחה"        |
-| `FRAMING`              | string       | Preamble injected before any context handoff         |
+| Key                    | Type         | Description                                              |
+| ---------------------- | ------------ | -------------------------------------------------------- |
+| `AUTO_OPEN_URLS`       | string[]     | URLs where sidebar auto-opens                            |
+| `CHAT_INPUT_SELECTOR`  | string       | CSS selector for chat textarea                           |
+| `SEND_BUTTON_SELECTOR` | string       | CSS selector for send button                             |
+| `PUSH_SELECTOR`        | string\|null | Root element to push right when sidebar opens            |
+| `PUSH_FIXED_SELECTORS` | string[]     | Fixed-position elements to push separately               |
+| `SIDEBAR_WIDTH`        | number       | Sidebar width in px (default 300)                        |
+| `MSG_SELECTORS`        | object       | Selectors for inline-save feature (fill in per site)     |
+| `INPUT_FALLBACKS`      | string[]     | Fallback selectors when CHAT_INPUT_SELECTOR fails        |
+| `STORAGE_KEY`          | string       | chrome.storage key (`"blocks"`)                          |
+| `GM_ID`                | string       | ID of general memory block (`"__general_memory"`)        |
+| `CTX_WINDOW_DEFAULT`   | number       | Default context window in tokens (128000)                |
+| `CHARS_PER_TOKEN`      | number       | Approximate chars/token ratio for meter estimation       |
+| `SUMMARY_PROMPT`       | string       | Prompt sent to AI when user clicks "סכם שיחה"            |
+| `FRAMING`              | string       | Preamble injected before manual/GM context handoff       |
+| `FRAMING_MANUAL_PRE`   | string       | Opens context wrapper for manual block injection (`[[CCB:INJECTED]]` + intro + `<context>`) |
+| `FRAMING_MANUAL_POST`  | string       | Closes context wrapper (`</context>` + final instruction) |
+| `FRAMING_GM_PRE`       | string       | Opens memory wrapper for GM injection (`[[CCB:INJECTED]]` + intro + `<memory>`) |
+| `FRAMING_GM_POST`      | string       | Closes memory wrapper (`</memory>` + final instruction) |
+| `FRAMING_CONV_PRE`     | string       | Opens conversation wrapper for conversation injection (`[[CCB:INJECTED]]` + intro + `<conversation>`) |
+| `FRAMING_CONV_POST`    | string       | Closes conversation wrapper (`</conversation>` + final instruction) |
+| `FRAMING_PROJ_PRE`     | string       | Opens project wrapper for project instructions (`[[CCB:INJECTED]]` + intro + `<project>`) |
+| `FRAMING_PROJ_POST`    | string       | Closes project wrapper (`</project>` + final instruction) |
 
 ## content.js — function index
 
@@ -99,7 +129,7 @@ Both tabs now scroll at the pane level (`#pane-context`, `#pane-history`), so se
 | ----------------------- | ----------------------------------------------------------------------------------- |
 | `getGM()`               | Returns GM block from `blocks` (with defaults)                                      |
 | `renderGeneralMemory()` | Renders the GM card in the context tab and lets it be selected for manual injection |
-| `tryAutoInject()`       | Polls for input readiness, injects GM + clicks send                                 |
+| `tryAutoInject()`       | Polls for input readiness, injects GM at _conversation start only_ + clicks send    |
 
 ### Render
 
@@ -109,7 +139,7 @@ Both tabs now scroll at the pane level (`#pane-context`, `#pane-history`), so se
 | `captureConversation()`                                          | Reads all messages from DOM via MSG_SELECTORS → `[{role,text}]`                                                                                     |
 | `getProjects()` / `getProjectById(id)`                           | Returns project blocks or a single project block                                                                                                    |
 | `formatTranscript(messages)`                                     | Formats message array as "User: … / Assistant: …" text                                                                                              |
-| `buildConversationInjectionText(messages, block)`                | Builds FRAMING + GM + project instructions + transcript for chat injection                                                                          |
+| `buildConversationInjectionText(messages, block, opts)`          | Builds two context blocks: (1) conversation with FRAMING_CONV_PRE/POST wrapper, (2) project instructions with FRAMING_PROJ_PRE/POST wrapper (if enabled) |
 | `injectHistoryBubbles(messages)`                                 | Prepends styled chat bubbles into the page's messageList container, preserving line breaks                                                          |
 | `buildHistoryMessages(b)`                                        | Normalizes conversation/summarized history into DOM-ready message bubbles                                                                           |
 | `showChoice({title,msg,primaryLabel,secondaryLabel})`            | Two-button modal for choosing history view vs chat injection                                                                                        |
@@ -142,7 +172,7 @@ Both tabs now scroll at the pane level (`#pane-context`, `#pane-history`), so se
 | Function                   | Description                                                                                                                                                                                                                        |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `updateInjectBtn()`        | Updates "טען נבחרים" button state + count pill                                                                                                                                                                                     |
-| `injectSelected()`         | Injects all selected blocks with FRAMING, clicks send (GM first when selected)                                                                                                                                                     |
+| `injectSelected()`         | Injects selected blocks with FRAMING_MANUAL (or FRAMING_GM when only GM is selected), clicks send                                                                                                                                  |
 | `findScrollableAncestor()` | Walks up from `MSG_SELECTORS.messageList` to find the real scrollable element (overflow auto/scroll + scrollHeight > clientHeight); falls back to scanning `main` / class-based candidates. Generic — survives Gemini DOM changes. |
 | `scrollAndCaptureAll()`    | Uses `findScrollableAncestor()`, then scrolls to top repeatedly until message count stabilizes (defeats virtual scrolling)                                                                                                         |
 | `saveChat()`               | If MSG_SELECTORS ready: scrolls to top → captures DOM → appends new messages to the current conversation or creates one. Else: injects SUMMARY_PROMPT (fallback)                                                                   |
