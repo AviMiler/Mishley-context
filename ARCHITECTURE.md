@@ -2,212 +2,349 @@
 
 ## Files
 
-| File            | Purpose                                                                   | Lines |
-| --------------- | ------------------------------------------------------------------------- | ----- |
-| `config.js`     | All user-configurable constants — edit this to adapt to any chat site     | ~70   |
-| `prompts.js`    | Loads prompt overrides (editable parts only) and patches `__ccbRawConfig` | ~80   |
-| `content.js`    | Full sidebar UI + logic (Shadow DOM, storage, inject, render)             | ~1500 |
-| `summarizer.js` | Watches DOM for `[[CCB:SAVE]]` trigger, auto-saves summaries              | ~115  |
-| `manifest.json` | MV3 manifest — load order: config → prompts → … → content → summarizer    | —     |
+| File              | Purpose                                                                       | Lines |
+| ----------------- | ----------------------------------------------------------------------------- | ----- |
+| `config.js`       | Site selectors + active site toggle + FRAMING defaults                        | ~180  |
+| `prompts.js`      | Loads prompt overrides (editable parts only) and patches `__ccbRawConfig`     | ~265  |
+| `storage.js`      | `loadBlocks` / `saveBlocks` → `window.__ccbStorage`                           | ~20   |
+| `inject.js`       | Input detection + text injection → `window.__ccbInject`                       | ~80   |
+| `push.js`         | Page shift CSS when sidebar opens → `window.__ccbPush`                        | ~40   |
+| `ui-styles.js`    | Shadow DOM CSS → `window.__ccbCSS`                                            | ~1625 |
+| `ui-template.js`  | SVG icons + PANEL_HTML → `window.__ccbTpl`                                    | ~340  |
+| `ctx-meter.js`    | Context window usage meter → `window.__ccbCtxMeter`                           | ~400  |
+| `ui-modals.js`    | Dialogs + settings popover + prompts editor → `window.__ccbModals`            | ~355  |
+| `history-view.js` | Projects + history list + conversation preview → `window.__ccbHistoryView`    | ~970  |
+| `chat-features.js`| GM + capture + manual injection + inline save → `window.__ccbChat`            | ~460  |
+| `content.js`      | Orchestrator: state, mount, wireEvents, edit form, context list, backup, init | ~945  |
+| `summarizer.js`   | Watches DOM for `[[CCB:SAVE]]` trigger, auto-saves                            | ~120  |
+| `manifest.json`   | MV3 manifest — load order below                                                | —     |
+| `popup.html`      | Toolbar popup — sends `togglePanel` to the active tab                          | —     |
+| `popup.js`        | Popup script (calls chrome.tabs.sendMessage and closes)                        | ~15   |
 
-`prompts.js` keeps technical markers locked:
+**Manifest load order:** `config.js` → `prompts.js` → `storage.js` → `inject.js` → `push.js` → `ui-styles.js` → `ui-template.js` → `ctx-meter.js` → `ui-modals.js` → `history-view.js` → `chat-features.js` → `content.js` → `summarizer.js`
 
-- FRAMING locked prefix: `[[CCB:INJECTED]]\n`
-- SUMMARY_PROMPT locked suffix: the last 2 lines (template for `[[CCB:TITLE:...]]` and `[[CCB:SAVE]]`)
+## Global API surface (`window.__ccb*`)
 
-It exposes `window.__ccbPromptsAPI`:
+| Global               | Module             | Members                                                                                                       |
+| -------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `__ccbRawConfig`     | `config.js`        | Site config + FRAMING strings (patched by prompts.js)                                                         |
+| `__ccbPromptsAPI`    | `prompts.js`       | `ready`, `getEditable`, `getLocked`, `save`, `reset`                                                          |
+| `__ccbStorage`       | `storage.js`       | `loadBlocks(key)`, `saveBlocks(key, blocks)`                                                                  |
+| `__ccbInject`        | `inject.js`        | `findInput()`, `injectIntoInput(text, mode)`                                                                  |
+| `__ccbPush`          | `push.js`          | `pushPage(open)`                                                                                              |
+| `__ccbCSS`           | `ui-styles.js`     | CSS string                                                                                                    |
+| `__ccbTpl`           | `ui-template.js`   | `{ IC, PANEL_HTML }`                                                                                          |
+| `__ccbCtxMeter`      | `ctx-meter.js`     | `init`, `update`, `watchConversation`, `watchFileInputs`, `openFilesDropdown`, `cleanup`, `getUploadedFiles`  |
+| `__ccbModals`        | `ui-modals.js`     | `init`, `show*`, `openSettings/closeSettings`, `openPromptsEditor/...`                                        |
+| `__ccbHistoryView`   | `history-view.js`  | `init`, `render*`, `open*/close*`, `get*`, `build*`, `sync*`, `addProject`, `saveProjectView`                 |
+| `__ccbChat`          | `chat-features.js` | `init`, `getGM`, `renderGeneralMemory`, `tryAutoInject`, `injectSelected`, `saveChat`, `start/stopMsgObserver`|
+| `__ccb`              | `content.js`       | `{ MSG_SELECTORS, blocks, saveBlocks, loadBlocks, setStatus, renderPanel }` — consumed by summarizer          |
 
-- `ready` (Promise) — resolves after loading overrides from storage
-- `getEditable()` → `{ manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro, summaryBody }`
-- `save({ manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro, summaryBody? })` — persists overrides + updates `window.__ccbRawConfig`
-- `reset("framingAll"|"framingManual"|"framingGm"|"framingConv"|"framingProj"|"summary")` — clears override(s) and restores default
+## Module wiring
 
-Runtime config keys patched by `prompts.js`:
+Each module exposes `init(deps)` (the `ctx-meter.js` pattern). `content.js` builds a shared `deps` object during `mountUI` (after the Shadow DOM is up) and calls each module's `init`:
 
-- `FRAMING_MANUAL` — used when injecting selected context blocks
-- `FRAMING_GM` — used when auto-injecting General Memory at chat start
-- `FRAMING_CONV` — wrapper for conversation transcript injection
-- `FRAMING_PROJ` — wrapper for project instructions injection
+```
+mountUI() {
+  // ... create host + shadow DOM ...
+  initModules();   // calls __ccbCtxMeter.init, __ccbModals.init,
+                   //       __ccbHistoryView.init, __ccbChat.init
+  wireEvents();
+}
+```
 
-Note: The prompts UI currently exposes only the FRAMING editors; SUMMARY_PROMPT editing is intentionally hidden for now.
+Each module's `init` stashes the deps as a private `_deps`. State mutations from a module go to `_deps.state.xxx` — `state` is a single mutable object owned by `content.js` and passed by reference so every module sees the same data.
+
+### Shared state object (owned by `content.js`)
+
+```
+state: {
+  blocks, blocksLoaded, selected, editingId,
+  historySearchMode, lastInjectedConversationId,
+  currentProjectId, projectsCollapsed, historyCollapsed,
+  projectInstructionsOpen,
+  ctxWindow, ctxWindowLoaded, gmAutoInjected,
+  currentConversationViewId, cvSelectedIndices,
+  cvMatchElements, cvMatchIndex, cvOpenedFromProject,
+  hiDropdownCleanup,
+}
+```
+
+### Shared `framing` object (live getters)
+
+`content.js` exposes a `framing` object whose getters read `window.__ccbRawConfig.FRAMING_*` and `SUMMARY_PROMPT` on every access. After `__ccbPromptsAPI.save(...)` patches the raw config, the next read picks up the new value — no manual refresh is needed.
+
+```
+framing: {
+  manualPre, manualPost, gmPre, gmPost,
+  convPre, convPost, projPre, projPost,
+  summaryPrompt,
+}
+```
+
+## prompts.js
+
+Keeps technical markers locked:
+
+- INJECTED marker (locked prefix): `[[CCB:INJECTED]]\n`
+- Opening/closing tags (locked): `<context>…</context>`, `<memory>…</memory>`, `<transcript>…</transcript>`, `<project>…</project>`
+- SUMMARY_PROMPT trailing template (locked last 2 lines): the `[[CCB:TITLE:...]]` / `[[CCB:SAVE]]` lines
+
+Editable state shape (`__ccbPromptsAPI.getEditable()`):
+```
+{ manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro, summaryBody }
+```
+
+Storage key: `chrome.storage.local["ccb_prompts"]`.
+Backward-compat: old `framingBodies.{manual,gm}` and old `framingBody` are read on startup.
+
+`reset(key)` accepts:
+- `"framingAll"` — resets all 4 framing pairs (manual/gm/conv/proj)
+- `"framingManual"`, `"framingGm"`, `"framingConv"`, `"framingProj"` — one section
+- `"summary"` — summary body only
+
+Note: the prompts editor UI exposes the 4 FRAMING sections only; SUMMARY_PROMPT editing is intentionally hidden for now.
+
+## Runtime config keys patched by prompts.js
+
+| Key                    | Description                                                          |
+| ---------------------- | -------------------------------------------------------------------- |
+| `FRAMING_MANUAL_PRE`   | Opens manual context: `[[CCB:INJECTED]]` + intro + `<context>`       |
+| `FRAMING_MANUAL_POST`  | Closes manual context: `</context>` + outro                          |
+| `FRAMING_GM_PRE`       | Opens GM block: `[[CCB:INJECTED]]` + intro + `<memory>`              |
+| `FRAMING_GM_POST`      | Closes GM block: `</memory>` + outro                                 |
+| `FRAMING_CONV_PRE`     | Opens conversation: `[[CCB:INJECTED]]` + intro + `<transcript>`      |
+| `FRAMING_CONV_POST`    | Closes conversation: `</transcript>` + outro                         |
+| `FRAMING_PROJ_PRE`     | Opens project: `[[CCB:INJECTED]]` + intro + `<project>`              |
+| `FRAMING_PROJ_POST`    | Closes project: `</project>` + outro                                 |
+
+(Legacy flat keys `FRAMING`, `FRAMING_MANUAL`, `FRAMING_GM` are also patched for backward compatibility but no code reads them directly anymore — the `framing` getters in `content.js` fall back to these only if PRE is undefined.)
 
 ## config.js — site switching
 
 ```js
-const ACTIVE_SITE = "gemini"; // ← שנה ל-"internal" לצ'אט הפנימי
+const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 ```
 
-`_GEMINI_SELECTORS` ו-`_INTERNAL_CHAT_SELECTORS` מוגדרים בנפרד — רק `ACTIVE_SITE` קובע איזה פעיל.
-הסקריפטים עצמם רצים רק בדפים שתואמים ל-`AUTO_OPEN_URLS` של האתר הפעיל.
+`_GEMINI_SELECTORS` and `_INTERNAL_CHAT_SELECTORS` are defined separately — only `ACTIVE_SITE` decides which is active. Scripts gate by `AUTO_OPEN_URLS` so the panel stays inert on other sites.
 
 ## config.js exports (`window.__ccbRawConfig`)
 
-| Key                    | Type         | Description                                              |
-| ---------------------- | ------------ | -------------------------------------------------------- |
-| `AUTO_OPEN_URLS`       | string[]     | URLs where sidebar auto-opens                            |
-| `CHAT_INPUT_SELECTOR`  | string       | CSS selector for chat textarea                           |
-| `SEND_BUTTON_SELECTOR` | string       | CSS selector for send button                             |
-| `PUSH_SELECTOR`        | string\|null | Root element to push right when sidebar opens            |
-| `PUSH_FIXED_SELECTORS` | string[]     | Fixed-position elements to push separately               |
-| `SIDEBAR_WIDTH`        | number       | Sidebar width in px (default 300)                        |
-| `MSG_SELECTORS`        | object       | Selectors for inline-save feature (fill in per site)     |
-| `INPUT_FALLBACKS`      | string[]     | Fallback selectors when CHAT_INPUT_SELECTOR fails        |
-| `STORAGE_KEY`          | string       | chrome.storage key (`"blocks"`)                          |
-| `GM_ID`                | string       | ID of general memory block (`"__general_memory"`)        |
-| `CTX_WINDOW_DEFAULT`   | number       | Default context window in tokens (128000)                |
-| `CHARS_PER_TOKEN`      | number       | Approximate chars/token ratio for meter estimation       |
-| `SUMMARY_PROMPT`       | string       | Prompt sent to AI when user clicks "סכם שיחה"            |
-| `FRAMING`              | string       | Preamble injected before manual/GM context handoff       |
-| `FRAMING_MANUAL_PRE`   | string       | Opens context wrapper for manual block injection (`[[CCB:INJECTED]]` + intro + `<context>`) |
-| `FRAMING_MANUAL_POST`  | string       | Closes context wrapper (`</context>` + final instruction) |
-| `FRAMING_GM_PRE`       | string       | Opens memory wrapper for GM injection (`[[CCB:INJECTED]]` + intro + `<memory>`) |
-| `FRAMING_GM_POST`      | string       | Closes memory wrapper (`</memory>` + final instruction) |
-| `FRAMING_CONV_PRE`     | string       | Opens conversation wrapper for conversation injection (`[[CCB:INJECTED]]` + intro + `<conversation>`) |
-| `FRAMING_CONV_POST`    | string       | Closes conversation wrapper (`</conversation>` + final instruction) |
-| `FRAMING_PROJ_PRE`     | string       | Opens project wrapper for project instructions (`[[CCB:INJECTED]]` + intro + `<project>`) |
-| `FRAMING_PROJ_POST`    | string       | Closes project wrapper (`</project>` + final instruction) |
+| Key                    | Type         | Description                                                                                 |
+| ---------------------- | ------------ | ------------------------------------------------------------------------------------------- |
+| `AUTO_OPEN_URLS`       | string[]     | URLs where the sidebar auto-opens                                                           |
+| `CHAT_INPUT_SELECTOR`  | string       | CSS selector for chat textarea                                                              |
+| `SEND_BUTTON_SELECTOR` | string       | CSS selector for the send button                                                            |
+| `PUSH_SELECTOR`        | string\|null | Root element to push right when sidebar opens                                               |
+| `PUSH_FIXED_SELECTORS` | string[]     | Fixed-position elements to push separately                                                  |
+| `SIDEBAR_WIDTH`        | number       | Sidebar width in px (default 300)                                                           |
+| `MSG_SELECTORS`        | object       | Selectors for inline-save / capture features (per site)                                     |
+| `INPUT_FALLBACKS`      | string[]     | Fallback selectors when `CHAT_INPUT_SELECTOR` fails                                         |
+| `STORAGE_KEY`          | string       | chrome.storage key for blocks (`"blocks"`)                                                  |
+| `GM_ID`                | string       | ID of General Memory block (`"__general_memory"`)                                           |
+| `CTX_WINDOW_DEFAULT`   | number       | Default context window in tokens (128000)                                                   |
+| `CHARS_PER_TOKEN`      | number       | Approximate chars/token ratio for meter estimation                                          |
+| `SUMMARY_PROMPT`       | string       | Prompt sent to AI for "save chat" fallback                                                  |
+| `FRAMING_*_PRE/POST`   | string       | See table above                                                                             |
+
+## Storage keys used
+
+| Key                                | Owner          | Shape                                                  |
+| ---------------------------------- | -------------- | ------------------------------------------------------ |
+| `chrome.storage.local.blocks`      | content.js     | `{ [id]: block }` — see Storage shape below           |
+| `chrome.storage.local.ccb_prompts` | prompts.js     | `{ manualIntro, manualOutro, gmIntro, ... }`           |
+| `chrome.storage.local.ctxWindow`   | content.js     | `number` (tokens, used by the meter)                   |
 
 ## content.js — function index
 
-### Storage
+### Storage / state
 
-| Function       | Description                                                 |
-| -------------- | ----------------------------------------------------------- |
-| `loadBlocks()` | Loads blocks from chrome.storage into `blocks` (idempotent) |
-| `saveBlocks()` | Persists `blocks` to chrome.storage                         |
+| Function                              | Description                                                  |
+| ------------------------------------- | ------------------------------------------------------------ |
+| `loadBlocks()` / `saveBlocks()`       | Loads/persists `state.blocks` from `chrome.storage`         |
+| `loadCtxWindow()` / `setCtxWindow(k)` | Loads/persists the context-window size (the meter)          |
 
-### Input injection
+### Mount + UI lifecycle
 
-| Function                      | Description                                                     |
-| ----------------------------- | --------------------------------------------------------------- |
-| `findInput()`                 | Returns the visible chat input element                          |
-| `isTextInput(el)`             | True for textarea / text input / contenteditable                |
-| `isVisible(el)`               | True if element has non-zero dimensions and is not hidden       |
-| `getCurrentValue(el)`         | Gets current text from input or contenteditable                 |
-| `setInputValue(el, value)`    | Sets value with React/framework event dispatch                  |
-| `injectIntoInput(text, mode)` | Injects text (mode: replace / prepend / append) → `{ok, error}` |
+| Function                        | Description                                                                  |
+| ------------------------------- | ---------------------------------------------------------------------------- |
+| `mountUI()`                     | Attaches Shadow DOM host + sidebar HTML (once), calls `initModules`, `wireEvents` |
+| `initModules()`                 | Builds deps and calls each module's `init`                                   |
+| `moveTabIndicator(tab)`         | Animates the sliding underline to the active tab                             |
+| `wireEvents()`                  | Binds all UI event listeners (central switchboard)                           |
+| `setPanelOpen(open)`            | Opens/closes sidebar, loads blocks, renders                                  |
+| `togglePanel()`                 | Flips panel open/closed                                                      |
+| `resetTabDefaults(tabName)`     | Resets per-tab UI defaults when user clicks a tab                            |
+| `render()`                      | Full re-render — calls `chat.renderGeneralMemory`, `renderContextList`, `historyView.render`, ctx-meter update |
+| `installUrlChangeWatcher()`     | Patches `history.pushState/replaceState`, fires `ccb:urlchange` to reset GM + `lastInjectedConversationId` |
 
-### Page push
+### Context list + edit form (kept inline in content.js)
 
-| Function         | Description                                     |
-| ---------------- | ----------------------------------------------- |
-| `pushPage(open)` | Adds/removes CSS that shifts page content right |
+| Function                        | Description                                                       |
+| ------------------------------- | ----------------------------------------------------------------- |
+| `renderContextList()`           | Renders the context-tab block list (manual blocks, not GM)        |
+| `updateInjectBtn()`             | Updates "טען נבחרים" button state + count pill                    |
+| `hasUnsavedChanges()`           | Checks if the edit form differs from the saved block              |
+| `openEdit(id, prefill)`         | Opens edit form; id=null for new block                            |
+| `closeEdit()`                   | Exits edit mode, clears form                                      |
+| `saveEdit()`                    | Validates and saves form to `state.blocks`                        |
+| `deleteEdit()`                  | Confirms (via modals) and deletes the block being edited          |
 
-### UI mount + events
+### Backup
+
+| Function                  | Description                                                                   |
+| ------------------------- | ----------------------------------------------------------------------------- |
+| `exportBackup()`          | Downloads `context-bank-backup.json` with the full blocks object              |
+| `importBackupFile(file)`  | Validates and restores blocks from a JSON backup file (replaces all existing) |
+
+### Toast / status
+
+| Function                  | Description                                                |
+| ------------------------- | ---------------------------------------------------------- |
+| `setStatus(msg, isError)` | Shows toast (panel mode) or inline label (edit-form mode) |
+
+### Init + routing
+
+| Function                  | Description                                                                                                |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `shouldAutoOpen()` / `isActiveSitePage()` | True if current URL matches the active site URL list; gates mount/toggle/init               |
+| `init()`                  | Entry point — loads ctxWindow, mountUI, starts inline save, watches conversation/files, loads blocks, tryAutoInject, opens panel if `AUTO_OPEN_URL` |
+
+## ui-modals.js — function index
 
 | Function                                       | Description                                                            |
 | ---------------------------------------------- | ---------------------------------------------------------------------- |
-| `mountUI()`                                    | Attaches Shadow DOM host + sidebar HTML (once)                         |
-| `settingsBtn`                                  | Header gear button for advanced options                                |
-| `moveTabIndicator(tab)`                        | Animates the sliding underline to the active tab                       |
-| `showConfirm({title,msg,confirmLabel,danger})` | Custom in-shadow confirm dialog → Promise<bool>                        |
-| `showPrompt({title,defaultValue})`             | In-shadow text-input dialog → Promise<string\|null> (null = cancelled) |
+| `showConfirm({title,msg,confirmLabel,danger})` | In-shadow confirm dialog → `Promise<bool>`                             |
+| `showChoice({title,msg,primaryLabel,secondaryLabel})` | Two-button modal → `Promise<"primary"\|"secondary"\|undefined>` |
+| `showPrompt({title,defaultValue})`             | Text-input dialog → `Promise<string\|null>`                            |
+| `showProjectPicker({title,currentId,allowClear})` | Project assignment picker (uses `_deps.getProjects()`)              |
 | `openSettings()` / `closeSettings()`           | Show/hide and position the advanced options popover                    |
-| `loadCtxWindow()` / `setCtxWindow(k)`          | Load and persist the context-window size used by the meter             |
-| `watchFileInputs()`                            | Tracks attached files from page file inputs and estimates token cost   |
-| `exportBackup()`                               | Downloads `context-bank-backup.json` with the full blocks object       |
-| `importBackupFile(file)`                       | Validates and restores blocks from a JSON backup file                  |
-| `hasUnsavedChanges()`                          | Checks if edit form differs from saved block                           |
-| `wireEvents()`                                 | Binds all button/tab/search event listeners                            |
+| `openPromptsEditor()` / `closePromptsEditor()` | Show/hide the prompts editor overlay                                   |
+| `savePromptsEditor()`                          | Persists edits via `__ccbPromptsAPI.save`                              |
+| `resetPromptsEditor(key)`                      | Resets a section via `__ccbPromptsAPI.reset` and refreshes textareas   |
 
-### Panel state
+## history-view.js — function index
 
-| Function             | Description                                    |
-| -------------------- | ---------------------------------------------- |
-| `setPanelOpen(open)` | Opens or closes sidebar, loads blocks, renders |
-| `togglePanel()`      | Flips panel open/closed                        |
+### Date / snippet utilities
 
-`currentProjectId` tracks the active project detail view inside the history tab.
-`projectsCollapsed`, `historyCollapsed`, and `projectInstructionsOpen` track the section toggles in the history/project UI.
-`ccb-ctx-meter` is rendered inside `#pane-context`, so the context-window meter appears only in the Context tab.
-The meter combines live DOM message tokens with tracked uploaded-file tokens.
-Both tabs now scroll at the pane level (`#pane-context`, `#pane-history`), so search/toolbars + content scroll together.
+| Function                              | Description                                                          |
+| ------------------------------------- | -------------------------------------------------------------------- |
+| `formatAge(ts)`                       | "לפני X דקות/שעות/ימים" or "עכשיו"                                   |
+| `dateGroup(ts)`                       | Returns Hebrew date bucket: היום/אתמול/השבוע/החודש/קודם              |
+| `extractSnippet(text, q, fromIndex)`  | Returns a 50-char context snippet with match boundaries              |
 
-### General Memory
+### Project lookups
 
-| Function                | Description                                                                         |
-| ----------------------- | ----------------------------------------------------------------------------------- |
-| `getGM()`               | Returns GM block from `blocks` (with defaults)                                      |
-| `renderGeneralMemory()` | Renders the GM card in the context tab and lets it be selected for manual injection |
-| `tryAutoInject()`       | Polls for input readiness, injects GM at _conversation start only_ + clicks send    |
+| Function                                  | Description                                              |
+| ----------------------------------------- | -------------------------------------------------------- |
+| `getProjects()`                           | All project blocks sorted by `updated` desc             |
+| `getProjectById(id)`                      | Single project block (null if not found)                |
+| `getConversationProject(b)`               | Returns project assigned to a conversation block        |
+| `getProjectConversationCount(projectId)`  | Counts conversations in a project                       |
+
+### Transcript / framing builders
+
+| Function                                                | Description                                                                  |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `formatTranscript(messages)`                            | `User: … / Assistant: …` text                                                |
+| `buildHistoryMessages(b)`                               | Normalizes legacy `content` field into `[{role,text}]`                       |
+| `buildProjectSectionText(block)`                        | `## project title\n content` block                                           |
+| `buildConversationInjectionText(messages, block, opts)` | Wraps transcript with FRAMING_CONV_PRE/POST, optionally project block first |
 
 ### Render
 
-| Function                                                         | Description                                                                                                                                         |
-| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `dateGroup(ts)`                                                  | Returns Hebrew date bucket: היום/אתמול/השבוע/החודש/קודם                                                                                             |
-| `captureConversation()`                                          | Reads all messages from DOM via MSG_SELECTORS → `[{role,text}]`                                                                                     |
-| `getProjects()` / `getProjectById(id)`                           | Returns project blocks or a single project block                                                                                                    |
-| `formatTranscript(messages)`                                     | Formats message array as "User: … / Assistant: …" text                                                                                              |
-| `buildConversationInjectionText(messages, block, opts)`          | Builds two context blocks: (1) conversation with FRAMING_CONV_PRE/POST wrapper, (2) project instructions with FRAMING_PROJ_PRE/POST wrapper (if enabled) |
-| `injectHistoryBubbles(messages)`                                 | Prepends styled chat bubbles into the page's messageList container, preserving line breaks                                                          |
-| `buildHistoryMessages(b)`                                        | Normalizes conversation/summarized history into DOM-ready message bubbles                                                                           |
-| `showChoice({title,msg,primaryLabel,secondaryLabel})`            | Two-button modal for choosing history view vs chat injection                                                                                        |
-| `showProjectPicker()`                                            | Modal picker for assigning a conversation to a project                                                                                              |
-| `loadConversation(b, mode?)`                                     | Prompts for view/inject, swaps existing history DOM, and injects project context for project chats                                                  |
-| `openProjectView(projectId)` / `closeProjectView()`              | Switches the history tab into project-management mode                                                                                               |
-| `renderProjectList()` / `renderProjectView()`                    | Renders the project cards and the active project detail screen with GM-style instructions editing and dots menu; long names are truncated in the UI |
-| `estimateTokens()` / `updateCtxMeter()` / `watchConversation()`  | Estimates live DOM token usage and keeps the meter updated                                                                                          |
-| `syncUploadedFiles()` / `watchFileInputs()`                      | Tracks file input selections and folds their tokens into the meter                                                                                  |
-| `syncCollapsibleSections()` / `syncProjectInstructionsSection()` | Keeps the history/project section toggles in sync with state                                                                                        |
-| `openHiDropdown(b, menuBtn)`                                     | Opens pin/delete dropdown next to history item                                                                                                      |
-| `openProjectDropdown(project, menuBtn)`                          | Opens rename/delete dropdown for a project                                                                                                          |
-| `closeHiDropdown()`                                              | Closes the dropdown and removes outside-click listener                                                                                              |
-| `extractSnippet(text, q, fromIndex)`                             | Returns a 50-char context snippet with match boundaries for content search                                                                          |
-| `renderHistoryList()`                                            | Renders history tab: title search or content search, with project tags + date groups; long project tags truncate instead of expanding the row       |
-| `render()`                                                       | Full re-render (GM card + context list + project list + history list + project view)                                                                |
-| `renderList({listId,searchId,isMatch,emptyMsg})`                 | Renders a filtered+sorted block list with checkboxes                                                                                                |
+| Function                                                | Description                                                                                  |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `render()`                                              | History-side of full render: collapsibles → project list → history list → project view      |
+| `renderProjectList()`                                   | Renders project cards                                                                        |
+| `renderProjectView()` / `renderProjectViewConversations(project)` | Renders the active project detail screen                                          |
+| `updateHistoryLayoutForProjectView()`                   | Toggles toolbar / sections / project-view visibility                                         |
+| `renderHistoryList()`                                   | Renders the full history list (title-search or content-search), pinned + grouped            |
+| `createHistoryRow(b, opts)`                             | Builds a single conversation row (with optional snippet + project tag)                       |
+| `syncCollapsibleSections()` / `syncProjectInstructionsSection()` | Updates the section-collapse chevrons and ARIA state                                 |
 
-### Edit form
+### Project actions
 
-| Function                | Description                                 |
-| ----------------------- | ------------------------------------------- |
-| `openEdit(id, prefill)` | Opens edit form; id=null for new block      |
-| `closeEdit()`           | Exits edit mode, clears form                |
-| `saveEdit()`            | Validates and saves form to blocks          |
-| `deleteEdit()`          | Confirms and deletes the block being edited |
+| Function                          | Description                                                          |
+| --------------------------------- | -------------------------------------------------------------------- |
+| `openProjectView(id)` / `closeProjectView()` | Switches history tab in/out of project detail mode        |
+| `addProject()`                    | Prompts (via modals) and creates a new project block                |
+| `saveProjectView()`               | Persists the active project's instructions                          |
+| `openProjectDropdown(project, menuBtn)` | Rename / delete dropdown for a project                        |
 
-### Footer actions
+### Conversation preview panel
 
-| Function                   | Description                                                                                                                                                                                                                        |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `updateInjectBtn()`        | Updates "טען נבחרים" button state + count pill                                                                                                                                                                                     |
-| `injectSelected()`         | Injects selected blocks with FRAMING_MANUAL (or FRAMING_GM when only GM is selected), clicks send                                                                                                                                  |
-| `findScrollableAncestor()` | Walks up from `MSG_SELECTORS.messageList` to find the real scrollable element (overflow auto/scroll + scrollHeight > clientHeight); falls back to scanning `main` / class-based candidates. Generic — survives Gemini DOM changes. |
-| `scrollAndCaptureAll()`    | Uses `findScrollableAncestor()`, then scrolls to top repeatedly until message count stabilizes (defeats virtual scrolling)                                                                                                         |
-| `saveChat()`               | If MSG_SELECTORS ready: scrolls to top → captures DOM → appends new messages to the current conversation or creates one. Else: injects SUMMARY_PROMPT (fallback)                                                                   |
-| `saveProjectView()`        | Persists the active project instructions field                                                                                                                                                                                     |
+| Function                                  | Description                                                                   |
+| ----------------------------------------- | ----------------------------------------------------------------------------- |
+| `openConversationView(b, opts)` / `closeConversationView()` | Open/close the per-message preview panel                    |
+| `renderConversationMessages(b, query)`    | Renders messages with search highlight + selection state                      |
+| `updateNavMatch()` / `updateCvFooter()`   | Nav between matches + selection-count display                                 |
+| `escapeRegExp(s)` / `buildHighlightedNodes(text, q)` | Highlight helpers                                                  |
 
-### Status / toast
+### History-row dropdown
 
-| Function                  | Description                                          |
-| ------------------------- | ---------------------------------------------------- |
-| `setStatus(msg, isError)` | Shows toast (panel mode) or inline label (edit mode) |
+| Function                                 | Description                                                  |
+| ---------------------------------------- | ------------------------------------------------------------ |
+| `openHiDropdown(b, menuBtn)` / `closeHiDropdown()` | Pin / rename / assign-to-project / delete dropdown |
+
+## chat-features.js — function index
+
+### General Memory
+
+| Function                | Description                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------ |
+| `getGM()`               | Returns the GM block from `state.blocks` (with `title: "זיכרון כללי"` default)            |
+| `renderGeneralMemory()` | Renders the GM card in the context tab (select-for-inject checkbox + autoLoad toggle)      |
+| `tryAutoInject()`       | Polls for input readiness, injects GM at *conversation start only*, clicks send            |
+
+### Manual injection
+
+| Function              | Description                                                                                              |
+| --------------------- | -------------------------------------------------------------------------------------------------------- |
+| `injectSelected()`    | Builds the prompt and injects: GM-only uses FRAMING_GM, otherwise FRAMING_MANUAL (with GM first if mixed) |
+
+### Capture + save chat
+
+| Function                                          | Description                                                                                                                              |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `findScrollableAncestor()`                        | Walks up from `MSG_SELECTORS.messageList` to find the real scrollable element. Generic — survives Gemini DOM changes                    |
+| `captureConversation()`                           | Reads all messages from DOM via `MSG_SELECTORS` → `[{role,text}]`                                                                        |
+| `messageListsEqual(a, b)`                         | Deep equality check on `[{role,text}]` arrays                                                                                            |
+| `appendConversationMessages(existing, incoming)`  | Smart merge: handles overlap + full prefix containment                                                                                   |
+| `upsertConversationMessages(id, messages)`        | Updates a block's `messages` + `updated` timestamp                                                                                       |
+| `scrollAndCaptureAll()`                           | Scrolls to top repeatedly until message count stabilizes (defeats virtual scrolling)                                                     |
+| `saveChat()`                                      | Captures + appends to the currently-injected conversation if any, else creates a new one. Falls back to injecting SUMMARY_PROMPT if MSG_SELECTORS isn't ready |
 
 ### Inline save (requires MSG_SELECTORS)
 
-| Function                | Description                                   |
-| ----------------------- | --------------------------------------------- |
-| `inlineReady()`         | True when all MSG_SELECTORS fields are filled |
-| `decorateMessage(node)` | Adds 💾 button to an AI message node          |
-| `startMsgObserver()`    | Starts MutationObserver for new AI messages   |
+| Function                                  | Description                                       |
+| ----------------------------------------- | ------------------------------------------------- |
+| `inlineReady()`                           | True when all MSG_SELECTORS fields are filled     |
+| `decorateMessage(node)`                   | Adds 💾 button to an AI message node              |
+| `startMsgObserver()` / `stopMsgObserver()`| Starts/stops MutationObserver for new AI messages |
 
-### Init
+## ctx-meter.js — function index
 
-| Function             | Description                                                                                               |
-| -------------------- | --------------------------------------------------------------------------------------------------------- |
-| `shouldAutoOpen()`   | True if current URL matches AUTO_OPEN_URLS                                                                |
-| `isActiveSitePage()` | True if current URL matches the active site URL list; gates mount/toggle/init                             |
-| `init()`             | Entry point — loads blocks, starts inline save, runs tryAutoInject (always), opens panel if AUTO_OPEN_URL |
+| Function                      | Description                                                                  |
+| ----------------------------- | ---------------------------------------------------------------------------- |
+| `init(deps)`                  | Wires up to content.js (shadow accessor, MSG_SELECTORS, ctxWindow getter, dropdown close/cleanup) |
+| `update()`                    | Recalculate + redraw the meter                                              |
+| `watchConversation()`         | Start MutationObserver on the chat message list                              |
+| `watchFileInputs()`           | Track `<input type="file">` elements globally to estimate uploaded tokens   |
+| `openFilesDropdown(anchor)`   | Show per-file token breakdown dropdown (sets `dataset.menuType="files"`)    |
+| `renderFilesDropdown(dd)`     | Populate an existing dropdown element                                        |
+| `cleanup()`                   | Disconnect observers, clear state                                            |
+| `getUploadedFiles()`          | Returns the current tracked file metadata                                    |
 
 ## summarizer.js
 
-Runs independently. Waits for `window.__ccb` (exposed by content.js at bottom), then
-uses MutationObserver to watch the DOM for `[[CCB:SAVE]]`. On trigger:
+Runs independently. Waits for `window.__ccb` (exposed by content.js), then uses a MutationObserver to watch the DOM for `[[CCB:SAVE]]`. On trigger:
 
-1. Finds the smallest DOM element containing the trigger (message bubble)
+1. Finds the *smallest* DOM element containing the trigger (message bubble)
 2. Strips `[[CCB:SAVE]]` and `[[CCB:TITLE:...]]` markers
 3. Saves a `conversation` block via `window.__ccb.saveBlocks()`
+
+Dedupes by content fingerprint (length + first/last 80 chars). Gated to the active site's `AUTO_OPEN_URLS`.
 
 ## Storage shape
 
@@ -217,8 +354,8 @@ All data lives under `chrome.storage.local["blocks"]` as a flat object:
 {
   "b_<timestamp>_<rand>": {
     id, title,
-    content?: string,                          // old summary blocks / project instructions
-    messages?: [{role:"user"|"ai", text}],     // new full-conversation blocks
+    content?: string,                          // legacy summary blocks / project instructions
+    messages?: [{role:"user"|"ai", text}],     // full-conversation blocks
     tags?: string[],
     kind?: "conversation" | "general_memory" | "project",
     projectId?: string | null,                 // only on conversation blocks
@@ -230,6 +367,6 @@ All data lives under `chrome.storage.local["blocks"]` as a flat object:
 ```
 
 Special block: `GM_ID = "__general_memory"` — kind `"general_memory"`, has `autoLoad`.
-History list: blocks with `kind === "conversation"` (saved by summarizer.js).
-Project list: blocks with `kind === "project"`.
-Context list: blocks without `kind` (and not GM_ID / project / conversation).
+- History tab: blocks with `kind === "conversation"`
+- Project list: blocks with `kind === "project"`
+- Context tab: blocks without `kind` (and not GM_ID / project / conversation)

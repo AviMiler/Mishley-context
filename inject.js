@@ -25,17 +25,14 @@ window.__ccbInject = (() => {
 
   function setInputValue(el, value) {
     if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
-      const proto =
-        el.tagName === "TEXTAREA"
-          ? window.HTMLTextAreaElement.prototype
-          : window.HTMLInputElement.prototype;
+      const proto = el.tagName === "TEXTAREA"
+        ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
       const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
       setter.call(el, value);
-      // InputEvent (Angular ngModel / reactive forms) — must come before generic Event
       el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: value }));
-      // Generic Event fallback for React / other frameworks
       el.dispatchEvent(new Event("input",  { bubbles: true }));
       el.dispatchEvent(new Event("change", { bubbles: true }));
+      el.focus();
     } else if (el.isContentEditable) {
       el.focus();
       try {

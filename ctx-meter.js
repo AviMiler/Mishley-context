@@ -271,6 +271,7 @@
     if (!dd) return;
 
     renderFilesDropdown(dd);
+    dd.dataset.menuType = "files";
 
     const rect = anchor.getBoundingClientRect();
     dd.style.top = rect.bottom + 6 + "px";
