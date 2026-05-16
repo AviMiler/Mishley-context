@@ -84,6 +84,7 @@
         tags: ["summary"],
         kind: "conversation",
         updated: Date.now(),
+        savedAt: Date.now(),
       };
       await api.saveBlocks();
       api.setStatus("הסיכום נשמר ✓");

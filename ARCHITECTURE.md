@@ -14,9 +14,9 @@
 | `ctx-meter.js`    | Context window usage meter → `window.__ccbCtxMeter`                           | ~400  |
 | `ui-modals.js`    | Dialogs + settings popover + prompts editor → `window.__ccbModals`            | ~355  |
 | `history-view.js` | Projects + history list + conversation preview → `window.__ccbHistoryView`    | ~970  |
-| `chat-features.js`| GM + capture + manual injection + inline save → `window.__ccbChat`            | ~460  |
-| `content.js`      | Orchestrator: state, mount, wireEvents, edit form, context list, backup, init | ~945  |
-| `summarizer.js`   | Watches DOM for `[[CCB:SAVE]]` trigger, auto-saves                            | ~120  |
+| `chat-features.js`| GM + capture + manual injection + inline save → `window.__ccbChat`            | ~440  |
+| `content.js`      | Orchestrator: state, mount, wireEvents, edit form, context list, backup, init | ~960  |
+| `summarizer.js`   | Watches DOM for `[[CCB:SAVE]]` trigger, auto-saves                            | ~130  |
 | `manifest.json`   | MV3 manifest — load order below                                                | —     |
 | `popup.html`      | Toolbar popup — sends `togglePanel` to the active tab                          | —     |
 | `popup.js`        | Popup script (calls chrome.tabs.sendMessage and closes)                        | ~15   |
@@ -60,15 +60,25 @@ Each module's `init` stashes the deps as a private `_deps`. State mutations from
 ```
 state: {
   blocks, blocksLoaded, selected, editingId,
-  historySearchMode, lastInjectedConversationId,
+  historySearchMode,
   currentProjectId, projectsCollapsed, historyCollapsed,
   projectInstructionsOpen,
   ctxWindow, ctxWindowLoaded, gmAutoInjected,
   currentConversationViewId, cvSelectedIndices,
   cvMatchElements, cvMatchIndex, cvOpenedFromProject,
   hiDropdownCleanup,
+  currentConversationId, // auto-save binding for this page load
 }
 ```
+
+### Conversation model
+
+One conversation block per page load. The first message in a fresh chat creates a `kind: "conversation"` block with a default title (`שיחה — date time`) and stores its id in `state.currentConversationId`. Every subsequent message triggers an auto-save (debounced 2.5s) that **updates the same block** in place — no new block is created. The binding is cleared in two ways:
+
+- **Page refresh** — content scripts reload, `state.currentConversationId` is null again, next message creates a new block.
+- **SPA navigation** (URL change) — the `ccb:urlchange` handler in `content.js` explicitly clears `state.currentConversationId`.
+
+The user renames a conversation later from the per-row dropdown in the History list. Loading messages from a stored conversation via the conversation preview only injects text into the input — it does not bind that conversation to the current chat. The manual save button still exists in the History tab; it scrolls the chat to the top first (to capture lazy-loaded older messages) before persisting through the same path. `summarizer.js` is a separate feature: when the AI emits `[[CCB:SAVE]]` it writes a standalone summary block (`tags: ["summary"]`), independent of the auto-saved conversation.
 
 ### Shared `framing` object (live getters)
 
@@ -176,7 +186,7 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | `togglePanel()`                 | Flips panel open/closed                                                      |
 | `resetTabDefaults(tabName)`     | Resets per-tab UI defaults when user clicks a tab                            |
 | `render()`                      | Full re-render — calls `chat.renderGeneralMemory`, `renderContextList`, `historyView.render`, ctx-meter update |
-| `installUrlChangeWatcher()`     | Patches `history.pushState/replaceState`, fires `ccb:urlchange` to reset GM + `lastInjectedConversationId` |
+| `installUrlChangeWatcher()`     | Patches `history.pushState/replaceState`, fires `ccb:urlchange` to reset GM auto-inject |
 
 ### Context list + edit form (kept inline in content.js)
 

@@ -237,39 +237,6 @@
     return messages;
   }
 
-  function messageListsEqual(a, b) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length)
-      return false;
-    for (let i = 0; i < a.length; i++) {
-      if ((a[i]?.role || "") !== (b[i]?.role || "")) return false;
-      if ((a[i]?.text || "").trim() !== (b[i]?.text || "").trim()) return false;
-    }
-    return true;
-  }
-
-  function appendConversationMessages(existing, incoming) {
-    if (!Array.isArray(existing) || !Array.isArray(incoming)) return incoming;
-    if (!incoming.length) return existing;
-    if (messageListsEqual(existing.slice(-incoming.length), incoming))
-      return existing;
-    if (
-      existing.length &&
-      incoming.length >= existing.length &&
-      messageListsEqual(incoming.slice(0, existing.length), existing)
-    ) {
-      return incoming;
-    }
-    return [...existing, ...incoming];
-  }
-
-  function upsertConversationMessages(id, messages) {
-    const block = _deps.state.blocks[id];
-    if (!block) return false;
-    block.messages = messages;
-    block.updated = Date.now();
-    return true;
-  }
-
   async function scrollAndCaptureAll() {
     const MSG_SELECTORS = _deps.config.MSG_SELECTORS;
     const scroller = findScrollableAncestor();
@@ -298,6 +265,58 @@
     });
   }
 
+  // Persist current conversation: update bound block, or create a new one
+  // bound to this page-load. Returns true if anything was written.
+  async function persistConversation(messages) {
+    if (!messages || !messages.length) return false;
+    await _deps.loadBlocks();
+    const state = _deps.state;
+
+    if (
+      state.currentConversationId &&
+      state.blocks[state.currentConversationId]
+    ) {
+      const block = state.blocks[state.currentConversationId];
+      const prev = Array.isArray(block.messages) ? block.messages : [];
+      if (
+        prev.length === messages.length &&
+        prev[prev.length - 1]?.text === messages[messages.length - 1]?.text
+      ) {
+        return false; // no change
+      }
+      block.messages = messages;
+      block.messageCount = messages.length;
+      block.updated = Date.now();
+      await _deps.saveBlocks();
+      return true;
+    }
+
+    const now = new Date();
+    const autoTitle =
+      "שיחה — " +
+      now.toLocaleDateString("he-IL") +
+      " " +
+      now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
+    const currentProject = _deps.historyView.getProjectById(state.currentProjectId);
+    const projectId = currentProject ? state.currentProjectId : null;
+    const id = "b_" + Date.now() + "_conv";
+    state.blocks[id] = {
+      id,
+      title: autoTitle,
+      messages,
+      kind: "conversation",
+      projectId,
+      updated: Date.now(),
+      messageCount: messages.length,
+      savedAt: Date.now(),
+    };
+    state.currentConversationId = id;
+    await _deps.saveBlocks();
+    return true;
+  }
+
+  // Manual "save chat" — does a full scroll-to-top capture (to pick up
+  // lazy-loaded older messages) then persists.
   async function saveChat() {
     if (!inlineReady()) {
       const r = _deps.inject.injectIntoInput(_deps.framing.summaryPrompt, "replace");
@@ -312,7 +331,6 @@
       }
       return;
     }
-
     _deps.setStatus("גולל לתחילה…");
     await scrollAndCaptureAll();
     const messages = captureConversation();
@@ -320,52 +338,36 @@
       _deps.setStatus("לא נמצאו הודעות — ודא MSG_SELECTORS", true);
       return;
     }
-
-    await _deps.loadBlocks();
-
-    const state = _deps.state;
-    if (state.lastInjectedConversationId && state.blocks[state.lastInjectedConversationId]) {
-      const block = state.blocks[state.lastInjectedConversationId];
-      const existing = Array.isArray(block.messages) ? block.messages : [];
-      const merged = appendConversationMessages(existing, messages);
-      upsertConversationMessages(state.lastInjectedConversationId, merged);
-      await _deps.saveBlocks();
-      _deps.setStatus("השיחה עודכנה ✓");
-      _deps.render();
-      return;
-    }
-
-    const now = new Date();
-    const defaultTitle =
-      "שיחה — " +
-      now.toLocaleDateString("he-IL") +
-      " " +
-      now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
-    const chosenTitle = await _deps.modals.showPrompt({
-      title: "שם לשיחה",
-      defaultValue: defaultTitle,
-    });
-    if (chosenTitle === null) {
-      _deps.setStatus("");
-      return;
-    }
-
-    const currentProject = _deps.historyView.getProjectById(state.currentProjectId);
-    const projectId = currentProject ? state.currentProjectId : null;
-
-    const id = "b_" + Date.now() + "_conv";
-    state.blocks[id] = {
-      id,
-      title: chosenTitle,
-      messages,
-      kind: "conversation",
-      projectId,
-      updated: Date.now(),
-    };
-    state.lastInjectedConversationId = id;
-    await _deps.saveBlocks();
-    _deps.setStatus("השיחה נשמרה ✓");
+    const wrote = await persistConversation(messages);
+    _deps.setStatus(wrote ? "השיחה נשמרה ✓ (ניתן לשנות שם)" : "אין שינויים");
     _deps.render();
+  }
+
+  // Auto-save — light: no scroll, just capture what's currently in the DOM.
+  // Trailing throttle: first change schedules a save in AUTO_SAVE_INTERVAL_MS;
+  // additional changes during that window are coalesced (timer NOT reset).
+  // After the save fires, the next change schedules a fresh save. This way
+  // during long AI streams we persist every ~2.5s instead of waiting for the
+  // stream to fully stop.
+  let autoSaveTimer = null;
+  const AUTO_SAVE_INTERVAL_MS = 2500;
+  function scheduleAutoSave() {
+    if (!inlineReady()) return;
+    if (autoSaveTimer) return;
+    autoSaveTimer = setTimeout(async () => {
+      autoSaveTimer = null;
+      try {
+        const messages = captureConversation();
+        if (!messages.length) return;
+        const wrote = await persistConversation(messages);
+        if (wrote) {
+          console.debug("[ccb] auto-saved", messages.length, "msgs");
+          _deps.render?.();
+        }
+      } catch (e) {
+        console.error("[ccb] auto-save failed:", e);
+      }
+    }, AUTO_SAVE_INTERVAL_MS);
   }
 
   // ============================================================
@@ -407,27 +409,76 @@
     node.appendChild(btn);
   }
 
+  let msgObserverContainer = null;
+  let msgObserverRetryTimer = null;
+
   function startMsgObserver() {
-    if (!inlineReady() || msgObserver) return;
+    if (!inlineReady()) return;
     const sel = _deps.config.MSG_SELECTORS;
     const container = document.querySelector(sel.messageList);
-    if (!container) return;
+
+    // If we already observe the same live container, nothing to do.
+    if (msgObserver && msgObserverContainer === container && container) return;
+
+    // Container changed (or appeared/disappeared) — tear down old observer first.
+    if (msgObserver) {
+      msgObserver.disconnect();
+      msgObserver = null;
+      msgObserverContainer = null;
+    }
+
+    if (!container) {
+      // Container not in DOM yet — retry. Gemini renders the chat shell async,
+      // so we keep polling until it appears.
+      if (msgObserverRetryTimer) return;
+      msgObserverRetryTimer = setTimeout(() => {
+        msgObserverRetryTimer = null;
+        startMsgObserver();
+      }, 500);
+      return;
+    }
+
+    msgObserverContainer = container;
     container.querySelectorAll(sel.message).forEach(decorateMessage);
+    if (container.querySelector(sel.message)) scheduleAutoSave();
+
     msgObserver = new MutationObserver((muts) => {
+      let sawChange = false;
       for (const m of muts) {
+        if (m.type === "characterData") {
+          sawChange = true;
+          continue;
+        }
         m.addedNodes.forEach((n) => {
           if (n.nodeType !== 1) return;
-          if (n.matches?.(sel.message)) decorateMessage(n);
-          n.querySelectorAll?.(sel.message).forEach(decorateMessage);
+          if (n.matches?.(sel.message)) {
+            decorateMessage(n);
+            sawChange = true;
+          }
+          n.querySelectorAll?.(sel.message).forEach((node) => {
+            decorateMessage(node);
+            sawChange = true;
+          });
         });
       }
+      if (sawChange) scheduleAutoSave();
     });
-    msgObserver.observe(container, { childList: true, subtree: true });
+    msgObserver.observe(container, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    console.debug("[ccb] msg observer attached to", sel.messageList);
   }
 
   function stopMsgObserver() {
+    if (msgObserverRetryTimer) {
+      clearTimeout(msgObserverRetryTimer);
+      msgObserverRetryTimer = null;
+    }
     msgObserver?.disconnect();
     msgObserver = null;
+    msgObserverContainer = null;
   }
 
   // ============================================================

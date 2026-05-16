@@ -81,10 +81,10 @@ The UI and summarizer are gated to the active site's `AUTO_OPEN_URLS`, so they s
 - **Context tab** — manual blocks + General Memory card + context-window meter (with file-token breakdown)
 - **History tab** — projects + conversation list with title-search or content-search; pin / rename / assign-to-project / delete
 - **Conversation preview panel** — opens on click, lets you search messages, select a subset, and inject (optionally with project instructions)
-- **Auto-save chat** via the `[[CCB:SAVE]]` marker (summarizer.js); manual "save chat" captures the DOM directly
+- **Auto-save chat** runs continuously in `chat-features.js#scheduleAutoSave` (2.5s debounce after each new message) — keeps a single conversation block per page load, refreshed on every message. Refresh or SPA navigation starts a new conversation. Manual "save chat" button still exists for a full scroll-to-top capture of older messages. `summarizer.js` separately saves a summary block on the `[[CCB:SAVE]]` marker.
 - **Advanced options** popover — context-window size, backup export/import (`context-bank-backup.json`), prompts editor
 - **Prompts editor** — 4 framing pairs (manual / GM / conversation wrapper / project wrapper); the locked technical markers (`[[CCB:INJECTED]]`, `<context>`, `<memory>`, `<transcript>`, `<project>`) are visible but not editable. The SUMMARY_PROMPT editor is intentionally hidden for now.
-- **GM auto-inject** at conversation start (when `autoLoad` is on); resets on URL change along with `lastInjectedConversationId`
+- **GM auto-inject** at conversation start (when `autoLoad` is on); resets on URL change
 - **Multi-block injection** — GM-only uses FRAMING_GM, otherwise FRAMING_MANUAL (GM always goes first if mixed)
 
 ## Rules

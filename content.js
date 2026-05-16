@@ -51,7 +51,6 @@
     selected: new Set(),
     editingId: null,
     historySearchMode: "title",
-    lastInjectedConversationId: null,
     currentProjectId: null,
     projectsCollapsed: false,
     historyCollapsed: false,
@@ -65,6 +64,10 @@
     cvMatchIndex: 0,
     cvOpenedFromProject: false,
     hiDropdownCleanup: null,
+    // Auto-save: id of the conversation block bound to *this* page load.
+    // Cleared on URL change (SPA new chat); page refresh naturally resets it
+    // because content scripts re-execute.
+    currentConversationId: null,
   };
 
   // Live FRAMING getters — picks up edits from prompts.js automatically
@@ -883,12 +886,16 @@
     }
 
     window.addEventListener("popstate", notify, true);
+
     window.addEventListener(
       "ccb:urlchange",
       () => {
         if (!isActiveSitePage()) return;
         state.gmAutoInjected = false;
-        state.lastInjectedConversationId = null;
+        // SPA navigation = new chat → unbind any auto-saved conversation
+        state.currentConversationId = null;
+        // Reattach msg observer in case the chat container was re-mounted
+        window.__ccbChat.startMsgObserver();
         window.__ccbChat.tryAutoInject();
       },
       true,
