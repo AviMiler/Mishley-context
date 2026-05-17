@@ -1135,6 +1135,15 @@ window.__ccbCSS = (() => {
     .cv-msg.cv-msg-ai { align-self: flex-start; align-items: flex-start; }
     .cv-msg.cv-dim { opacity: 0.2; }
     .cv-msg.cv-deselected { opacity: 0.35; }
+    /* Brief highlight when navigating to a specific message from a
+       content-search result in the History list. */
+    .cv-msg.cv-msg-flash > .cv-msg-bubble {
+      animation: cv-msg-flash-anim 1.2s ease-out;
+    }
+    @keyframes cv-msg-flash-anim {
+      0%   { box-shadow: 0 0 0 3px rgba(44, 122, 123, 0.55); }
+      100% { box-shadow: 0 0 0 3px rgba(44, 122, 123, 0); }
+    }
     .cv-msg-role {
       font-size: 10px;
       font-weight: 600;

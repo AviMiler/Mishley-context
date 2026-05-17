@@ -221,6 +221,8 @@
       role = "user",
       showProjectTag = true,
       openedFromProject = false,
+      messageIndex = null,
+      searchQuery = "",
     } = {},
   ) {
     const isActive = _deps.state.currentConversationId === b.id;
@@ -263,9 +265,33 @@
       openHiDropdown(b, menuBtn);
     });
 
-    row.addEventListener("click", () =>
-      openConversationView(b, { openedFromProject }),
-    );
+    // Click behavior:
+    // - Conversation-kind row: toggle preview (close if already open on this
+    //   conversation, otherwise open).
+    // - Message-kind row (content-search hit): open preview, set its search
+    //   to the same query so highlights appear, and scroll to the matched
+    //   message. Re-clicking a different message hit on the same conversation
+    //   re-scrolls without closing.
+    row.addEventListener("click", () => {
+      const isMessageHit = kind === "message" && messageIndex != null;
+      if (isMessageHit) {
+        if (_deps.state.currentConversationViewId !== b.id) {
+          openConversationView(b, { openedFromProject });
+        }
+        const cvSearch = $el("cvSearch");
+        if (cvSearch && searchQuery && cvSearch.value !== searchQuery) {
+          cvSearch.value = searchQuery;
+          renderConversationMessages(b, searchQuery);
+        }
+        scrollToMessageIndex(messageIndex);
+        return;
+      }
+      if (_deps.state.currentConversationViewId === b.id) {
+        closeConversationView();
+      } else {
+        openConversationView(b, { openedFromProject });
+      }
+    });
 
     head.appendChild(menuBtn);
     row.appendChild(head);
@@ -594,6 +620,24 @@
     return frag;
   }
 
+  // Scroll the conversation preview to a specific message by its index.
+  // Used when the user clicks a content-search hit in the History list —
+  // the row knows which message inside the conversation it matched.
+  function scrollToMessageIndex(index) {
+    if (index == null) return;
+    const box = $el("cvMessages");
+    if (!box) return;
+    // Defer one frame so the messages have a chance to render after a
+    // freshly-opened conversation view.
+    requestAnimationFrame(() => {
+      const target = box.querySelector(`[data-msg-index="${index}"]`);
+      if (!target) return;
+      target.scrollIntoView({ block: "center", behavior: "smooth" });
+      target.classList.add("cv-msg-flash");
+      setTimeout(() => target.classList.remove("cv-msg-flash"), 1200);
+    });
+  }
+
   function renderConversationMessages(b, query) {
     const state = _deps.state;
     const box = $el("cvMessages");
@@ -609,6 +653,7 @@
       const role = m.role === "user" ? "user" : "ai";
       const msg = document.createElement("div");
       msg.className = `cv-msg cv-msg-${role}`;
+      msg.dataset.msgIndex = String(i);
 
       const selectedNow = state.cvSelectedIndices.has(i);
       msg.classList.toggle("cv-selected", selectedNow);
@@ -923,6 +968,8 @@
           snippet: rowData.snippet,
           role: rowData.role,
           showProjectTag: true,
+          messageIndex: rowData.messageIndex ?? null,
+          searchQuery: q,
         }),
       );
     }
