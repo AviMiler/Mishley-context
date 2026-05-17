@@ -68,6 +68,18 @@
     // Cleared on URL change (SPA new chat); page refresh naturally resets it
     // because content scripts re-execute.
     currentConversationId: null,
+    // When "המשך שיחה" is clicked, a snapshot of the saved conversation's
+    // existing messages is stored here. Auto-save's persistConversation
+    // PREPENDS this snapshot before the DOM-captured messages, so the
+    // historical transcript is preserved even though it's not in the live DOM.
+    // Cleared on URL change.
+    continuationBase: null,
+    // After a continuation is injected and "send" is clicked, Gemini routes
+    // from /app to /app/chat/<id>. This URL change is part of the
+    // continuation flow, not a user-initiated navigation — without this
+    // guard, the URL change handler would wipe currentConversationId and
+    // continuationBase right after we set them. Single-shot suppression.
+    suppressNextUrlReset: false,
   };
 
   // Live FRAMING getters — picks up edits from prompts.js automatically
@@ -460,6 +472,8 @@
       else historyView.updateCvFooter();
     });
 
+    // "טען נבחרים" — inject selected messages into current chat as context
+    // (does NOT bind to the loaded conversation; current chat stays its own)
     $el("cvLoadBtn")?.addEventListener("click", () => {
       const b = state.currentConversationViewId ? state.blocks[state.currentConversationViewId] : null;
       if (!b || !state.cvSelectedIndices.size) return;
@@ -478,6 +492,72 @@
         );
       } else {
         setStatus(r.error || "נכשל", true);
+      }
+    });
+
+    // "המשך שיחה" — resume a saved conversation by:
+    //   (1) flushing any pending auto-save for the current chat IF it has a
+    //       real (non-injection) user message
+    //   (2) recording a pending-continue intent in sessionStorage
+    //   (3) reloading the page so we start from a clean DOM state
+    // After reload, processPendingContinue() (called from init) picks up the
+    // intent and does the actual GM + transcript inject + binding.
+    $el("cvContinueBtn")?.addEventListener("click", async () => {
+      const b = state.currentConversationViewId ? state.blocks[state.currentConversationViewId] : null;
+      if (!b) return;
+
+      // Already in this conversation — nothing to do. Don't reload: it would
+      // discard live DOM state for the very conversation the user is on.
+      if (state.currentConversationId === b.id) {
+        historyView.closeConversationView();
+        setStatus("השיחה כבר פעילה");
+        return;
+      }
+
+      setStatus("שומר ומרענן…");
+
+      // 1. Save current chat first — only if there's a real user message
+      try {
+        const flushed = await window.__ccbChat.flushAutoSave();
+        const hasRealUserMessage = (flushed?.messages || []).some(
+          (m) => m && m.role === "user",
+        );
+        if (!hasRealUserMessage) {
+          // Nothing user-typed → no save needed (auto-save already filtered
+          // injection-only messages, so we just skip without forcing a write).
+        }
+      } catch (e) {
+        console.error("[ccb] pre-continue flush failed:", e);
+      }
+
+      // 2. Record intent (survives reload)
+      try {
+        sessionStorage.setItem(
+          "ccb_pendingContinue",
+          JSON.stringify({
+            blockId: b.id,
+            includeProject: !!$el("cvIncludeProject")?.checked,
+          }),
+        );
+      } catch (e) {
+        console.error("[ccb] sessionStorage write failed:", e);
+        setStatus("לא ניתן לרענן", true);
+        return;
+      }
+
+      historyView.closeConversationView();
+
+      // 3. Navigate to a FRESH chat URL — not just reload. A reload would
+      //    keep us on an existing chat URL (e.g. /app/chat/abc) where the
+      //    chat already has its own conversation loaded, and injecting into
+      //    that would mix two conversations together. Going to the base URL
+      //    lets Gemini route us to a fresh chat. content scripts re-run;
+      //    processPendingContinue() picks up the intent there.
+      const baseUrl = (CONFIG_PUBLIC.AUTO_OPEN_URLS && CONFIG_PUBLIC.AUTO_OPEN_URLS[0]) || null;
+      if (baseUrl) {
+        location.assign(baseUrl);
+      } else {
+        location.reload();
       }
     });
 
@@ -891,12 +971,24 @@
       "ccb:urlchange",
       () => {
         if (!isActiveSitePage()) return;
+        // After "המשך שיחה" sends, Gemini routes to a new chat URL. That URL
+        // change is part of the continuation, not user navigation — preserve
+        // currentConversationId + continuationBase + gmAutoInjected so the
+        // binding survives. One-shot.
+        if (state.suppressNextUrlReset) {
+          state.suppressNextUrlReset = false;
+          window.__ccbChat.startMsgObserver();
+          return;
+        }
         state.gmAutoInjected = false;
         // SPA navigation = new chat → unbind any auto-saved conversation
         state.currentConversationId = null;
+        state.continuationBase = null;
         // Reattach msg observer in case the chat container was re-mounted
         window.__ccbChat.startMsgObserver();
         window.__ccbChat.tryAutoInject();
+        // Refresh the sidebar so the active-conversation marker clears.
+        render();
       },
       true,
     );
@@ -909,6 +1001,126 @@
     return CONFIG_PUBLIC.AUTO_OPEN_URLS.some((u) => location.href.startsWith(u));
   }
 
+  // After "המשך שיחה" navigates to the fresh chat URL, the intent is stored
+  // in sessionStorage. Pick it up here and finish the resume flow.
+  function processPendingContinue() {
+    let intent = null;
+    try {
+      const raw = sessionStorage.getItem("ccb_pendingContinue");
+      if (!raw) return;
+      intent = JSON.parse(raw);
+      sessionStorage.removeItem("ccb_pendingContinue");
+    } catch {
+      sessionStorage.removeItem("ccb_pendingContinue");
+      return;
+    }
+    if (!intent || !intent.blockId) {
+      console.debug("[ccb] continue: no valid intent");
+      return;
+    }
+
+    const b = state.blocks[intent.blockId];
+    if (!b) {
+      console.error("[ccb] continue: block not found", intent.blockId);
+      setStatus("השיחה לא נמצאה", true);
+      return;
+    }
+    console.debug("[ccb] continue: resuming", b.id, b.title);
+
+    // Block GM auto-inject — we're doing our own injection sequence here.
+    state.gmAutoInjected = true;
+
+    // Wait for the chat input + send button to be ready (Gemini renders async).
+    let tries = 0;
+    const poll = setInterval(() => {
+      tries++;
+      if (tries > 150) {
+        clearInterval(poll);
+        console.error("[ccb] continue: input/send not found after 15s");
+        setStatus("לא נמצא קלט", true);
+        return;
+      }
+      const input = ccbInject.findInput();
+      const sendBtn = document.querySelector(CONFIG_PUBLIC.SEND_BUTTON_SELECTOR);
+      if (!input || !sendBtn) return;
+      clearInterval(poll);
+      console.debug("[ccb] continue: input+send ready after", tries, "tries");
+
+      // 1. Build combined payload: GM + transcript, in a SINGLE injection.
+      //    Two sequential injectIntoInput calls were unreliable on Gemini.
+      //    GM is included whenever it has content — "המשך שיחה" is an
+      //    explicit user choice to bring context, so we do NOT gate this
+      //    on gm.autoLoad (that toggle only governs the *passive* auto-inject
+      //    that runs on a fresh chat without any user action).
+      // Use the module-level GM_ID (destructured from __ccbRawConfig at top).
+      // Earlier code mistakenly used CONFIG_PUBLIC.GM_ID — CONFIG_PUBLIC only
+      // exposes a small whitelist and does NOT include GM_ID, so the lookup
+      // returned undefined and GM was always silently skipped.
+      const gm = state.blocks[GM_ID];
+      const hasGmContent = !!(gm && (gm.content || "").trim());
+      console.debug("[ccb] continue: GM state", {
+        gmId: GM_ID,
+        exists: !!gm,
+        autoLoad: gm?.autoLoad,
+        hasContent: hasGmContent,
+        contentLen: (gm?.content || "").length,
+      });
+      let gmBlock = "";
+      if (hasGmContent) {
+        gmBlock = framing.gmPre + gm.content + framing.gmPost + "\n\n";
+      }
+
+      const hv = window.__ccbHistoryView;
+      const allMsgs = hv.buildHistoryMessages(b);
+      const transcriptBlock = hv.buildConversationInjectionText(allMsgs, b, {
+        includeProjectInstructions: !!intent.includeProject,
+      });
+
+      const combined = gmBlock + transcriptBlock;
+      const r = ccbInject.injectIntoInput(combined, "replace");
+      console.debug(
+        "[ccb] continue: combined inject",
+        r,
+        "gm:",
+        !!gmBlock,
+        "msgs:",
+        allMsgs.length,
+      );
+      if (!r.ok) {
+        console.error("[ccb] continue: combined inject failed", r);
+        setStatus(r.error || "נכשל", true);
+        return;
+      }
+
+      // 3. BIND + snapshot historical messages. Use buildHistoryMessages so
+      //    the snapshot is *filtered* (no "Context loaded." / "Transcript
+      //    loaded." pollution from older saves) — otherwise auto-save would
+      //    write those canned AI responses back into the block on every turn.
+      state.currentConversationId = b.id;
+      state.continuationBase = hv.buildHistoryMessages(b).slice();
+      console.debug(
+        "[ccb] continue: bound conversation",
+        b.id,
+        "base messages:",
+        state.continuationBase.length,
+      );
+      // Refresh the sidebar so the active-conversation marker lights up.
+      render();
+      // Gemini will route to a chat URL when send is clicked — suppress
+      // the resulting URL-change reset so the binding survives.
+      state.suppressNextUrlReset = true;
+      // Failsafe: clear suppression after 8s in case the URL change never
+      // happens (otherwise next legitimate navigation would be ignored).
+      setTimeout(() => {
+        state.suppressNextUrlReset = false;
+      }, 8000);
+      setStatus("ממשיך שיחה: " + (b.title || ""));
+
+      // 4. Send
+      setTimeout(() => sendBtn.click(), 100);
+    }, 100);
+  }
+
   async function init() {
     if (!isActiveSitePage()) return;
     await loadCtxWindow();
@@ -919,6 +1131,9 @@
     window.__ccbCtxMeter.watchConversation();
     await loadBlocks();
     installUrlChangeWatcher();
+    // Check for pending continue BEFORE tryAutoInject — processPendingContinue
+    // sets gmAutoInjected=true so we don't double-inject GM.
+    processPendingContinue();
     window.__ccbChat.tryAutoInject();
     if (shouldAutoOpen()) setPanelOpen(true);
   }

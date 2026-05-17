@@ -107,8 +107,25 @@
       .join("\n\n");
   }
 
+  // AI canned responses to injections. Old saved blocks may contain these
+  // (created before capture-time filtering existed) — strip them here so they
+  // don't appear in the conversation view or get re-injected on continue.
+  const INJECTION_AUTORESPONSES = new Set([
+    "Context loaded.",
+    "Context loaded",
+    "Transcript loaded.",
+    "Transcript loaded",
+    "Project guidelines loaded.",
+    "Project guidelines loaded",
+  ]);
+
   function buildHistoryMessages(b) {
-    if (Array.isArray(b.messages) && b.messages.length) return b.messages;
+    if (Array.isArray(b.messages) && b.messages.length) {
+      return b.messages.filter(
+        (m) =>
+          !(m && m.role === "ai" && INJECTION_AUTORESPONSES.has((m.text || "").trim())),
+      );
+    }
     const text = (b.content || "").trim();
     return text ? [{ role: "ai", text }] : [];
   }
@@ -206,14 +223,23 @@
       openedFromProject = false,
     } = {},
   ) {
+    const isActive = _deps.state.currentConversationId === b.id;
     const row = document.createElement("div");
     row.className =
       "hi-item" +
       (b.pinned ? " pinned" : "") +
-      (kind === "message" ? " search-content" : "");
+      (kind === "message" ? " search-content" : "") +
+      (isActive ? " active" : "");
 
     const head = document.createElement("div");
     head.className = "hi-head";
+
+    if (isActive) {
+      const activeDot = document.createElement("span");
+      activeDot.className = "hi-active-dot";
+      activeDot.title = "השיחה הפעילה";
+      head.appendChild(activeDot);
+    }
 
     const title = document.createElement("div");
     title.className = "hi-title";
@@ -454,6 +480,18 @@
     } else {
       if (projectBar) projectBar.style.display = "none";
       if (projectCheckbox) projectCheckbox.checked = false;
+    }
+
+    // If this conversation is already the active one, swap the "המשך שיחה"
+    // button with a non-clickable label. The button stays as the same DOM
+    // node so its click handler remains wired — we just toggle a class and
+    // its text content, and the CSS removes pointer-events.
+    const continueBtn = $el("cvContinueBtn");
+    if (continueBtn) {
+      const isActive = _deps.state.currentConversationId === b.id;
+      continueBtn.classList.toggle("is-active-label", isActive);
+      continueBtn.textContent = isActive ? "השיחה פעילה" : "המשך שיחה";
+      continueBtn.setAttribute("aria-disabled", isActive ? "true" : "false");
     }
 
     const view = $el("conversationView");

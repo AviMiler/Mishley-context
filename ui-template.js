@@ -329,6 +329,7 @@ window.__ccbTpl = (() => {
 
         <div class="cv-footer">
           <button id="cvLoadBtn" type="button" class="cv-load-btn" disabled>${IC.upload} טען נבחרים</button>
+          <button id="cvContinueBtn" type="button" class="cv-continue-btn">${IC.msg} המשך שיחה</button>
         </div>
       </div>
     </div>

@@ -131,13 +131,15 @@
       const el = _deps.inject.findInput();
       if (!el) return;
 
+      // Wait for a *fresh* chat: keep polling while messages are still in
+      // the DOM (e.g. during SPA transition from /chat/old → /app the old
+      // messages linger for a moment). Only inject when msgCount drops to 0.
+      // If it never does (true existing chat), poll just times out — no
+      // injection, which is the correct behavior for an in-progress chat.
       try {
         if (MSG_SELECTORS?.message) {
           const msgCount = document.querySelectorAll(MSG_SELECTORS.message).length;
-          if (msgCount > 0) {
-            clearInterval(poll);
-            return;
-          }
+          if (msgCount > 0) return; // keep polling
         }
       } catch {
         // ignore
@@ -146,6 +148,7 @@
       _deps.state.gmAutoInjected = true;
       const f = _deps.framing;
       _deps.inject.injectIntoInput(f.gmPre + gm.content + f.gmPost, "prepend");
+      console.debug("[ccb] GM auto-injected (fresh chat detected)");
       setTimeout(() => {
         const btn = document.querySelector(_deps.config.SEND_BUTTON_SELECTOR);
         if (btn) btn.click();
@@ -216,6 +219,18 @@
     return null;
   }
 
+  // AI auto-responses that the framing prompts request after each injection.
+  // We strip them from capture so they don't accumulate inside saved blocks
+  // across multiple continuations.
+  const INJECTION_AUTORESPONSES = new Set([
+    "Context loaded.",
+    "Context loaded",
+    "Transcript loaded.",
+    "Transcript loaded",
+    "Project guidelines loaded.",
+    "Project guidelines loaded",
+  ]);
+
   function captureConversation() {
     const MSG_SELECTORS = _deps.config.MSG_SELECTORS;
     const container = document.querySelector(MSG_SELECTORS.messageList);
@@ -224,15 +239,22 @@
     const messages = [];
     for (const n of nodes) {
       const text = MSG_SELECTORS.messageText(n) || "";
-      if (!text.trim()) continue;
-      if (text.includes("[[CCB:INJECTED]]")) continue;
+      const trimmed = text.trim();
+      if (!trimmed) continue;
+      if (trimmed.includes("[[CCB:INJECTED]]")) continue;
       let role = "user";
       if (MSG_SELECTORS.aiMessageMatch && MSG_SELECTORS.aiMessageMatch(n)) {
         role = "ai";
       } else if (MSG_SELECTORS.userMessageMatch && MSG_SELECTORS.userMessageMatch(n)) {
         role = "user";
       }
-      messages.push({ role, text: text.trim() });
+      // Skip the AI's canned response to an injection ("Context loaded." etc.).
+      // captureConversation already filters the injection itself by marker,
+      // but the AI's reply is just a normal short message — without this
+      // filter it would slip into the saved block and re-inject on every
+      // future continuation, growing endlessly.
+      if (role === "ai" && INJECTION_AUTORESPONSES.has(trimmed)) continue;
+      messages.push({ role, text: trimmed });
     }
     return messages;
   }
@@ -269,6 +291,15 @@
   // bound to this page-load. Returns true if anything was written.
   async function persistConversation(messages) {
     if (!messages || !messages.length) return false;
+    // captureConversation filters the injection USER-QUERY itself (by the
+    // [[CCB:INJECTED]] marker) but cannot detect the AI's auto-response to
+    // it ("Context loaded.", "Transcript loaded.") since that's just a
+    // normal AI message. Trim any leading AI messages — a real exchange
+    // always starts with a user turn. If no user turn exists, this is
+    // injection-only noise; skip the save entirely.
+    const firstUserIdx = messages.findIndex((m) => m && m.role === "user");
+    if (firstUserIdx === -1) return false;
+    messages = firstUserIdx > 0 ? messages.slice(firstUserIdx) : messages;
     await _deps.loadBlocks();
     const state = _deps.state;
 
@@ -277,15 +308,25 @@
       state.blocks[state.currentConversationId]
     ) {
       const block = state.blocks[state.currentConversationId];
+      // If this is a "continuation" (user clicked "המשך שיחה"), the saved
+      // block's historical messages are NOT in the live DOM. Prepend the
+      // snapshot taken at binding time so we never overwrite history with
+      // just the post-continuation turn.
+      const base = Array.isArray(state.continuationBase)
+        ? state.continuationBase
+        : [];
+      const fullMessages = base.length > 0 ? [...base, ...messages] : messages;
+
       const prev = Array.isArray(block.messages) ? block.messages : [];
       if (
-        prev.length === messages.length &&
-        prev[prev.length - 1]?.text === messages[messages.length - 1]?.text
+        prev.length === fullMessages.length &&
+        prev[prev.length - 1]?.text ===
+          fullMessages[fullMessages.length - 1]?.text
       ) {
         return false; // no change
       }
-      block.messages = messages;
-      block.messageCount = messages.length;
+      block.messages = fullMessages;
+      block.messageCount = fullMessages.length;
       block.updated = Date.now();
       await _deps.saveBlocks();
       return true;
@@ -341,6 +382,21 @@
     const wrote = await persistConversation(messages);
     _deps.setStatus(wrote ? "השיחה נשמרה ✓ (ניתן לשנות שם)" : "אין שינויים");
     _deps.render();
+  }
+
+  // Force-flush: cancel any pending throttled save and run one now.
+  // Returns the captured messages (after [[CCB:INJECTED]] filtering) so the
+  // caller can decide whether anything real exists.
+  async function flushAutoSave() {
+    if (autoSaveTimer) {
+      clearTimeout(autoSaveTimer);
+      autoSaveTimer = null;
+    }
+    if (!inlineReady()) return { messages: [], wrote: false };
+    const messages = captureConversation();
+    if (!messages.length) return { messages: [], wrote: false };
+    const wrote = await persistConversation(messages);
+    return { messages, wrote };
   }
 
   // Auto-save — light: no scroll, just capture what's currently in the DOM.
@@ -504,6 +560,7 @@
     tryAutoInject,
     injectSelected,
     saveChat,
+    flushAutoSave,
     inlineReady,
     startMsgObserver,
     stopMsgObserver,
