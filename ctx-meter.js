@@ -73,6 +73,54 @@
     );
   }
 
+  // Classify file by extension/MIME and return realistic token estimate.
+  // Numbers based on typical LLM tokenization rates per format:
+  //   - Images: vision models charge ~85-1600 per image depending on size
+  //   - PDFs:   ~150-300 words/page; file size ratio varies wildly with embedded media
+  //   - Office: heavily compressed XML + images — actual text is small fraction of size
+  function estimateBinaryTokens(file) {
+    const name = (file?.name || "").toLowerCase();
+    const type = (file?.type || "").toLowerCase();
+    const size = file?.size || 0;
+
+    // Images — vision token cost is roughly flat per image (sizes vary 85-1600)
+    if (type.startsWith("image/") || /\.(jpe?g|png|gif|webp|bmp|tiff?|heic|heif)$/i.test(name)) {
+      // Approximate: small=85, medium=400, large=1100, very large=1600
+      if (size < 100 * 1024) return 85;
+      if (size < 500 * 1024) return 400;
+      if (size < 2 * 1024 * 1024) return 1100;
+      return 1600;
+    }
+
+    // PDF — most size is text + embedded fonts/images. Heuristic: ~size/50
+    if (type === "application/pdf" || /\.pdf$/i.test(name)) {
+      return Math.ceil(size / 50);
+    }
+
+    // Word / PowerPoint / Excel — heavily compressed (.docx is zipped XML)
+    // Actual text content is a small fraction of file size
+    if (/\.(docx?|pptx?|xlsx?|odt|ods|odp|rtf)$/i.test(name) ||
+        type.includes("officedocument") ||
+        type.includes("msword") ||
+        type.includes("ms-excel") ||
+        type.includes("ms-powerpoint")) {
+      return Math.ceil(size / 60);
+    }
+
+    // Audio — Gemini transcribes; rough estimate by duration unavailable, use size
+    if (type.startsWith("audio/") || /\.(mp3|wav|m4a|ogg|flac|aac)$/i.test(name)) {
+      return Math.ceil(size / 100);
+    }
+
+    // Video — even more compressed per token
+    if (type.startsWith("video/") || /\.(mp4|mov|avi|mkv|webm)$/i.test(name)) {
+      return Math.ceil(size / 200);
+    }
+
+    // Unknown binary — conservative fallback (was /3, which was wildly overestimated)
+    return Math.ceil(size / 50);
+  }
+
   async function estimateFileTokens(file) {
     if (!file) return null;
     if (isLikelyTextFile(file)) {
@@ -85,7 +133,7 @@
     }
     return {
       name: file.name,
-      tokens: Math.ceil((file.size || 0) / 3),
+      tokens: estimateBinaryTokens(file),
       size: file.size || 0,
     };
   }
@@ -125,7 +173,7 @@
         console.error("[ctx-meter] Failed to estimate file tokens", e);
         nextFiles.push({
           name: file.name,
-          tokens: Math.ceil((file.size || 0) / 3),
+          tokens: estimateBinaryTokens(file),
           size: file.size || 0,
         });
       }

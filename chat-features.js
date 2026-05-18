@@ -1,4 +1,4 @@
-// chat-features.js — General Memory, conversation capture/save, manual injection, inline save button.
+// chat-features.js — General Memory, conversation capture/save, manual injection.
 // Exposes: window.__ccbChat
 //
 // Public API (after init):
@@ -6,7 +6,7 @@
 //   tryAutoInject()
 //   injectSelected()
 //   saveChat()
-//   inlineReady() / startMsgObserver() / stopMsgObserver()
+//   startMsgObserver() / stopMsgObserver()
 
 (() => {
   if (window.__ccbChatInstalled) return;
@@ -116,44 +116,89 @@
   // ============================================================
   // GM auto-inject at conversation start
   // ============================================================
+  let _autoInjectObserver = null;
+
+  function _doInject(gm) {
+    if (_deps.state.gmAutoInjected) return;
+    _deps.state.gmAutoInjected = true;
+    const f = _deps.framing;
+    _deps.inject.injectIntoInput(f.gmPre + gm.content + f.gmPost, "prepend");
+    console.debug("[ccb] GM auto-injected (fresh chat detected)");
+    setTimeout(() => {
+      const btn = document.querySelector(_deps.config.SEND_BUTTON_SELECTOR);
+      if (btn) btn.click();
+    }, 100);
+  }
+
   async function tryAutoInject() {
     const gm = getGM();
     if (_deps.state.gmAutoInjected) return;
     if (!gm.autoLoad || !(gm.content || "").trim()) return;
     const MSG_SELECTORS = _deps.config.MSG_SELECTORS;
-    let tries = 0;
-    const poll = setInterval(() => {
-      tries++;
-      if (tries > 100) {
-        clearInterval(poll);
+    const NEW_CHAT_BTN_SELECTOR = _deps.config.NEW_CHAT_BTN_SELECTOR;
+
+    // Cancel any previous pending observer
+    if (_autoInjectObserver) {
+      _autoInjectObserver.disconnect();
+      _autoInjectObserver = null;
+    }
+
+    function getMsgCount() {
+      if (!MSG_SELECTORS?.message) return 0;
+      try {
+        return document.querySelectorAll(MSG_SELECTORS.message).length;
+      } catch { return 0; }
+    }
+
+    // True when chat UI is loaded enough to inject (input exists)
+    function chatReady() {
+      return !!_deps.inject.findInput();
+    }
+
+    // Action when chat is ready: if existing messages and we have a
+    // new-chat button, click it (the watcher will call us again with a
+    // clean chat). Otherwise inject into the current empty chat.
+    function actWhenReady() {
+      if (_deps.state.gmAutoInjected) return;
+      const msgCount = getMsgCount();
+      if (msgCount > 0) {
+        if (NEW_CHAT_BTN_SELECTOR) {
+          const newChatBtn = document.querySelector(NEW_CHAT_BTN_SELECTOR);
+          if (newChatBtn) {
+            console.debug("[ccb] tryAutoInject: existing chat detected → clicking 'new chat'");
+            newChatBtn.click();
+            return; // watcher resets state and calls us again
+          }
+        }
+        // No new-chat button — bail. Don't pollute an in-progress chat.
+        console.debug("[ccb] tryAutoInject: messages present, no new-chat btn — skipping");
         return;
       }
-      const el = _deps.inject.findInput();
-      if (!el) return;
+      _doInject(gm);
+    }
 
-      // Wait for a *fresh* chat: keep polling while messages are still in
-      // the DOM (e.g. during SPA transition from /chat/old → /app the old
-      // messages linger for a moment). Only inject when msgCount drops to 0.
-      // If it never does (true existing chat), poll just times out — no
-      // injection, which is the correct behavior for an in-progress chat.
-      try {
-        if (MSG_SELECTORS?.message) {
-          const msgCount = document.querySelectorAll(MSG_SELECTORS.message).length;
-          if (msgCount > 0) return; // keep polling
-        }
-      } catch {
-        // ignore
+    // If chat is already loaded — act immediately
+    if (chatReady()) {
+      actWhenReady();
+      return;
+    }
+
+    // Otherwise watch DOM until chat UI appears (login screen → chat).
+    // No timeout — slow-loading sites can take minutes.
+    _autoInjectObserver = new MutationObserver(() => {
+      if (_deps.state.gmAutoInjected) {
+        _autoInjectObserver.disconnect();
+        _autoInjectObserver = null;
+        return;
       }
-      clearInterval(poll);
-      _deps.state.gmAutoInjected = true;
-      const f = _deps.framing;
-      _deps.inject.injectIntoInput(f.gmPre + gm.content + f.gmPost, "prepend");
-      console.debug("[ccb] GM auto-injected (fresh chat detected)");
-      setTimeout(() => {
-        const btn = document.querySelector(_deps.config.SEND_BUTTON_SELECTOR);
-        if (btn) btn.click();
-      }, 100);
-    }, 100);
+      if (!chatReady()) return;
+      _autoInjectObserver.disconnect();
+      _autoInjectObserver = null;
+      // Wait a tick to let messages render in (so getMsgCount is accurate)
+      setTimeout(actWhenReady, 300);
+    });
+    _autoInjectObserver.observe(document.body, { childList: true, subtree: true });
+    console.debug("[ccb] tryAutoInject: waiting for chat UI via MutationObserver");
   }
 
   // ============================================================
@@ -359,7 +404,7 @@
   // Manual "save chat" — does a full scroll-to-top capture (to pick up
   // lazy-loaded older messages) then persists.
   async function saveChat() {
-    if (!inlineReady()) {
+    if (!canCapture()) {
       const r = _deps.inject.injectIntoInput(_deps.framing.summaryPrompt, "replace");
       if (r.ok) {
         setTimeout(() => {
@@ -392,7 +437,7 @@
       clearTimeout(autoSaveTimer);
       autoSaveTimer = null;
     }
-    if (!inlineReady()) return { messages: [], wrote: false };
+    if (!canCapture()) return { messages: [], wrote: false };
     const messages = captureConversation();
     if (!messages.length) return { messages: [], wrote: false };
     const wrote = await persistConversation(messages);
@@ -408,7 +453,7 @@
   let autoSaveTimer = null;
   const AUTO_SAVE_INTERVAL_MS = 2500;
   function scheduleAutoSave() {
-    if (!inlineReady()) return;
+    if (!canCapture()) return;
     if (autoSaveTimer) return;
     autoSaveTimer = setTimeout(async () => {
       autoSaveTimer = null;
@@ -427,49 +472,18 @@
   }
 
   // ============================================================
-  // Inline save button (per AI message)
-  // ============================================================
-  const SAVE_BTN_FLAG = "__ccbSaveBtn";
   let msgObserver = null;
 
-  function inlineReady() {
+  function canCapture() {
     const sel = _deps.config.MSG_SELECTORS;
-    return (
-      sel &&
-      sel.messageList &&
-      sel.message &&
-      typeof sel.aiMessageMatch === "function" &&
-      typeof sel.messageText === "function"
-    );
-  }
-
-  function decorateMessage(node) {
-    if (!node || node[SAVE_BTN_FLAG]) return;
-    const sel = _deps.config.MSG_SELECTORS;
-    if (!sel.aiMessageMatch(node)) return;
-    node[SAVE_BTN_FLAG] = true;
-    const btn = document.createElement("button");
-    btn.textContent = "💾 שמור לבנק";
-    btn.style.cssText =
-      "all:revert;margin:4px;padding:2px 8px;font-size:12px;" +
-      "border:1px solid #ccc;border-radius:4px;background:#fff;" +
-      "cursor:pointer;font-family:system-ui,sans-serif;";
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      await _deps.loadBlocks();
-      _deps.mountUI();
-      await _deps.setPanelOpen(true);
-      const text = sel.messageText(node) || "";
-      _deps.openEdit(null, { content: text });
-    });
-    node.appendChild(btn);
+    return !!(sel && sel.messageList && sel.message);
   }
 
   let msgObserverContainer = null;
   let msgObserverRetryTimer = null;
 
   function startMsgObserver() {
-    if (!inlineReady()) return;
+    if (!canCapture()) return;
     const sel = _deps.config.MSG_SELECTORS;
     const container = document.querySelector(sel.messageList);
 
@@ -495,7 +509,6 @@
     }
 
     msgObserverContainer = container;
-    container.querySelectorAll(sel.message).forEach(decorateMessage);
     if (container.querySelector(sel.message)) scheduleAutoSave();
 
     msgObserver = new MutationObserver((muts) => {
@@ -507,14 +520,9 @@
         }
         m.addedNodes.forEach((n) => {
           if (n.nodeType !== 1) return;
-          if (n.matches?.(sel.message)) {
-            decorateMessage(n);
+          if (n.matches?.(sel.message) || n.querySelectorAll?.(sel.message).length) {
             sawChange = true;
           }
-          n.querySelectorAll?.(sel.message).forEach((node) => {
-            decorateMessage(node);
-            sawChange = true;
-          });
         });
       }
       if (sawChange) scheduleAutoSave();
@@ -551,7 +559,7 @@
      *   modals: object,
      *   historyView: object,
      *   loadBlocks, saveBlocks, setStatus, render, updateInjectBtn,
-     *   openEdit, mountUI, setPanelOpen,
+     *   openEdit,
      * }} deps
      */
     init(deps) { _deps = deps; },
@@ -561,7 +569,6 @@
     injectSelected,
     saveChat,
     flushAutoSave,
-    inlineReady,
     startMsgObserver,
     stopMsgObserver,
   };

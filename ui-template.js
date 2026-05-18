@@ -24,21 +24,15 @@ window.__ccbTpl = (() => {
         <div class="sidebar-title-row">
           <button id="closeBtn" title="סגור" aria-label="סגור">${IC.x}</button>
           <div class="title-wrap">
-            <div style="display: flex; align-items: flex-end; gap: 8px; width: 100%; direction: ltr;">
-              <button id="settingsBtn" title="אפשרויות מתקדמות" aria-label="אפשרויות מתקדמות">${IC.settings}</button>
-              <div style="display: flex; align-items: flex-end; gap: 8px; direction: rtl; flex: 1;">
-                <img src="${chrome.runtime.getURL("icon.png")}" alt="לוגו" style="width: 30px; height: 30px; display: block;" />
-                <span class="sidebar-title" style="font-size: 30px; line-height: 1; margin: 0;">משלי קוד</span>
-              </div>
-            </div>
+            <span class="sidebar-title">משלי</span>
           </div>
+          <button id="settingsBtn" title="אפשרויות מתקדמות" aria-label="אפשרויות מתקדמות">${IC.settings}</button>
         </div>
-      <div class="tabs" role="tablist">
+        <div class="tabs" role="tablist">
           <div class="tab active" data-tab="history" role="tab" aria-selected="true">${IC.clock} שיחות אחרונות</div>
           <div class="tab" data-tab="context" role="tab" aria-selected="false">${IC.context} Context</div>
           <div class="tab-indicator" id="tabIndicator"></div>
         </div>
-
       </div>
 
       <div class="tab-pane" id="pane-context">

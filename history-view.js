@@ -226,12 +226,14 @@
     } = {},
   ) {
     const isActive = _deps.state.currentConversationId === b.id;
+    const isViewing = _deps.state.currentConversationViewId === b.id;
     const row = document.createElement("div");
     row.className =
       "hi-item" +
       (b.pinned ? " pinned" : "") +
       (kind === "message" ? " search-content" : "") +
-      (isActive ? " active" : "");
+      (isActive ? " active" : "") +
+      (isViewing ? " viewing" : "");
 
     const head = document.createElement("div");
     head.className = "hi-head";
@@ -241,6 +243,12 @@
       activeDot.className = "hi-active-dot";
       activeDot.title = "השיחה הפעילה";
       head.appendChild(activeDot);
+    }
+    if (isViewing) {
+      const viewingDot = document.createElement("span");
+      viewingDot.className = "hi-viewing-dot";
+      viewingDot.title = "בתצוגה";
+      head.appendChild(viewingDot);
     }
 
     const title = document.createElement("div");
@@ -502,7 +510,12 @@
     const projectCheckbox = $el("cvIncludeProject");
     if (project) {
       if (projectBar) projectBar.style.display = "";
-      if (projectCheckbox) projectCheckbox.checked = !!openedFromProject;
+      // If the conversation is assigned to a project, default the checkbox
+      // to ON regardless of how the view was opened (history list, search,
+      // or project view). If the user is continuing a conversation that
+      // belongs to a project, they almost always want the project's
+      // instructions in the injection. They can untick to opt out.
+      if (projectCheckbox) projectCheckbox.checked = true;
     } else {
       if (projectBar) projectBar.style.display = "none";
       if (projectCheckbox) projectCheckbox.checked = false;
@@ -528,6 +541,8 @@
     renderConversationMessages(b, "");
     const msgBox = $el("cvMessages");
     if (msgBox) msgBox.scrollTop = 0;
+    // Refresh history list so the "viewing" marker shows on the open row.
+    _deps.render?.();
     setTimeout(() => $el("cvSearch")?.focus(), 10);
   }
 
@@ -540,6 +555,8 @@
     view?.classList.remove("cv-open");
     view?.setAttribute("aria-hidden", "true");
     if ($el("cvSearch")) $el("cvSearch").value = "";
+    // Refresh history list so the "viewing" marker clears.
+    _deps.render?.();
   }
 
   function updateNavMatch() {

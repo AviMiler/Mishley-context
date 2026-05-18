@@ -56,16 +56,18 @@ const _SITE_CONFIG = {
     CHAT_INPUT_SELECTOR: "textarea.new-input-ui",
     SEND_BUTTON_SELECTOR:
       ".gds-icon-xl.google-symbols.mat-icon.send-button-icon",
+    // כפתור "שיחה חדשה" — לחיצה עליו מאפסת את מצב ההמשך במקום רענון עמוד
+    NEW_CHAT_BTN_SELECTOR: 'a[href="/app"]',
     PUSH_SELECTOR: "chat-app",
     PUSH_FIXED_SELECTORS: ["top-bar-actions"],
   },
   internal: {
     AUTO_OPEN_URLS: ["https://dev-mfe-mishley.ips.gov.il"],
     CHAT_INPUT_SELECTOR: "textarea.chat-input",
-    SEND_BUTTON_SELECTOR:
-      "div.chat-input-buttons button[type='submit'], div.chat-input-buttons button:last-of-type",
+    SEND_BUTTON_SELECTOR: "button.send-button",
+    NEW_CHAT_BTN_SELECTOR: "button.sidebar-new-chat",
     PUSH_SELECTOR: "div.app-main-content",
-    PUSH_FIXED_SELECTORS: [],
+    PUSH_FIXED_SELECTORS: ["header.app-header"],
   },
 };
 
@@ -75,6 +77,7 @@ const _ACTIVE = _SITE_CONFIG[ACTIVE_SITE] || _SITE_CONFIG.gemini;
     AUTO_OPEN_URLS: _ACTIVE.AUTO_OPEN_URLS,
     CHAT_INPUT_SELECTOR: _ACTIVE.CHAT_INPUT_SELECTOR,
     SEND_BUTTON_SELECTOR: _ACTIVE.SEND_BUTTON_SELECTOR,
+    NEW_CHAT_BTN_SELECTOR: _ACTIVE.NEW_CHAT_BTN_SELECTOR || "",
     PUSH_SELECTOR: _ACTIVE.PUSH_SELECTOR,
     PUSH_FIXED_SELECTORS: _ACTIVE.PUSH_FIXED_SELECTORS,
 

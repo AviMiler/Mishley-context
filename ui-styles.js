@@ -68,44 +68,86 @@ window.__ccbCSS = (() => {
 
     /* ── Header ── */
     .sidebar-header {
-      padding: 18px 18px 0;
+      padding: 12px 18px;
       background: var(--bg-app);
       border-bottom: 1px solid var(--border-subtle);
       flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
     }
     .sidebar-title-row {
-      display: flex; align-items: flex-start; gap: 12px;
-      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 12px;
     }
-    .title-wrap { flex: 1; text-align: right; }
+    .title-wrap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
     .sidebar-title {
-      font-family: var(--font-en); font-size:30px; font-weight: 600;
-      letter-spacing: -0.01em; color: var(--text-strong);
+      font-family: var(--font-en);
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--text-strong);
       display: block;
     }
     #settingsBtn {
-      width: 22px; height: 22px; flex-shrink: 0;
-      border: none; background: none; padding: 0; cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      color: var(--text-ghost); border-radius: 6px;
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+      border: none;
+      background: none;
+      padding: 0;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-faint);
+      border-radius: 6px;
       transition: color var(--t-fast), background var(--t-fast);
     }
-    #settingsBtn:hover { color: var(--text-mute); background: rgba(0,0,0,.04); }
+    #settingsBtn:hover {
+      color: var(--text-strong);
+      background: rgba(0,0,0,.04);
+    }
     .sidebar-subtitle {
-      font-size: 12px; color: var(--text-ghost); margin-top: 2px; display: block;
+      font-size: 12px;
+      color: var(--text-ghost);
+      margin-top: 2px;
+      display: block;
     }
     #closeBtn {
-      width: 30px; height: 30px; flex-shrink: 0;
-      background: none; border: none; cursor: pointer;
-      color: var(--text-faint); border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 16px; transition: background var(--t-fast), color var(--t-fast);
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--text-faint);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      transition: background var(--t-fast), color var(--t-fast);
     }
-    #closeBtn:hover { background: rgba(0,0,0,.04); color: var(--text-strong); }
+    #closeBtn:hover {
+      background: rgba(0,0,0,.04);
+      color: var(--text-strong);
+    }
 
     /* ── Tabs ── */
     .tabs {
-      position: relative; display: flex;
+      position: relative;
+      display: flex;
+      border-top: 1px solid var(--border-subtle);
       border-bottom: 1px solid var(--border-subtle);
     }
     .tab {
@@ -518,6 +560,20 @@ window.__ccbCSS = (() => {
       width: 8px; height: 8px;
       border-radius: 50%;
       background: #2c7a7b;
+    }
+    /* Viewing indicator — the conversation whose preview panel is open. */
+    .hi-item.viewing {
+      background: rgba(90, 74, 66, 0.08);
+    }
+    .hi-item.viewing:hover { background: rgba(90, 74, 66, 0.14); }
+    .hi-item.viewing.active {
+      background: rgba(44, 122, 123, 0.10);
+    }
+    .hi-viewing-dot {
+      flex-shrink: 0;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #3d2f2b;
     }
     .hi-title {
       flex: 1; font-size: 13px; color: var(--text-strong);
