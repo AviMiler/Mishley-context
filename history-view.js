@@ -494,7 +494,6 @@
     for (const doc of project.documents || []) doc.enabled = true;
     project.updated = Date.now();
     await _deps.saveBlocks();
-    _deps.state.docsProjectId = projectId;
     await injectProjectDocuments();
   }
 
@@ -1296,8 +1295,7 @@
   }
 
   async function injectProjectDocuments() {
-    const pid = _deps.state.docsProjectId || _deps.state.currentProjectId;
-    const project = getProjectById(pid);
+    const project = getProjectById(_deps.state.currentProjectId);
     if (!project) return;
 
     const enabledDocs = (_deps.docHandler?.getEnabledDocuments(project.id) || []);

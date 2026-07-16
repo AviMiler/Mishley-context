@@ -723,7 +723,7 @@
     window.__ccbChat.renderGeneralMemory();
     renderContextList();
     renderProjectBlocksList();
-    renderProjectDocsContext();
+    syncInjectDocsBtn();
     window.__ccbHistoryView.render();
     window.__ccbCtxMeter.watchConversation();
     window.__ccbCtxMeter.update();
@@ -854,115 +854,17 @@
   }
 
   // ============================================================
-  // Project docs in context tab
+  // Project docs inject button (footer)
   // ============================================================
-  function renderProjectDocsContext() {
-    const section = $el("projectDocsContext");
+  // The footer "מסמכים" button is the single, global entry point for
+  // injecting the currently open project's enabled documents (whether
+  // hand-picked in the code-project file tree or the flat regular-project
+  // document list — both live in #projectView, not duplicated here).
+  function syncInjectDocsBtn() {
     const btn = $el("injectDocsBtn");
-    if (!section || !btn) return;
-
-    // Find all projects that have at least one document
-    const projectsWithDocs = Object.values(state.blocks).filter(
-      b => b.kind === "project" && b.documents?.length
-    );
-
-    if (!projectsWithDocs.length) {
-      section.style.display = "none";
-      btn.style.display = "none";
-      return;
-    }
-
-    // Resolve which project to display:
-    // 1. Prefer the currently open project (History tab)
-    // 2. Then the last manually selected docs project
-    // 3. Fall back to first project with docs
-    if (state.currentProjectId && state.blocks[state.currentProjectId]?.documents?.length) {
-      state.docsProjectId = state.currentProjectId;
-    } else if (!state.docsProjectId || !state.blocks[state.docsProjectId]?.documents?.length) {
-      state.docsProjectId = projectsWithDocs[0].id;
-    }
-
-    const projectId = state.docsProjectId;
-    const project = state.blocks[projectId];
-    const docs = project?.documents || [];
-
-    section.style.display = "block";
-    btn.style.display = "flex";
-    section.innerHTML = "";
-
-    const docHandler = window.__ccbDocHandler;
-
-    // Header: plain title if one project, dropdown selector if multiple
-    const header = document.createElement("div");
-    header.className = "ctx-docs-header";
-
-    if (projectsWithDocs.length > 1) {
-      const icon = document.createElement("span");
-      icon.textContent = "📁 ";
-      const sel = document.createElement("select");
-      sel.className = "ctx-docs-select";
-      projectsWithDocs.forEach(p => {
-        const opt = document.createElement("option");
-        opt.value = p.id;
-        opt.textContent = p.title;
-        if (p.id === projectId) opt.selected = true;
-        sel.appendChild(opt);
-      });
-      sel.addEventListener("change", () => {
-        state.docsProjectId = sel.value;
-        renderProjectDocsContext();
-      });
-      header.appendChild(icon);
-      header.appendChild(sel);
-    } else {
-      header.textContent = `📁 ${project.title}`;
-    }
-    section.appendChild(header);
-
-    for (const doc of docs) {
-      const row = document.createElement("div");
-      row.className = "ctx-doc-row";
-
-      const cbWrap = document.createElement("label");
-      cbWrap.className = "cb-wrap";
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.checked = doc.enabled;
-      cb.addEventListener("change", () => {
-        docHandler?.toggleDocument(projectId, doc.id, cb.checked);
-        row.style.opacity = cb.checked ? "1" : "0.45";
-      });
-      const cbBox = document.createElement("span");
-      cbBox.className = "cb-box";
-      cbBox.innerHTML = '<svg class="cb-check" width="10" height="8" viewBox="0 0 10 8" fill="none"><polyline points="1,4 4,7 9,1" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      cbWrap.appendChild(cb);
-      cbWrap.appendChild(cbBox);
-
-      const typeIcon = document.createElement("span");
-      typeIcon.style.cssText = "width:14px;height:14px;flex-shrink:0;color:var(--text-faint)";
-      typeIcon.innerHTML = window.__ccbHistoryView?.getDocumentIcon?.(doc.type) || "📄";
-
-      const name = document.createElement("span");
-      name.className = "ctx-doc-name";
-      name.textContent = doc.name;
-      name.title = doc.name;
-
-      const tokens = document.createElement("span");
-      tokens.className = "ctx-doc-tokens";
-      tokens.textContent = doc.estimatedTokens ? `${doc.estimatedTokens}t` : "";
-
-      row.style.opacity = doc.enabled ? "1" : "0.45";
-      row.appendChild(cbWrap);
-      row.appendChild(typeIcon);
-      row.appendChild(name);
-      row.appendChild(tokens);
-      row.addEventListener("click", (e) => {
-        if (e.target === cb || cbWrap.contains(e.target)) return;
-        cb.checked = !cb.checked;
-        cb.dispatchEvent(new Event("change"));
-      });
-      section.appendChild(row);
-    }
+    if (!btn) return;
+    const project = state.currentProjectId ? state.blocks[state.currentProjectId] : null;
+    btn.style.display = project?.documents?.length ? "flex" : "none";
   }
 
   // ============================================================

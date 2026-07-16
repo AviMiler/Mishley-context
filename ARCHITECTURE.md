@@ -211,7 +211,8 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | `setPanelOpen(open)`            | Opens/closes sidebar, loads blocks, renders                                  |
 | `togglePanel()`                 | Flips panel open/closed                                                      |
 | `resetTabDefaults(tabName)`     | Resets per-tab UI defaults when user clicks a tab                            |
-| `render()`                      | Full re-render — calls `chat.renderGeneralMemory`, `renderContextList`, `renderProjectBlocksList`, `renderProjectDocsContext`, `historyView.render`, ctx-meter update |
+| `render()`                      | Full re-render — calls `chat.renderGeneralMemory`, `renderContextList`, `renderProjectBlocksList`, `syncInjectDocsBtn`, `historyView.render`, ctx-meter update |
+| `syncInjectDocsBtn()`           | Shows/hides the footer `#injectDocsBtn` based on whether the currently open project (`state.currentProjectId`) has any documents — the single global entry point for `historyView.injectProjectDocuments()`, covering both the code-project file tree and the flat regular-project document list |
 | `syncCtxSubview()`              | Context tab: toggles the "טקסטים כלליים" / "פרויקטים" sub-views + active button state (`state.ctxSubview`) |
 | `migrateCtxProjects()`          | Idempotent one-time migration of retired `kind:"ctx-project"` blocks → `kind:"project"` (runs inside `loadBlocks`) |
 | `installUrlChangeWatcher()`     | Patches `history.pushState/replaceState`, fires `ccb:urlchange` to reset GM auto-inject |

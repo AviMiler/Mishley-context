@@ -144,7 +144,6 @@ window.__ccbTpl = (() => {
           </div>
         </div>
 
-        <div id="projectDocsContext" style="display:none"></div>
         </div><!-- /tab-scroll -->
         <footer id="footerContext">
           <button id="injectBtn" disabled style="flex:1">${IC.upload} טען נבחרים</button>

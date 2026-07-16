@@ -1015,31 +1015,6 @@ window.__ccbCSS = (() => {
     }
     #injectDocsBtn:hover { background: var(--bg-hover); }
 
-    /* Project docs section in context tab */
-    #projectDocsContext {
-      margin: 4px 18px 0; border-top: 1px solid var(--border-subtle); padding-top: 8px;
-    }
-    .ctx-docs-header {
-      font-size: 11px; font-weight: 600; color: var(--text-faint);
-      text-transform: uppercase; letter-spacing: .04em;
-      margin-bottom: 6px; padding: 0 2px;
-      display: flex; align-items: center; gap: 2px;
-    }
-    .ctx-docs-select {
-      font-size: 11px; font-weight: 600; color: var(--text-faint);
-      text-transform: uppercase; letter-spacing: .04em;
-      background: transparent; border: none; outline: none; cursor: pointer;
-      padding: 0; max-width: 160px;
-    }
-    .ctx-docs-select:hover { color: var(--text-body); }
-    .ctx-doc-row {
-      display: flex; align-items: center; gap: 8px;
-      padding: 5px 4px; border-radius: var(--r-check); cursor: pointer;
-      transition: background var(--t-fast);
-    }
-    .ctx-doc-row:hover { background: var(--bg-hover); }
-    .ctx-doc-name { font-size: 12px; color: var(--text-body); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .ctx-doc-tokens { font-size: 11px; color: var(--text-faint); white-space: nowrap; flex-shrink: 0; }
     .count-pill {
       font-size: 11px; padding: 1px 7px;
       background: rgba(255,255,255,.18); border-radius: 999px;
