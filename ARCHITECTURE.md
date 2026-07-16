@@ -44,7 +44,7 @@
 | `__ccbDocHandler`    | `document-handler.js` | `init`, `addDocument`, `removeDocument`, `toggleDocument`, `getDocumentContent`, `getOrExtractContent`, `getEnabledDocuments`, `injectFilesToChat`, `estimateTokens`, `estimateFileTokens`, `getFileType`, `isLikelyTextFile`, `scanCodeProject`, `buildStructureMarkdown`, `syncCodeProjectDocuments`, `removeCodeContent` |
 | `__ccbDepGraph`      | `dep-graph.js`     | `buildGraph(included)`, `getTransitiveClosure(graph, path)`, `getDirectDependents(graph, path)`, `getFullContext(graph, path)` |
 | `__ccbCodeTree`      | `code-tree.js`     | `init`, `renderInline(project, mount)`                                                                         |
-| `__ccbHistoryView`   | `history-view.js`  | `init`, `render*`, `open*/close*`, `get*`, `build*`, `sync*`, `addProject`, `saveProjectView`, `renderProjectSelect`, `renderProjectViewDocuments`, `openProjectView`, `closeProjectView`, `openAddDocumentDialog`, `createCodeProjectBookmark`, `rescanCodeProject`, `loadCodeProjectAll`, `enableFilesForProject`, `setAllCodeDocsEnabled`, `injectProjectDocuments` |
+| `__ccbHistoryView`   | `history-view.js`  | `init`, `render*` (incl. `renderProjectContext`), `loadActiveProjectId`/`setActiveProjectId`, `open*/close*`, `get*`, `build*`, `sync*`, `addProject`, `saveProjectView`, `renderProjectSelect`, `renderProjectViewDocuments`, `openAddDocumentDialog`, `createCodeProjectBookmark`, `rescanCodeProject`, `loadCodeProjectAll`, `enableFilesForProject`, `setAllCodeDocsEnabled`, `injectProjectDocuments` |
 | `__ccbChat`          | `chat-features.js` | `init`, `getGM`, `renderGeneralMemory`, `tryAutoInject`, `injectSelected`, `saveChat`, `start/stopMsgObserver`|
 | `__ccb`              | `content.js`       | `{ MSG_SELECTORS, blocks, saveBlocks, loadBlocks, setStatus, renderPanel }` — consumed by summarizer          |
 
@@ -211,9 +211,8 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | `setPanelOpen(open)`            | Opens/closes sidebar, loads blocks, renders                                  |
 | `togglePanel()`                 | Flips panel open/closed                                                      |
 | `resetTabDefaults(tabName)`     | Resets per-tab UI defaults when user clicks a tab                            |
-| `render()`                      | Full re-render — calls `chat.renderGeneralMemory`, `renderContextList`, `renderProjectBlocksList`, `syncInjectDocsBtn`, `historyView.render`, ctx-meter update |
-| `syncInjectDocsBtn()`           | Shows/hides the footer `#injectDocsBtn` based on whether the currently open project (`state.currentProjectId`) has any documents — the single global entry point for `historyView.injectProjectDocuments()`, covering both the code-project file tree and the flat regular-project document list |
-| `syncCtxSubview()`              | Context tab: toggles the "טקסטים כלליים" / "פרויקטים" sub-views + active button state (`state.ctxSubview`) |
+| `render()`                      | Full re-render — calls `chat.renderGeneralMemory`, `renderUnifiedBlocksList`, `syncInjectDocsBtn`, `historyView.render`, ctx-meter update |
+| `syncInjectDocsBtn()`           | Shows/hides the footer `#injectDocsBtn` based on whether the active project (`state.currentProjectId`) has any documents — the single global entry point for `historyView.injectProjectDocuments()`, covering both the code-project file tree and the flat regular-project document list |
 | `migrateCtxProjects()`          | Idempotent one-time migration of retired `kind:"ctx-project"` blocks → `kind:"project"` (runs inside `loadBlocks`) |
 | `installUrlChangeWatcher()`     | Patches `history.pushState/replaceState`, fires `ccb:urlchange` to reset GM auto-inject |
 
@@ -221,11 +220,10 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 
 | Function                        | Description                                                       |
 | ------------------------------- | ----------------------------------------------------------------- |
-| `renderContextList()`           | Renders the "טקסטים כלליים" sub-view block list (general blocks, not GM/project-owned) |
-| `renderProjectBlocksList()`     | Renders the open project's own text blocks inside its detail view (`#projectBlocksList`) |
+| `renderUnifiedBlocksList()`     | Renders `#list`: general blocks (no `projectId`) plus the active project's own blocks, the latter tagged with `.ctx-proj-tag` (project title). Blocks owned by a *different* project stay hidden. |
 | `updateInjectBtn()`             | Updates "טען נבחרים" button state + count pill                    |
 | `hasUnsavedChanges()`           | Checks if the edit form differs from the saved block              |
-| `openEdit(id, prefill)`         | Opens edit form; id=null for new block. Also resolves the block's project (existing `projectId`, or `state.pendingCtxProjectId` when adding via a project's "+ הוסף בלוק") and shows/hides the `#editProjectTag` pill (folder icon + project title) — the full-panel edit form otherwise hides all project context |
+| `openEdit(id, prefill)`         | Opens edit form; id=null for new block. Also resolves the block's project (an existing block's own `projectId`, or — for a new block — the active `state.currentProjectId`) and shows/hides the `#editProjectTag` pill (folder icon + project title) — the full-panel edit form otherwise hides all project context |
 | `closeEdit()`                   | Exits edit mode, clears form                                      |
 | `saveEdit()`                    | Validates and saves form to `state.blocks`                        |
 | `deleteEdit()`                  | Confirms (via modals) and deletes the block being edited          |
@@ -296,11 +294,11 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 
 | Function                                                | Description                                                                                  |
 | ------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `render()`                                              | History-side of full render: collapsibles → project selector → history list → project view  |
-| `renderProjectSelect()`                                 | Populates the `<select id="projectSelect">` with all projects (regular + code, code prefixed with 📁) in the Context tab's "פרויקטים" sub-view |
-| `renderProjectView()` / `renderProjectViewConversations(project)` | Renders the active project detail screen (code projects render the inline file tree via `__ccbCodeTree.renderInline` inside `#projectDocumentsList`) |
-| `syncCtxProjectsLayout()`                               | Keeps the selector (`#ctxProjectListWrap`) visible and shows/hides the open project's detail (`#projectView`) beneath it, inside the Context "פרויקטים" sub-view |
-| `renderHistoryList()`                                   | Renders the full history list (title-search or content-search), pinned + grouped            |
+| `render()`                                              | Full re-render: collapsibles → project selector → history list → project context             |
+| `renderProjectSelect()`                                 | Populates the global `<select id="projectSelect">` (`#globalProjectBar`, above both tabs) with all projects (regular + code, code prefixed with 📁) plus a "ללא פרויקט" option |
+| `renderProjectContext()`                                | Shows/hides + fills the active project's instructions card and documents section (code projects render the inline file tree via `__ccbCodeTree.renderInline` inside `#projectDocumentsList`); both hidden when no project is active |
+| `syncHistoryProjectFilterRow()`                         | Shows/hides `#historyProjectFilterRow` ("מציג שיחות של: …" + "הצג את כל השיחות" checkbox) based on whether a project is active |
+| `renderHistoryList()`                                   | Renders the history list (title-search or content-search), pinned + grouped — filtered to the active project's conversations unless `state.historyShowAll` is set or no project is active |
 | `createHistoryRow(b, opts)`                             | Builds a single conversation row (with optional snippet + project tag)                       |
 | `syncCollapsibleSections()` / `syncProjectInstructionsSection()` | Updates the section-collapse chevrons and ARIA state                                 |
 
@@ -308,8 +306,8 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 
 | Function                          | Description                                                          |
 | --------------------------------- | -------------------------------------------------------------------- |
-| `openProjectView(id)` / `closeProjectView()` | Switches history tab in/out of project detail mode        |
-| `addProject()`                    | Prompts (via modals) and creates a new project block                |
+| `loadActiveProjectId()` / `setActiveProjectId(id)` | Loads/persists the active project (`chrome.storage.local.activeProjectId`); `loadActiveProjectId` is idempotent (guarded by `state.activeProjectLoaded`), both validate the id via `getProjectById` |
+| `addProject()`                    | Prompts (via modals), creates a new project block, and makes it active |
 | `saveProjectView()`               | Persists the active project's instructions                          |
 | `openProjectDropdown(project, menuBtn)` | Rename / delete dropdown for a project                        |
 
@@ -494,9 +492,8 @@ All data lives under `chrome.storage.local["blocks"]` as a flat object:
 Code-project file text is **not** stored on the doc — it lives in its own `chrome.storage.local` key (`codeContent_<id>`), fetched on demand via `docHandler.getOrExtractContent`, so scanning a large project doesn't bloat every `saveBlocks()` call.
 
 Special block: `GM_ID = "__general_memory"` — kind `"general_memory"`, has `autoLoad`.
-- History tab: blocks with `kind === "conversation"` (may carry `projectId` = assigned project)
-- Context tab, "פרויקטים" sub-view: the unified project list is blocks with `kind === "project"` (code projects have `isCodeProject: true`)
-- Context tab, "טקסטים כלליים" sub-view: blocks without `kind`, without `projectId` (and not GM_ID)
-- Project-owned text blocks: a regular context block (no `kind`) may carry `projectId` pointing to a `kind: "project"` block; they render inside that project's detail view (`#projectBlocksList`)
+- History tab: blocks with `kind === "conversation"` (may carry `projectId`, stamped from the active project at creation — see chat-features.js#persistConversation), filterable by the active project.
+- Projects: blocks with `kind === "project"` (code projects have `isCodeProject: true`); `renderProjectSelect` lists all of them in the global `<select id="projectSelect">`.
+- Context tab's unified `#list`: blocks without `kind` and not GM_ID — general ones (no `projectId`) always show; project-owned ones only show while their project is the active one (tagged with `.ctx-proj-tag`). A regular context block (no `kind`) may carry `projectId` pointing to a `kind: "project"` block.
 
 **`kind: "ctx-project"` retired (migration):** older builds had a separate Context-tab "ctx-project" entity (grouping of text blocks, no documents). `content.js#migrateCtxProjects()` runs inside `loadBlocks()` on every load (idempotent): it rewrites each `kind === "ctx-project"` block to `kind === "project"`, adding `documents: []` / `isCodeProject: false` where missing, without changing the `id`, so existing child blocks' `projectId` links keep resolving. The `content?` field on the migrated block (unused by the old ctx-project) simply becomes the project's instructions. After migration there is a single project concept.

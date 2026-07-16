@@ -54,12 +54,18 @@
     selected: new Set(),
     editingId: null,
     historySearchMode: "title",
+    // The globally active project (or null = "no project"), selected via the
+    // persistent bar above both tabs. Drives: which blocks/documents show in
+    // the Context tab, which project a newly-started conversation is stamped
+    // with, and the History tab's project filter. Persisted across sessions
+    // (see loadActiveProjectId/setActiveProjectId in history-view.js).
     currentProjectId: null,
+    activeProjectLoaded: false,
+    // History tab: when a project is active, the list is filtered to that
+    // project's conversations by default — this overrides the filter to show
+    // everything. Transient (resets each panel session), like historySearchMode.
+    historyShowAll: false,
     historyCollapsed: false,
-    // Context tab: "general" (plain text blocks + GM) or "projects" (unified
-    // project list + detail view, merged from the old ctx-project/History
-    // project split).
-    ctxSubview: "general",
     projectInstructionsOpen: false,
     ctxWindow: CTX_WINDOW_DEFAULT,
     ctxWindowLoaded: false,
@@ -86,9 +92,6 @@
     // guard, the URL change handler would wipe currentConversationId and
     // continuationBase right after we set them. Single-shot suppression.
     suppressNextUrlReset: false,
-    // When the user clicks "+ הוסף בלוק" inside a project section, the
-    // project's ID is stored here so saveEdit() can attach it. Cleared on closeEdit().
-    pendingCtxProjectId: null,
   };
 
   // Live FRAMING getters — picks up edits from prompts.js automatically
@@ -167,6 +170,7 @@
     if (state.blocksLoaded) return;
     state.blocks = await _loadBlocks(STORAGE_KEY);
     await migrateCtxProjects();
+    await window.__ccbHistoryView.loadActiveProjectId();
     state.blocksLoaded = true;
   }
 
@@ -224,18 +228,6 @@
     if (!indicator) return;
     indicator.style.left = tab.offsetLeft + "px";
     indicator.style.width = tab.offsetWidth + "px";
-  }
-
-  // Context tab: toggle between the "general texts" and "projects" sub-views.
-  function syncCtxSubview() {
-    const isProjects = state.ctxSubview === "projects";
-    shadow.querySelectorAll(".ctx-subview-tab").forEach((btn) => {
-      btn.classList.toggle("active", btn.dataset.subview === state.ctxSubview);
-    });
-    const general = $el("ctxSubviewGeneral");
-    const projects = $el("ctxSubviewProjects");
-    if (general) general.style.display = isProjects ? "none" : "";
-    if (projects) projects.style.display = isProjects ? "" : "none";
   }
 
   // ============================================================
@@ -448,10 +440,14 @@
     });
     $el("addProjectBtn").addEventListener("click", () => void historyView.addProject());
     $el("addCodeProjectBtn").addEventListener("click", () => void historyView.createCodeProjectBookmark());
-    $el("projectSelect").addEventListener("change", (e) => {
-      const id = e.target.value;
-      if (id) historyView.openProjectView(id);
-      else historyView.closeProjectView();
+    $el("projectSelect").addEventListener("change", async (e) => {
+      await historyView.setActiveProjectId(e.target.value || null);
+      state.projectInstructionsOpen = false;
+      render();
+    });
+    $el("historyShowAll").addEventListener("change", (e) => {
+      state.historyShowAll = e.target.checked;
+      historyView.renderHistoryList();
     });
     $el("searchHistory").addEventListener("input", debouncedRender);
     $el("toggleSearchTitle").addEventListener("click", () => {
@@ -479,7 +475,6 @@
     $el("saveBtn").addEventListener("click", saveEdit);
     $el("cancelBtn").addEventListener("click", closeEdit);
     $el("deleteBtn").addEventListener("click", deleteEdit);
-    $el("projectViewBack").addEventListener("click", historyView.closeProjectView);
     $el("projectInstructionsToggle").addEventListener("click", () => {
       state.projectInstructionsOpen = !state.projectInstructionsOpen;
       historyView.syncProjectInstructionsSection();
@@ -490,19 +485,6 @@
       historyView.syncProjectInstructionsSection();
       if (state.projectInstructionsOpen) $el("projectViewInstructions")?.focus();
     });
-    $el("projectAddBlockBtn")?.addEventListener("click", () => {
-      if (!state.currentProjectId) return;
-      state.pendingCtxProjectId = state.currentProjectId;
-      openEdit(null);
-    });
-
-    shadow.querySelectorAll(".ctx-subview-tab").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        state.ctxSubview = btn.dataset.subview;
-        syncCtxSubview();
-      });
-    });
-    syncCtxSubview();
 
     const ctxExpand = $el("ccb-ctx-expand");
     if (ctxExpand) {
@@ -529,14 +511,14 @@
     }
 
     $el("projectViewSaveBtn").addEventListener("click", () => void historyView.saveProjectView());
-    $el("projectViewMenuBtn").addEventListener("click", (e) => {
+    $el("projectEditBtn").addEventListener("click", (e) => {
       e.stopPropagation();
       const project = historyView.getProjectById(state.currentProjectId);
       if (!project) return;
       if (project.isCodeProject) {
-        historyView.openCodeProjectDropdown(project, $el("projectViewMenuBtn"));
+        historyView.openCodeProjectDropdown(project, $el("projectEditBtn"));
       } else {
-        historyView.openProjectDropdown(project, $el("projectViewMenuBtn"));
+        historyView.openProjectDropdown(project, $el("projectEditBtn"));
       }
     });
 
@@ -690,17 +672,7 @@
       render();
       updateInjectBtn();
       window.__ccbCtxMeter.update();
-      const historyView = window.__ccbHistoryView;
-      if (historyView.getProjectById(state.currentProjectId)) {
-        state.ctxSubview = "projects";
-        syncCtxSubview();
-        const contextTab = shadow.querySelector('.tab[data-tab="context"]');
-        if (contextTab && !contextTab.classList.contains("active")) contextTab.click();
-        if (state.projectInstructionsOpen) $el("projectViewInstructions")?.focus();
-        else $el("projectInstructionsEditBtn")?.focus();
-      } else {
-        $el("searchHistory").focus();
-      }
+      $el("searchHistory").focus();
     } else {
       window.__ccbHistoryView.closeConversationView();
       $el("panel").classList.remove("open");
@@ -721,8 +693,7 @@
   // ============================================================
   function render() {
     window.__ccbChat.renderGeneralMemory();
-    renderContextList();
-    renderProjectBlocksList();
+    renderUnifiedBlocksList();
     syncInjectDocsBtn();
     window.__ccbHistoryView.render();
     window.__ccbCtxMeter.watchConversation();
@@ -733,7 +704,7 @@
   // Context list (kept here — tightly coupled to selected state)
   // ============================================================
 
-  /** Renders a single context block row (shared by general + project sections). */
+  /** Renders a single context block row. `projTitle` shows a tag pill when the block belongs to a project. */
   function renderBlockRow(b, projTitle) {
     const isSelected = state.selected.has(b.id);
     const row = document.createElement("div");
@@ -750,8 +721,6 @@
       if (cb.checked) state.selected.add(b.id);
       else state.selected.delete(b.id);
       row.classList.toggle("selected", cb.checked);
-      const tag = row.querySelector(".ctx-proj-tag");
-      if (tag) tag.style.display = cb.checked ? "" : "none";
       updateInjectBtn();
     });
     const cbBox = document.createElement("span");
@@ -770,12 +739,11 @@
     titleEl.textContent = b.title;
     head.appendChild(titleEl);
 
-    // Project name tag — visible only when block is selected
+    // Project name tag — marks blocks that belong to the active project
     if (projTitle) {
       const tag = document.createElement("span");
       tag.className = "ctx-proj-tag";
       tag.textContent = projTitle;
-      tag.style.display = isSelected ? "" : "none";
       head.appendChild(tag);
     }
 
@@ -805,17 +773,25 @@
     return row;
   }
 
-  /** Renders the "general texts" sub-view list — plain blocks with no project, not GM. */
-  function renderContextList() {
-    const generalItems = Object.values(state.blocks)
-      .filter((b) => !b.kind && !b.projectId && b.id !== GM_ID)
+  /**
+   * Renders the unified prompts list: general blocks (no projectId) plus the
+   * active project's own blocks (tagged with the project title so they're
+   * visually distinguishable). Blocks belonging to a *different* project stay
+   * hidden — switching the active project narrows the list, it never shows
+   * everything at once.
+   */
+  function renderUnifiedBlocksList() {
+    const currentProjectId = state.currentProjectId;
+    const items = Object.values(state.blocks)
+      .filter((b) => !b.kind && b.id !== GM_ID)
+      .filter((b) => !b.projectId || b.projectId === currentProjectId)
       .sort((a, b) => (b.updated || 0) - (a.updated || 0));
 
     const list = $el("list");
     if (!list) return;
     list.innerHTML = "";
 
-    if (!generalItems.length) {
+    if (!items.length) {
       const div = document.createElement("div");
       div.className = "empty";
       div.textContent = "בנק ריק\nלחץ + להוספת בלוק ראשון";
@@ -823,33 +799,11 @@
       return;
     }
 
-    for (const b of generalItems) {
-      list.appendChild(renderBlockRow(b, null));
-    }
-  }
-
-  /** Renders the currently-open project's own text blocks (inside the project view). */
-  function renderProjectBlocksList() {
-    const container = $el("projectBlocksList");
-    if (!container) return;
-    const project = window.__ccbHistoryView.getProjectById(state.currentProjectId);
-    container.innerHTML = "";
-    if (!project) return;
-
-    const projBlocks = Object.values(state.blocks)
-      .filter((b) => !b.kind && b.projectId === project.id)
-      .sort((a, b) => (b.updated || 0) - (a.updated || 0));
-
-    if (!projBlocks.length) {
-      const empty = document.createElement("div");
-      empty.className = "ctx-proj-empty";
-      empty.textContent = "אין בלוקים — הוסף בלוק ראשון";
-      container.appendChild(empty);
-      return;
-    }
-
-    for (const b of projBlocks) {
-      container.appendChild(renderBlockRow(b, null));
+    for (const b of items) {
+      const projTitle = b.projectId
+        ? window.__ccbHistoryView.getProjectById(b.projectId)?.title
+        : null;
+      list.appendChild(renderBlockRow(b, projTitle));
     }
   }
 
@@ -896,9 +850,10 @@
     $el("editContent").value = b ? b.content : prefill?.content || "";
     $el("deleteBtn").style.display = id ? "block" : "none";
 
-    // Show which project this block belongs to (existing block's projectId,
-    // or the project it's about to be added into via the "+ הוסף בלוק" button).
-    const projectId = b?.projectId || state.pendingCtxProjectId || null;
+    // Show which project this block belongs to: an existing block's own
+    // projectId, or — for a brand-new block — the currently active project
+    // it's about to be created into.
+    const projectId = b ? b.projectId : state.currentProjectId;
     const project = projectId ? window.__ccbHistoryView.getProjectById(projectId) : null;
     const tag = $el("editProjectTag");
     if (tag) {
@@ -912,7 +867,6 @@
 
   function closeEdit() {
     state.editingId = null;
-    state.pendingCtxProjectId = null;
     if (!shadow) return;
     $el("panel").classList.remove("editing");
     setStatus("");
@@ -937,10 +891,11 @@
     if (existing?.kind) state.blocks[id].kind = existing.kind;
     if (existing?.autoLoad !== undefined)
       state.blocks[id].autoLoad = existing.autoLoad;
-    // Preserve projectId on edit; attach pending project when creating a new block
+    // Preserve projectId on edit; a brand-new block is created into whichever
+    // project is currently active (or general, if none is).
     if (existing?.projectId) state.blocks[id].projectId = existing.projectId;
-    else if (!existing && state.pendingCtxProjectId)
-      state.blocks[id].projectId = state.pendingCtxProjectId;
+    else if (!existing && state.currentProjectId)
+      state.blocks[id].projectId = state.currentProjectId;
     await saveBlocks();
     closeEdit();
     render();

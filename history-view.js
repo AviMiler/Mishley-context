@@ -1,12 +1,13 @@
-// history-view.js — projects, history list, conversation preview panel.
+// history-view.js — active project (global selection), history list,
+// conversation preview panel.
 // Exposes: window.__ccbHistoryView
 //
 // Public API (after init):
-//   render()                          — full re-render of project list + history list + project view
-//   renderHistoryList()
+//   render()                          — full re-render of project selector + history list + project context
+//   renderHistoryList()               — filtered by the active project unless state.historyShowAll
 //   renderProjectSelect()
-//   renderProjectView()
-//   openProjectView(id) / closeProjectView()
+//   renderProjectContext()            — instructions card + documents section for the active project
+//   loadActiveProjectId() / setActiveProjectId(id) — persisted (chrome.storage) global project selection
 //   openConversationView(b, opts) / closeConversationView()
 //   renderConversationMessages(b, query)
 //   updateNavMatch() / updateCvFooter()
@@ -109,6 +110,24 @@
 
   function getConversationProject(b) {
     return getProjectById(b?.projectId || null);
+  }
+
+  // ============================================================
+  // Active project (global selection) — persisted across sessions so "which
+  // project am I on" survives closing/reopening the panel.
+  // ============================================================
+  async function loadActiveProjectId() {
+    if (_deps.state.activeProjectLoaded) return;
+    const data = await new Promise((r) => chrome.storage.local.get("activeProjectId", r));
+    _deps.state.currentProjectId = getProjectById(data.activeProjectId)?.id || null;
+    _deps.state.activeProjectLoaded = true;
+  }
+
+  async function setActiveProjectId(id) {
+    _deps.state.currentProjectId = getProjectById(id)?.id || null;
+    await new Promise((r) =>
+      chrome.storage.local.set({ activeProjectId: _deps.state.currentProjectId }, r),
+    );
   }
 
   function getProjectConversationCount(projectId) {
@@ -420,6 +439,7 @@
       updated: Date.now(),
     };
     await _deps.saveBlocks();
+    await setActiveProjectId(id);
     _deps.render();
 
     _deps.setStatus("סורק פרויקט...");
@@ -576,7 +596,7 @@
       for (const b of Object.values(_deps.state.blocks)) {
         if (!b.kind && b.projectId === project.id) delete b.projectId;
       }
-      if (_deps.state.currentProjectId === project.id) _deps.state.currentProjectId = null;
+      if (_deps.state.currentProjectId === project.id) await setActiveProjectId(null);
       await _deps.saveBlocks();
       if (dirHandleId) {
         try { await window.__ccbFsHandles.remove(dirHandleId); } catch { /* already gone */ }
@@ -608,71 +628,31 @@
   }
 
   // ============================================================
-  // Project view
+  // Project context — instructions card + documents section for whichever
+  // project is currently active (global selection). Both are hidden when no
+  // project is selected; there's no separate "view" to open/close anymore —
+  // the selector's value directly drives what's rendered here.
   // ============================================================
-  // Projects live in the Context tab's "פרויקטים" sub-view. The selector
-  // (#ctxProjectListWrap) stays visible at all times; only the open project's
-  // detail (#projectView) is shown/hidden beneath it.
-  function syncCtxProjectsLayout() {
-    const inProject = !!getProjectById(_deps.state.currentProjectId);
-    const view = $el("projectView");
-    if (view) view.style.display = inProject ? "flex" : "none";
-  }
-
-  function renderProjectViewConversations(project) {
-    const list = $el("projectViewConversations");
-    if (!list) return;
-    list.innerHTML = "";
-
-    const items = Object.values(_deps.state.blocks)
-      .filter((b) => b.kind === "conversation" && b.projectId === project.id)
-      .sort((a, b) => (b.updated || 0) - (a.updated || 0));
-
-    if (!items.length) {
-      const empty = document.createElement("div");
-      empty.className = "empty";
-      empty.style.padding = "24px 8px";
-      empty.textContent = "אין שיחות משויכות לפרויקט הזה";
-      list.appendChild(empty);
-      return;
-    }
-
-    for (const b of items) {
-      list.appendChild(
-        createHistoryRow(b, { showProjectTag: false, openedFromProject: true }),
-      );
-    }
-  }
-
-  function renderProjectView() {
+  function renderProjectContext() {
     const project = getProjectById(_deps.state.currentProjectId);
-    syncCtxProjectsLayout();
 
-    const view = $el("projectView");
-    if (!view) return;
-    if (!project) {
-      _deps.state.currentProjectId = null;
-      syncCtxProjectsLayout();
-      return;
+    const editBtn = $el("projectEditBtn");
+    if (editBtn) editBtn.style.display = project ? "flex" : "none";
+
+    const instrCard = $el("projectInstructionsCard");
+    if (instrCard) instrCard.style.display = project ? "block" : "none";
+    if (project) {
+      if ($el("projectInstructionsPreview")) {
+        $el("projectInstructionsPreview").textContent =
+          (project.content || "").trim() || "אין עדיין הנחיות לפרויקט הזה";
+      }
+      $el("projectViewInstructions").value = project.content || "";
+      syncProjectInstructionsSection();
     }
-
-    $el("projectViewTitle").textContent = project.title;
-    if ($el("projectInstructionsPreview")) {
-      $el("projectInstructionsPreview").textContent =
-        (project.content || "").trim() || "אין עדיין הנחיות לפרויקט הזה";
-    }
-    $el("projectViewInstructions").value = project.content || "";
-    renderProjectViewConversations(project);
-    renderProjectViewDocuments(project);
-    syncProjectInstructionsSection();
-    wireProjectViewDocumentEvents();
-
-    const addDocBtn = $el("projectAddDocumentBtn");
-    if (addDocBtn) addDocBtn.style.display = project.isCodeProject ? "none" : "";
 
     const infoRow = $el("codeProjectInfoRow");
     if (infoRow) {
-      if (project.isCodeProject) {
+      if (project?.isCodeProject) {
         infoRow.style.display = "flex";
         const text = $el("codeProjectInfoText");
         if (text) {
@@ -686,22 +666,18 @@
         infoRow.style.display = "none";
       }
     }
-  }
 
-  function openProjectView(projectId) {
-    const project = getProjectById(projectId);
-    if (!project) return;
-    closeConversationView();
-    _deps.state.currentProjectId = project.id;
-    _deps.state.projectInstructionsOpen = false;
-    _deps.render();
-  }
-
-  function closeProjectView() {
-    if (!_deps.state.currentProjectId) return;
-    _deps.state.currentProjectId = null;
-    _deps.state.projectInstructionsOpen = false;
-    _deps.render();
+    const docsCard = $el("projectDocumentsCard");
+    if (docsCard) docsCard.style.display = project ? "block" : "none";
+    if (project) {
+      renderProjectViewDocuments(project);
+      wireProjectViewDocumentEvents();
+      const addDocBtn = $el("projectAddDocumentBtn");
+      if (addDocBtn) addDocBtn.style.display = project.isCodeProject ? "none" : "";
+    } else {
+      const docsList = $el("projectDocumentsList");
+      if (docsList) docsList.innerHTML = "";
+    }
   }
 
   async function saveProjectView() {
@@ -733,7 +709,7 @@
       updated: Date.now(),
     };
     await _deps.saveBlocks();
-    _deps.state.currentProjectId = id;
+    await setActiveProjectId(id);
     _deps.render();
   }
 
@@ -742,7 +718,6 @@
   // ============================================================
   function openConversationView(b, { openedFromProject = false } = {}) {
     if (!b) return;
-    closeProjectView();
 
     _deps.state.cvOpenedFromProject = !!openedFromProject;
 
@@ -1146,7 +1121,7 @@
           delete _deps.state.blocks[b.id];
         }
       }
-      if (_deps.state.currentProjectId === project.id) _deps.state.currentProjectId = null;
+      if (_deps.state.currentProjectId === project.id) await setActiveProjectId(null);
       await _deps.saveBlocks();
       _deps.render();
     });
@@ -1172,16 +1147,35 @@
   // ============================================================
   // History list
   // ============================================================
+  // Shows/hides the "מציג שיחות של: <project>" row + "הצג את כל השיחות"
+  // override — only meaningful once a specific project is active ("no
+  // project" doesn't filter history at all, see renderHistoryList).
+  function syncHistoryProjectFilterRow() {
+    const project = getProjectById(_deps.state.currentProjectId);
+    const row = $el("historyProjectFilterRow");
+    if (row) row.style.display = project ? "flex" : "none";
+    const label = $el("historyProjectFilterLabel");
+    if (label && project) label.textContent = `מציג שיחות של: ${project.title}`;
+    const cb = $el("historyShowAll");
+    if (cb) cb.checked = !!_deps.state.historyShowAll;
+  }
+
   function renderHistoryList() {
     const state = _deps.state;
     if (state.currentProjectId && !getProjectById(state.currentProjectId)) {
       state.currentProjectId = null;
     }
+    syncHistoryProjectFilterRow();
     closeHiDropdown();
     const q = ($el("searchHistory")?.value || "").trim().toLowerCase();
     const all = Object.values(state.blocks)
       .filter((b) => b.kind === "conversation")
-      .filter((b) => !state.currentProjectId || b.projectId === state.currentProjectId)
+      .filter(
+        (b) =>
+          !state.currentProjectId ||
+          state.historyShowAll ||
+          b.projectId === state.currentProjectId,
+      )
       .sort((a, b) => (b.updated || 0) - (a.updated || 0));
 
     const list = $el("historyList");
@@ -1282,7 +1276,7 @@
     syncCollapsibleSections();
     renderProjectSelect();
     renderHistoryList();
-    renderProjectView();
+    renderProjectContext();
   }
 
   // ============================================================
@@ -1602,9 +1596,9 @@
     render,
     renderHistoryList,
     renderProjectSelect,
-    renderProjectView,
-    openProjectView,
-    closeProjectView,
+    renderProjectContext,
+    loadActiveProjectId,
+    setActiveProjectId,
     openConversationView,
     closeConversationView,
     renderConversationMessages,

@@ -264,30 +264,28 @@ window.__ccbCSS = (() => {
       50% { opacity: 0.7; }
     }
 
-    /* ── Context tab: general/projects segmented control ── */
-    .ctx-subview-toggle {
-      display: flex; gap: 4px;
-      margin: 10px 18px 2px;
-      background: var(--bg-clear); border-radius: var(--r-input);
-      padding: 3px;
+    /* ── Global project bar (always visible above both tabs) ── */
+    .global-project-bar {
+      display: flex; align-items: center; gap: 6px;
+      padding: 10px 18px;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-app);
       flex-shrink: 0;
     }
-    .ctx-subview-tab {
-      flex: 1; height: 30px; border: none; border-radius: 7px;
-      font-size: 12px; font-weight: 500; font-family: var(--font-he); cursor: pointer;
-      background: transparent; color: var(--text-mute);
-      transition: background var(--t-fast), color var(--t-fast);
+    .global-project-bar .project-select { flex: 1; min-width: 0; }
+
+    /* ── History: project filter row (shown when a project is active) ── */
+    .history-project-filter-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 6px 18px; flex-shrink: 0;
+      font-size: 11px; color: var(--text-ghost);
     }
-    .ctx-subview-tab.active {
-      background: var(--bg-card); color: var(--text-strong); font-weight: 600;
-      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+    .hi-showall-toggle {
+      display: flex; align-items: center; gap: 4px;
+      cursor: pointer; white-space: nowrap;
+      font-size: 11px; color: var(--text-mute);
     }
-    .ctx-subview {
-      display: flex;
-      flex-direction: column;
-      flex: 1;
-      min-height: 0;
-    }
+    .hi-showall-toggle input { cursor: pointer; }
 
     /* ── Tab panes ── */
     .tab-pane { display: none; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
@@ -372,7 +370,7 @@ window.__ccbCSS = (() => {
     }
     .collapse-btn.collapsed svg { transform: rotate(0deg); }
     .collapse-btn:not(.collapsed) svg { transform: rotate(-90deg); }
-    #addProjectBtn, #addCodeProjectBtn {
+    #addProjectBtn, #addCodeProjectBtn, #projectEditBtn {
       width: 22px;
       height: 22px;
       border: 1px solid var(--border-input);
@@ -384,29 +382,15 @@ window.__ccbCSS = (() => {
       align-items: center;
       justify-content: center;
       padding: 0;
-    }
-    #addProjectBtn:hover, #addCodeProjectBtn:hover { background: var(--bg-tag); }
-    .ctx-projects-add-group {
-      display: flex;
-      gap: 6px;
       flex-shrink: 0;
     }
-    #ctxProjectListWrap {
-      flex-shrink: 0;
-      padding-bottom: 8px;
-    }
+    #addProjectBtn:hover, #addCodeProjectBtn:hover, #projectEditBtn:hover { background: var(--bg-tag); }
     #historySection {
       flex: 0;
       min-height: 0;
     }
     #historySection.collapsed #historyList {
       display: none;
-    }
-    #projectList {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      padding: 0 18px;
     }
     .project-select {
       width: 100%;
@@ -725,28 +709,8 @@ window.__ccbCSS = (() => {
       white-space: pre-line;
     }
 
-    #projectView {
-      flex: 1;
-      min-height: 0;
-      padding: 8px 18px 12px;
-    }
-    .project-view-shell {
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-      flex: 1;
-      gap: 8px;
-    }
-    .project-view-head {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
-      overflow: hidden;
-      position: relative; /* allow absolutely-positioned title to center safely */
-    }
     .project-instructions-card {
-      margin: 2px 0 0;
+      margin: 2px 18px 0;
       padding: 12px 14px;
       overflow: hidden;
     }
@@ -763,54 +727,8 @@ window.__ccbCSS = (() => {
       min-width: 0;
       flex: 1;
     }
-    #projectViewBack,
-    #projectViewMenuBtn {
-      width: 30px;
-      height: 30px;
-      border: none;
-      background: none;
-      border-radius: 8px;
-      cursor: pointer;
-      color: var(--text-faint);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    #projectViewBack:hover,
-    #projectViewMenuBtn:hover {
-      background: rgba(0,0,0,.04);
-      color: var(--text-strong);
-    }
-    .project-view-title-wrap {
-      flex: 1;
-      min-width: 0;
-      overflow: hidden;
-      text-align: center;
-      /* ensure the title never grows past the space between the two 30px buttons */
-      max-width: calc(100% - 72px);
-    }
-    #projectViewTitle {
-      display: block;
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%, -50%);
-      width: auto;
-      max-width: calc(100% - 96px); /* leave room for two 30px buttons + gaps/padding */
-      min-width: 0;
-      box-sizing: border-box;
-      padding: 0 12px;
-      font-size: 16px;
-      font-weight: 700;
-      color: var(--text-strong);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      z-index: 3; /* keep above the side buttons */
-      text-align: center;
-    }
     /* Ensure project-related names respect RTL and truncate instead of expanding */
-    #projectViewTitle, .project-accordion-toggle, .project-picker-item {
+    .project-accordion-toggle, .project-picker-item {
       direction: rtl;
     }
     .project-accordion-toggle {
@@ -879,15 +797,6 @@ window.__ccbCSS = (() => {
       cursor: pointer;
     }
     #projectViewSaveBtn:hover { background: #2a2622; }
-    #projectViewConversations {
-      flex: 1;
-      min-height: 0;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      padding-bottom: 4px;
-    }
     .project-picker {
       display: flex;
       flex-direction: column;
@@ -1775,10 +1684,6 @@ window.__ccbCSS = (() => {
     #deleteBtn:hover { background: #fff5f5; }
     .edit-status { font-size: 12px; text-align: center; min-height: 18px; margin-top: 8px; }
 
-    /* Project text blocks (inside project view) */
-    .project-blocks-card { margin-top: 8px; }
-    .project-blocks-header { padding: 12px; border-bottom: 1px solid var(--border-light); display: flex; justify-content: space-between; align-items: center; }
-
     /* Document management */
     .project-documents-card { margin-top: 8px; }
     .project-documents-header { padding: 12px; border-bottom: 1px solid var(--border-light); display: flex; justify-content: space-between; align-items: center; }
@@ -1889,14 +1794,7 @@ window.__ccbCSS = (() => {
       color: var(--text-ghost); font-style: italic;
     }
 
-    .project-blocks-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      padding: 4px 0 0;
-    }
-
-    /* Project name tag shown on selected blocks from a project */
+    /* Project name tag shown on blocks that belong to a project */
     .ctx-proj-tag {
       display: inline-block; padding: 1px 6px;
       background: var(--bg-clear); color: var(--text-faint);
