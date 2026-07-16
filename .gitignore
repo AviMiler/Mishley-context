@@ -1,0 +1,3 @@
+# Local test fixtures for the code-project scanner / dependency graph.
+# Not part of the shipped extension — used only for manual testing.
+mishley-test-projects/

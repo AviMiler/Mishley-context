@@ -13,11 +13,15 @@
 //   openHiDropdown(b, menuBtn) / closeHiDropdown()
 //   openProjectDropdown(project, menuBtn)
 //   syncCollapsibleSections() / syncProjectInstructionsSection()
-//   getProjects() / getProjectById(id) / getConversationProject(b)
+//   getProjects() / getAllProjects() / getProjectById(id) / getConversationProject(b)
 //   buildHistoryMessages(b) / buildConversationInjectionText(messages, block, opts) / buildProjectSectionText(block)
 //   formatTranscript(messages) / formatAge(ts) / dateGroup(ts) / extractSnippet(text, q, fromIndex)
 //   saveProjectView()
 //   addProject()
+//   getCodeProjects()
+//   createCodeProjectBookmark() / rescanCodeProject(id) / loadCodeProjectAll(id) / openCodeProjectPicker(id)
+//   openCodeProjectDropdown(project, menuBtn)
+//   enableFilesForProject(projectId, relativePaths) / setAllCodeDocsEnabled(projectId, enabled)
 
 (() => {
   if (window.__ccbHistoryViewInstalled) return;
@@ -79,6 +83,21 @@
   // ============================================================
   function getProjects() {
     return Object.values(_deps.state.blocks)
+      .filter((b) => b.kind === "project" && !b.isCodeProject)
+      .sort((a, b) => (b.updated || 0) - (a.updated || 0));
+  }
+
+  function getCodeProjects() {
+    return Object.values(_deps.state.blocks)
+      .filter((b) => b.kind === "project" && b.isCodeProject === true)
+      .sort((a, b) => (b.updated || 0) - (a.updated || 0));
+  }
+
+  // Unified Context-tab "פרויקטים" list — regular + code projects together,
+  // most-recently-updated first (folder-icon styling distinguishes code
+  // projects at render time; see renderProjectList).
+  function getAllProjects() {
+    return Object.values(_deps.state.blocks)
       .filter((b) => b.kind === "project")
       .sort((a, b) => (b.updated || 0) - (a.updated || 0));
   }
@@ -134,7 +153,31 @@
     const project = getConversationProject(block);
     if (!project) return "";
     const content = (project.content || "").trim();
-    return "## " + project.title + "\n" + (content || "") + "\n\n";
+    let text = "## " + project.title + "\n" + (content || "") + "\n\n";
+
+    // Inject enabled documents
+    const enabledDocs = _deps.docHandler?.getEnabledDocuments(project.id) || [];
+    if (enabledDocs.length > 0) {
+      text += "<documents>\n";
+      for (const doc of enabledDocs) {
+        text += `\n**${doc.name}** (${doc.estimatedTokens} tokens)\n`;
+        text += "---\n";
+        if (doc.content) {
+          // Truncate very long documents to avoid bloating context
+          const maxChars = 10000;
+          const docContent = doc.content.length > maxChars
+            ? doc.content.slice(0, maxChars) + "\n... [truncated]"
+            : doc.content;
+          text += docContent + "\n";
+        } else {
+          text += `[URL: ${doc.name}]\n`;
+        }
+        text += "\n";
+      }
+      text += "</documents>\n\n";
+    }
+
+    return text;
   }
 
   function buildConversationInjectionText(
@@ -163,23 +206,11 @@
   // ============================================================
   function syncCollapsibleSections() {
     const state = _deps.state;
-    const projectsSection = $el("projectsSection");
     const historySection = $el("historySection");
-    const projectsBtn = $el("projectsCollapseBtn");
     const historyBtn = $el("historyCollapseBtn");
 
-    if (projectsSection)
-      projectsSection.classList.toggle("collapsed", state.projectsCollapsed);
     if (historySection)
       historySection.classList.toggle("collapsed", state.historyCollapsed);
-    if (projectsBtn) {
-      projectsBtn.classList.toggle("collapsed", state.projectsCollapsed);
-      projectsBtn.title = state.projectsCollapsed ? "פתח פרויקטים" : "סגור פרויקטים";
-      projectsBtn.setAttribute(
-        "aria-label",
-        state.projectsCollapsed ? "פתח פרויקטים" : "סגור פרויקטים",
-      );
-    }
     if (historyBtn) {
       historyBtn.classList.toggle("collapsed", state.historyCollapsed);
       historyBtn.title = state.historyCollapsed
@@ -335,12 +366,15 @@
   // ============================================================
   // Project list
   // ============================================================
+  // Unified list: regular + code projects together, one card style each
+  // (folder icon + scan meta for code projects, dot + conversation count
+  // for regular ones), so the sidebar shows a single "פרויקטים" concept.
   function renderProjectList() {
     const list = $el("projectList");
     if (!list) return;
     list.innerHTML = "";
 
-    const projects = getProjects();
+    const projects = getAllProjects();
     if (!projects.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
@@ -352,38 +386,311 @@
 
     for (const project of projects) {
       const card = document.createElement("div");
-      card.className = "project-card";
+      card.className = "project-card" + (project.isCodeProject ? " code-project-card" : "");
 
-      const dot = document.createElement("span");
-      dot.className = "project-dot";
-      const name = document.createElement("span");
-      name.className = "project-name";
-      name.textContent = project.title;
-      const count = document.createElement("span");
-      count.className = "project-count";
-      count.textContent = getProjectConversationCount(project.id) + " שיחות";
+      if (project.isCodeProject) {
+        const icon = document.createElement("span");
+        icon.className = "code-tree-icon";
+        icon.innerHTML = window.__ccbTpl.IC.folder;
 
-      card.appendChild(dot);
-      card.appendChild(name);
-      card.appendChild(count);
+        const info = document.createElement("div");
+        info.className = "code-project-info";
+        const name = document.createElement("span");
+        name.className = "project-name";
+        name.textContent = project.title;
+        const meta = document.createElement("span");
+        meta.className = "code-project-meta";
+        meta.textContent = project.lastScanned
+          ? `נסרק לאחרונה: ${formatAge(project.lastScanned)}`
+          : "טרם נסרק";
+        info.appendChild(name);
+        info.appendChild(meta);
+
+        const menuBtn = document.createElement("button");
+        menuBtn.type = "button";
+        menuBtn.className = "hi-menu-btn";
+        menuBtn.innerHTML = window.__ccbTpl.IC.menuDots;
+        menuBtn.setAttribute("aria-label", "אפשרויות");
+        menuBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openCodeProjectDropdown(project, menuBtn);
+        });
+
+        card.appendChild(icon);
+        card.appendChild(info);
+        card.appendChild(menuBtn);
+      } else {
+        const dot = document.createElement("span");
+        dot.className = "project-dot";
+        const name = document.createElement("span");
+        name.className = "project-name";
+        name.textContent = project.title;
+        const count = document.createElement("span");
+        count.className = "project-count";
+        count.textContent = getProjectConversationCount(project.id) + " שיחות";
+
+        card.appendChild(dot);
+        card.appendChild(name);
+        card.appendChild(count);
+      }
+
       card.addEventListener("click", () => openProjectView(project.id));
       list.appendChild(card);
     }
   }
 
+  // Opens the OS folder picker, bookmarks the handle, and runs an initial scan.
+  async function createCodeProjectBookmark() {
+    if (!window.showDirectoryPicker) {
+      _deps.setStatus("הדפדפן לא תומך בבחירת תיקיות", true);
+      return;
+    }
+    let dirHandle;
+    try {
+      dirHandle = await window.showDirectoryPicker();
+    } catch (e) {
+      return; // user cancelled the picker
+    }
+
+    await _deps.loadBlocks();
+    const id = "codeproj_" + Date.now();
+    await window.__ccbFsHandles.put(id, dirHandle);
+
+    _deps.state.blocks[id] = {
+      id,
+      kind: "project",
+      isCodeProject: true,
+      title: dirHandle.name,
+      dirHandleId: id,
+      lastScanned: null,
+      content: "",
+      documents: [],
+      updated: Date.now(),
+    };
+    await _deps.saveBlocks();
+    _deps.render();
+
+    _deps.setStatus("סורק פרויקט...");
+    try {
+      const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle);
+      // Built while `included` still holds full file content in memory — the
+      // graph itself is just path strings, so it stays cheap to persist.
+      _deps.state.blocks[id].depGraph = window.__ccbDepGraph.buildGraph(included);
+      await _deps.docHandler.syncCodeProjectDocuments(_deps.state.blocks[id], included, dirHandle.name);
+      _deps.setStatus(`נסרקו ${counts.included} קבצים ✓`);
+    } catch (e) {
+      console.error("[history-view] Failed to scan code project", e);
+      _deps.setStatus("שגיאה בסריקת הפרויקט", true);
+    }
+    _deps.render();
+  }
+
+  // Re-verifies (or re-requests) folder permission, then rescans and re-syncs
+  // project.documents — preserving `enabled` on files that already existed.
+  async function rescanCodeProject(projectId) {
+    const project = getProjectById(projectId);
+    if (!project || !project.isCodeProject) return;
+    await _deps.loadBlocks();
+    const proj = _deps.state.blocks[projectId];
+    if (!proj) return;
+
+    let dirHandle = await window.__ccbFsHandles.get(proj.dirHandleId);
+    let ok = dirHandle && (await window.__ccbFsHandles.verifyPermission(dirHandle, "read"));
+
+    if (!ok) {
+      const proceed = await _deps.modals.showConfirm({
+        title: "נדרשת בחירת תיקייה מחדש",
+        msg: "לא ניתן היה לאמת הרשאה לתיקייה השמורה. יש לבחור אותה מחדש.",
+        confirmLabel: "בחר תיקייה",
+      });
+      if (!proceed) return;
+      if (!window.showDirectoryPicker) {
+        _deps.setStatus("הדפדפן לא תומך בבחירת תיקיות", true);
+        return;
+      }
+      try {
+        dirHandle = await window.showDirectoryPicker();
+      } catch (e) {
+        return;
+      }
+      await window.__ccbFsHandles.put(proj.dirHandleId, dirHandle);
+    }
+
+    _deps.setStatus("סורק פרויקט...");
+    try {
+      const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle);
+      proj.depGraph = window.__ccbDepGraph.buildGraph(included);
+      await _deps.docHandler.syncCodeProjectDocuments(proj, included, dirHandle.name);
+      proj.title = dirHandle.name;
+      await _deps.saveBlocks();
+      _deps.setStatus(`נסרקו ${counts.included} קבצים ✓`);
+    } catch (e) {
+      console.error("[history-view] Failed to rescan code project", e);
+      _deps.setStatus("שגיאה בסריקה מחדש", true);
+      return;
+    }
+    _deps.render();
+  }
+
+  // Enables every document (structure + all files) and injects them all.
+  async function loadCodeProjectAll(projectId) {
+    const project = getProjectById(projectId);
+    if (!project || !project.isCodeProject) return;
+    if (!project.lastScanned) await rescanCodeProject(projectId);
+    if (!project.lastScanned) return; // scan failed or was cancelled
+
+    for (const doc of project.documents || []) doc.enabled = true;
+    project.updated = Date.now();
+    await _deps.saveBlocks();
+    _deps.state.docsProjectId = projectId;
+    await injectProjectDocuments();
+  }
+
+  // Ensures a scan exists, enables the structure doc, and opens the file tree
+  // picker so the user can hand-pick which additional files to inject.
+  async function openCodeProjectPicker(projectId) {
+    const project = getProjectById(projectId);
+    if (!project || !project.isCodeProject) return;
+    if (!project.lastScanned) await rescanCodeProject(projectId);
+    if (!project.lastScanned) return;
+
+    const structureDoc = (project.documents || []).find((d) => d.type === "structure");
+    if (structureDoc) structureDoc.enabled = true;
+    await _deps.saveBlocks();
+    _deps.state.docsProjectId = projectId;
+    window.__ccbCodeTree.open(project);
+  }
+
+  // Bulk-enables the given code files (by relativePath) in one go — a single
+  // mutate + saveBlocks, not a toggleDocument() call per file. Looping
+  // per-file saves is what caused the "injection is very slow" bug: every
+  // save re-serializes the whole `blocks` object, so doing it N times for a
+  // multi-file selection is wasteful (and used to be worse still, back when
+  // file content itself lived inline in `blocks`).
+  async function enableFilesForProject(projectId, relativePaths) {
+    const project = getProjectById(projectId);
+    if (!project) return;
+    const wanted = new Set(relativePaths);
+    for (const doc of project.documents || []) {
+      if (doc.type === "code" && wanted.has(doc.name)) doc.enabled = true;
+    }
+    project.updated = Date.now();
+    await _deps.saveBlocks();
+    _deps.render();
+  }
+
+  // Same bulk-save principle for "select all" / "clear all" in the file tree.
+  async function setAllCodeDocsEnabled(projectId, enabled) {
+    const project = getProjectById(projectId);
+    if (!project) return;
+    for (const doc of project.documents || []) {
+      if (doc.type === "code") doc.enabled = enabled;
+    }
+    project.updated = Date.now();
+    await _deps.saveBlocks();
+    _deps.render();
+  }
+
+  // ============================================================
+  // Code project dropdown (load all / pick files / refresh / remove)
+  // ============================================================
+  function openCodeProjectDropdown(project, menuBtn) {
+    closeHiDropdown();
+    const dd = $el("hiDropdown");
+    const IC = window.__ccbTpl.IC;
+
+    const loadAllItem = document.createElement("div");
+    loadAllItem.className = "hd-item";
+    loadAllItem.innerHTML = `${IC.upload} טען הכל לצ'אט`;
+    loadAllItem.addEventListener("click", async () => {
+      closeHiDropdown();
+      await loadCodeProjectAll(project.id);
+    });
+
+    const pickerItem = document.createElement("div");
+    pickerItem.className = "hd-item";
+    pickerItem.innerHTML = `${IC.folder} טען מבנה וקבצים מסוימים`;
+    pickerItem.addEventListener("click", async () => {
+      closeHiDropdown();
+      await openCodeProjectPicker(project.id);
+    });
+
+    const sep = document.createElement("div");
+    sep.className = "hd-sep";
+
+    const refreshItem = document.createElement("div");
+    refreshItem.className = "hd-item";
+    refreshItem.innerHTML = `${IC.refresh} רענן`;
+    refreshItem.addEventListener("click", async () => {
+      closeHiDropdown();
+      await rescanCodeProject(project.id);
+    });
+
+    const delItem = document.createElement("div");
+    delItem.className = "hd-item danger";
+    delItem.innerHTML = `${IC.trash} הסר סימניה`;
+    delItem.addEventListener("click", async () => {
+      closeHiDropdown();
+      const ok = await _deps.modals.showConfirm({
+        title: "הסרת סימניה",
+        msg: `להסיר את הסימניה "${project.title}"? הקבצים בדיסק לא יימחקו.`,
+        confirmLabel: "הסר",
+        danger: true,
+      });
+      if (!ok) return;
+      await _deps.loadBlocks();
+      const removedProject = _deps.state.blocks[project.id];
+      const dirHandleId = removedProject?.dirHandleId;
+      const codeDocIds = (removedProject?.documents || [])
+        .filter((d) => d.type === "code")
+        .map((d) => d.id);
+      delete _deps.state.blocks[project.id];
+      for (const b of Object.values(_deps.state.blocks)) {
+        if (!b.kind && b.projectId === project.id) delete b.projectId;
+      }
+      if (_deps.state.currentProjectId === project.id) _deps.state.currentProjectId = null;
+      await _deps.saveBlocks();
+      if (dirHandleId) {
+        try { await window.__ccbFsHandles.remove(dirHandleId); } catch { /* already gone */ }
+      }
+      await Promise.all(
+        codeDocIds.map((id) => _deps.docHandler.removeCodeContent(id).catch(() => {})),
+      );
+      _deps.render();
+    });
+
+    dd.innerHTML = "";
+    dd.appendChild(loadAllItem);
+    dd.appendChild(pickerItem);
+    dd.appendChild(sep);
+    dd.appendChild(refreshItem);
+    dd.appendChild(sep.cloneNode());
+    dd.appendChild(delItem);
+
+    const rect = menuBtn.getBoundingClientRect();
+    dd.style.top = rect.top + "px";
+    dd.style.left = rect.right + 6 + "px";
+    dd.classList.add("open");
+
+    const onOutside = (e) => {
+      if (!dd.contains(e.target) && e.target !== menuBtn) closeHiDropdown();
+    };
+    document.addEventListener("click", onOutside, { capture: true, once: false });
+    _deps.state.hiDropdownCleanup = () =>
+      document.removeEventListener("click", onOutside, { capture: true });
+  }
+
   // ============================================================
   // Project view
   // ============================================================
-  function updateHistoryLayoutForProjectView() {
+  // Toggles between the unified project list and the open project's detail
+  // view, both inside the Context tab's "פרויקטים" sub-view. The History tab
+  // no longer hosts any project UI, so it needs no layout changes here.
+  function syncCtxProjectsLayout() {
     const inProject = !!getProjectById(_deps.state.currentProjectId);
-    const toolbar = $el("historyToolbar");
-    const projectsSection = $el("projectsSection");
-    const historySection = $el("historySection");
+    const listWrap = $el("ctxProjectListWrap");
     const view = $el("projectView");
-    if (toolbar) toolbar.style.display = inProject ? "none" : "";
-    if (projectsSection)
-      projectsSection.style.display = inProject ? "none" : "";
-    if (historySection) historySection.style.display = inProject ? "none" : "";
+    if (listWrap) listWrap.style.display = inProject ? "none" : "";
     if (view) view.style.display = inProject ? "flex" : "none";
   }
 
@@ -414,13 +721,13 @@
 
   function renderProjectView() {
     const project = getProjectById(_deps.state.currentProjectId);
-    updateHistoryLayoutForProjectView();
+    syncCtxProjectsLayout();
 
     const view = $el("projectView");
     if (!view) return;
     if (!project) {
       _deps.state.currentProjectId = null;
-      updateHistoryLayoutForProjectView();
+      syncCtxProjectsLayout();
       return;
     }
 
@@ -431,7 +738,29 @@
     }
     $el("projectViewInstructions").value = project.content || "";
     renderProjectViewConversations(project);
+    renderProjectViewDocuments(project);
     syncProjectInstructionsSection();
+    wireProjectViewDocumentEvents();
+
+    const addDocBtn = $el("projectAddDocumentBtn");
+    if (addDocBtn) addDocBtn.style.display = project.isCodeProject ? "none" : "";
+
+    const infoRow = $el("codeProjectInfoRow");
+    if (infoRow) {
+      if (project.isCodeProject) {
+        infoRow.style.display = "flex";
+        const text = $el("codeProjectInfoText");
+        if (text) {
+          text.textContent = project.lastScanned
+            ? `${project.title} · נסרק לאחרונה: ${formatAge(project.lastScanned)}`
+            : `${project.title} · טרם נסרק`;
+        }
+        const refreshBtn = $el("codeProjectInfoRefreshBtn");
+        if (refreshBtn) refreshBtn.onclick = () => rescanCodeProject(project.id);
+      } else {
+        infoRow.style.display = "none";
+      }
+    }
   }
 
   function openProjectView(projectId) {
@@ -475,6 +804,7 @@
       kind: "project",
       title: title.trim(),
       content: "",
+      documents: [],
       updated: Date.now(),
     };
     await _deps.saveBlocks();
@@ -874,7 +1204,7 @@
       closeHiDropdown();
       const ok = await _deps.modals.showConfirm({
         title: "מחיקת פרויקט",
-        msg: 'למחוק את "' + project.title + '"? השיחות לא יימחקו, רק השיוך.',
+        msg: 'למחוק את "' + project.title + '"? הבלוקים של הפרויקט יימחקו; השיחות לא יימחקו, רק השיוך.',
         confirmLabel: "מחק",
         danger: true,
       });
@@ -882,8 +1212,13 @@
       await _deps.loadBlocks();
       delete _deps.state.blocks[project.id];
       for (const b of Object.values(_deps.state.blocks)) {
-        if (b.kind === "conversation" && b.projectId === project.id) {
+        if (b.projectId !== project.id) continue;
+        if (b.kind === "conversation") {
           delete b.projectId;
+        } else if (!b.kind) {
+          // Project's own text blocks — same lifecycle as the project itself.
+          _deps.state.selected?.delete(b.id);
+          delete _deps.state.blocks[b.id];
         }
       }
       if (_deps.state.currentProjectId === project.id) _deps.state.currentProjectId = null;
@@ -1026,6 +1361,295 @@
   }
 
   // ============================================================
+  // Document management
+  // ============================================================
+  function wireProjectViewDocumentEvents() {
+    const addBtn = $el("projectAddDocumentBtn");
+    if (addBtn) addBtn.onclick = openAddDocumentDialog;
+
+  }
+
+  async function injectProjectDocuments() {
+    const pid = _deps.state.docsProjectId || _deps.state.currentProjectId;
+    const project = getProjectById(pid);
+    if (!project) return;
+
+    const enabledDocs = (_deps.docHandler?.getEnabledDocuments(project.id) || []);
+    if (!enabledDocs.length) {
+      _deps.setStatus("אין מסמכים מסומנים", true);
+      return;
+    }
+
+    _deps.setStatus("טוען מסמכים...");
+
+    // Resolve display content per doc without mutating the stored block.
+    // Code-project files (and legacy blob-only docs) keep their text out of
+    // `blocks` entirely, precisely so lookups like this stay a read — writing
+    // it back onto doc.content here would re-bloat every future saveBlocks().
+    const contents = new Map();
+    for (const doc of enabledDocs) {
+      if (doc.content) {
+        contents.set(doc.id, doc.content);
+      } else if (doc.type === "code" || doc.hasBlob) {
+        const text = await _deps.docHandler.getOrExtractContent(project.id, doc.id);
+        if (text) contents.set(doc.id, text);
+      }
+    }
+
+    const textDocs   = enabledDocs.filter(d => contents.has(d.id));
+    const binaryDocs = enabledDocs.filter(d => !contents.has(d.id));
+
+    if (!textDocs.length && binaryDocs.length) {
+      _deps.setStatus("הקבצים המסומנים אינם ניתנים לקריאה כטקסט", true);
+      return;
+    }
+
+    let body = "<documents>\n";
+    for (const doc of textDocs) {
+      const content = contents.get(doc.id);
+      // Code files are never truncated — the whole point of "load with
+      // dependencies" is that every file in the closure has to actually be
+      // there; a chopped-off file silently loses the exact function it was
+      // pulled in for. Non-code docs (long-form text, extracted office docs)
+      // keep the cap so a single huge attachment can't blow the context.
+      const maxChars = doc.type === "code" ? Infinity : 10000;
+      body += `\n**${doc.name}** (${doc.estimatedTokens} tokens)\n---\n`;
+      body += content.length > maxChars
+        ? content.slice(0, maxChars) + "\n... [truncated]"
+        : content;
+      body += "\n";
+    }
+    if (binaryDocs.length) {
+      body += `\n[קבצים ללא תוכן טקסט: ${binaryDocs.map(d => d.name).join(", ")}]\n`;
+    }
+    body += "</documents>";
+
+    const f = _deps.framing;
+    const text = f.manualPre + body + "\n\n---\n\n" + f.manualPost;
+    const r = _deps.inject.injectIntoInput(text, "prepend");
+    if (r.ok) {
+      _deps.setStatus("מסמכים הוזרקו ✓");
+      setTimeout(() => document.querySelector(_deps.sendButtonSel)?.click(), 100);
+    } else {
+      _deps.setStatus(r.error || "נכשל", true);
+    }
+  }
+
+  function renderProjectViewDocuments(project) {
+    const docsList = $el("projectDocumentsList");
+    if (!docsList) return;
+
+    const docs = project.documents || [];
+    docsList.innerHTML = "";
+
+    if (!docs.length) {
+      const empty = document.createElement("div");
+      empty.className = "project-view-label";
+      empty.style.color = "var(--text-faint)";
+      empty.style.padding = "8px";
+      empty.textContent = "אין מסמכים";
+      docsList.appendChild(empty);
+      return;
+    }
+
+    docs.forEach((doc) => {
+      const item = document.createElement("div");
+      item.className = "doc-item";
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "doc-item-checkbox";
+      checkbox.checked = doc.enabled;
+      checkbox.addEventListener("change", () => {
+        _deps.docHandler.toggleDocument(project.id, doc.id, checkbox.checked);
+        _deps.render();
+      });
+
+      const icon = document.createElement("span");
+      icon.className = "doc-item-icon";
+      icon.innerHTML = getDocumentIcon(doc.type);
+
+      const info = document.createElement("div");
+      info.className = "doc-item-info";
+
+      const name = document.createElement("div");
+      name.className = "doc-item-name";
+      name.textContent = doc.name;
+
+      const meta = document.createElement("div");
+      meta.className = "doc-item-meta";
+      meta.textContent = `${doc.estimatedTokens} tokens · ${formatAge(doc.added)}`;
+
+      if (doc.preview) {
+        const preview = document.createElement("div");
+        preview.className = "doc-item-preview";
+        preview.textContent = doc.preview;
+        info.appendChild(preview);
+      }
+
+      info.insertBefore(meta, info.firstChild);
+      info.insertBefore(name, info.firstChild);
+
+      const deleteBtn = document.createElement("span");
+      deleteBtn.className = "doc-item-delete";
+      deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>';
+      deleteBtn.addEventListener("click", async () => {
+        const ok = await _deps.modals.showConfirm({
+          title: "מחק מסמך",
+          msg: `למחוק את "${doc.name}"?`,
+          confirmLabel: "מחק",
+          danger: true,
+        });
+        if (!ok) return;
+        _deps.docHandler.removeDocument(project.id, doc.id);
+        _deps.render();
+      });
+
+      item.appendChild(checkbox);
+      item.appendChild(icon);
+      item.appendChild(info);
+      item.appendChild(deleteBtn);
+      docsList.appendChild(item);
+    });
+  }
+
+  function getDocumentIcon(type) {
+    const icons = {
+      pdf: '<svg width="12" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>',
+      word: '<svg width="12" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 19v-4M7 19h10"/></svg>',
+      spreadsheet: '<svg width="12" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>',
+      presentation: '<svg width="12" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="15" x2="15" y2="15"/></svg>',
+      image: '<svg width="12" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>',
+      text: '<svg width="12" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>',
+    };
+    icons.file = icons.text;
+    icons.code = icons.text;
+    icons.structure = icons.text;
+    return icons[type] || icons.file;
+  }
+
+  function openAddDocumentDialog() {
+    const project = getProjectById(_deps.state.currentProjectId);
+    if (!project) return;
+
+    const overlay = $el("addDocumentOverlay");
+    const fileInput = $el("docFileInput");
+    const uploadPreview = $el("docUploadPreview");
+    const pasteContent = $el("docPasteContent");
+
+    // Reset state
+    const tabButtons = overlay.querySelectorAll(".doc-tab");
+    const tabContents = overlay.querySelectorAll(".doc-tab-content");
+    tabButtons.forEach((b, i) => b.classList.toggle("active", i === 0));
+    tabContents.forEach((c, i) => c.classList.toggle("active", i === 0));
+    fileInput.value = "";
+    pasteContent.value = "";
+    $el("docUrlInput").value = "";
+    $el("docUrlName").value = "";
+    uploadPreview.style.display = "none";
+    $el("docPasteTokens").textContent = "";
+
+    overlay.classList.add("show");
+
+    function closeDialog() {
+      overlay.classList.remove("show");
+      fileInput.value = "";
+      pasteContent.value = "";
+      $el("docUrlInput").value = "";
+      $el("docUrlName").value = "";
+      uploadPreview.style.display = "none";
+    }
+
+    // Tab switching — clone nodes to remove any stale listeners
+    tabButtons.forEach((btn, idx) => {
+      const fresh = btn.cloneNode(true);
+      btn.replaceWith(fresh);
+      fresh.addEventListener("click", () => {
+        overlay.querySelectorAll(".doc-tab").forEach((b) => b.classList.remove("active"));
+        overlay.querySelectorAll(".doc-tab-content").forEach((c) => c.classList.remove("active"));
+        fresh.classList.add("active");
+        overlay.querySelectorAll(".doc-tab-content")[idx].classList.add("active");
+      });
+    });
+
+    // Drop zone — replace to clear stale listeners
+    const dropZone = $el("docDropZone");
+    const freshZone = dropZone.cloneNode(true);
+    dropZone.replaceWith(freshZone);
+    const freshInput = $el("docFileInput"); // re-query after clone
+
+    freshZone.addEventListener("click", () => freshInput.click());
+    freshZone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      freshZone.style.background = "rgba(0,0,0,0.05)";
+    });
+    freshZone.addEventListener("dragleave", () => { freshZone.style.background = ""; });
+    freshZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      freshZone.style.background = "";
+      if (e.dataTransfer.files.length) {
+        freshInput.files = e.dataTransfer.files;
+        freshInput.dispatchEvent(new Event("change"));
+      }
+    });
+    freshInput.addEventListener("change", async () => {
+      const file = freshInput.files[0];
+      if (!file) return;
+      let tokens = 0;
+      try { tokens = await _deps.docHandler.estimateFileTokens(file); }
+      catch (e) { tokens = Math.ceil(file.size / 3.5); }
+      $el("docPreviewName").textContent = file.name;
+      $el("docPreviewTokens").textContent = `${tokens} tokens`;
+      uploadPreview.style.display = "block";
+    });
+
+    // Paste token counter
+    const freshPaste = pasteContent.cloneNode(true);
+    pasteContent.replaceWith(freshPaste);
+    freshPaste.addEventListener("input", () => {
+      $el("docPasteTokens").textContent = `${_deps.docHandler.estimateTokens(freshPaste.value)} tokens`;
+    });
+
+    // Add / Cancel buttons — replace to clear stale listeners
+    const addBtn = $el("docAddBtn").cloneNode(true);
+    $el("docAddBtn").replaceWith(addBtn);
+    const cancelBtn = $el("docCancelBtn").cloneNode(true);
+    $el("docCancelBtn").replaceWith(cancelBtn);
+
+    cancelBtn.addEventListener("click", closeDialog);
+
+    addBtn.addEventListener("click", async () => {
+      const activeTab = overlay.querySelector(".doc-tab.active")?.dataset.tab;
+      try {
+        if (activeTab === "upload") {
+          const file = freshInput.files[0];
+          if (!file) { _deps.setStatus("בחר קובץ", true); return; }
+          await _deps.docHandler.addDocument(file, project.id);
+        } else if (activeTab === "paste") {
+          const content = freshPaste.value.trim();
+          if (!content) { _deps.setStatus("הדבק תוכן", true); return; }
+          await _deps.docHandler.addDocument({ name: "תוכן מודבק", size: content.length, type: "text/plain" }, project.id, content);
+        } else if (activeTab === "url") {
+          const url = $el("docUrlInput").value.trim();
+          if (!url) { _deps.setStatus("הוסף URL", true); return; }
+          let name = $el("docUrlName").value.trim();
+          if (!name) {
+            try { name = new URL(url).pathname.split("/").filter(Boolean).pop() || url; }
+            catch { name = url; }
+          }
+          await _deps.docHandler.addDocument({ name, size: 0, type: "text/uri-list" }, project.id, url);
+        }
+        closeDialog();
+        _deps.setStatus("מסמך הוסף ✓");
+        _deps.render();
+      } catch (e) {
+        console.error("[history-view] Failed to add document", e);
+        _deps.setStatus(e?.message || "שגיאה בהוספת מסמך", true);
+      }
+    });
+  }
+
+  // ============================================================
   // Public API
   // ============================================================
   window.__ccbHistoryView = {
@@ -1059,6 +1683,7 @@
     syncCollapsibleSections,
     syncProjectInstructionsSection,
     getProjects,
+    getAllProjects,
     getProjectById,
     getConversationProject,
     buildHistoryMessages,
@@ -1070,5 +1695,17 @@
     extractSnippet,
     saveProjectView,
     addProject,
+    renderProjectViewDocuments,
+    openAddDocumentDialog,
+    injectProjectDocuments,
+    getDocumentIcon,
+    getCodeProjects,
+    createCodeProjectBookmark,
+    rescanCodeProject,
+    loadCodeProjectAll,
+    openCodeProjectPicker,
+    openCodeProjectDropdown,
+    enableFilesForProject,
+    setAllCodeDocsEnabled,
   };
 })();

@@ -14,6 +14,13 @@ window.__ccbTpl = (() => {
     download: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
     cs: `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
     settings: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a2 2 0 1 1-4 0v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a2 2 0 1 1 0-4h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V4a2 2 0 1 1 4 0v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6H20a2 2 0 1 1 0 4h-.2a1 1 0 0 0-.9.6Z"/></svg>`,
+    trash: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>`,
+    pencil: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`,
+    file: `<svg width="12" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>`,
+    inject: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
+    folder: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>`,
+    refresh: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>`,
+    link: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
   };
 
   const PANEL_HTML = `
@@ -56,14 +63,92 @@ window.__ccbTpl = (() => {
             <span class="ctx-files-tokens" id="ccb-files-tokens"></span>
           </div>
         </div>
-        <div class="context-toolbar">
-          <button id="addBtn" title="בלוק חדש" aria-label="הוסף בלוק חדש">${IC.plus}</button>
+
+        <div class="ctx-subview-toggle" id="ctxSubviewToggle">
+          <button class="ctx-subview-tab active" data-subview="general" type="button">טקסטים כלליים</button>
+          <button class="ctx-subview-tab" data-subview="projects" type="button">פרויקטים</button>
         </div>
-        <div id="gmCard"></div>
-        <div id="list"></div>
+
+        <div id="ctxSubviewGeneral" class="ctx-subview">
+          <div class="context-toolbar">
+            <button id="addBtn" title="בלוק חדש" aria-label="הוסף בלוק חדש">${IC.plus}</button>
+          </div>
+          <div id="gmCard"></div>
+          <div id="list"></div>
+        </div>
+
+        <div id="ctxSubviewProjects" class="ctx-subview" style="display:none">
+          <div id="ctxProjectListWrap">
+            <div class="section-header">
+              <div class="section-head-left">
+                <span class="section-label">פרויקטים</span>
+              </div>
+              <div class="ctx-projects-add-group">
+                <button id="addProjectBtn" type="button" aria-label="פרויקט חדש" title="פרויקט חדש">${IC.plus}</button>
+                <button id="addCodeProjectBtn" type="button" aria-label="פרויקט קוד חדש" title="פרויקט קוד חדש">${IC.folder}</button>
+              </div>
+            </div>
+            <div id="projectList"></div>
+          </div>
+
+          <div id="projectView" style="display:none">
+            <div class="project-view-shell">
+              <div class="project-view-head">
+                <button id="projectViewBack" type="button" aria-label="חזרה">${IC.x}</button>
+                <div class="project-view-title-wrap">
+                  <div id="projectViewTitle"></div>
+                </div>
+                <button id="projectViewMenuBtn" type="button" aria-label="אפשרויות">${IC.menuDots}</button>
+              </div>
+              <div id="codeProjectInfoRow" class="code-project-info-row" style="display:none">
+                <span class="code-project-info-icon">${IC.folder}</span>
+                <span id="codeProjectInfoText" class="code-project-info-text"></span>
+                <button id="codeProjectInfoRefreshBtn" type="button" class="code-project-info-refresh" aria-label="רענן" title="רענן">${IC.refresh}</button>
+              </div>
+              <div class="gm-card project-instructions-card">
+                <div class="gm-header project-instructions-header">
+                  <div class="project-instructions-head">
+                    <button id="projectInstructionsToggle" type="button" class="collapse-btn collapsed" aria-label="פתח או סגור עריכת הנחיות" title="פתח או סגור עריכת הנחיות">${IC.chevronRight}</button>
+                    <span class="gm-title">הנחיות הפרויקט</span>
+                  </div>
+                  <button id="projectInstructionsEditBtn" type="button" class="gm-edit-btn">עריכה</button>
+                </div>
+                <div id="projectInstructionsPreview" class="gm-preview"></div>
+                <div id="projectInstructionsPanel" class="project-accordion-panel collapsed">
+                  <div class="project-view-label">הנחיות</div>
+                  <textarea id="projectViewInstructions" placeholder="הנחיות הפרויקט..."></textarea>
+                  <button id="projectViewSaveBtn" type="button">שמור</button>
+                </div>
+              </div>
+              <div class="gm-card project-blocks-card">
+                <div class="gm-header project-blocks-header">
+                  <span class="gm-title">בלוקים</span>
+                  <button id="projectAddBlockBtn" type="button" class="gm-edit-btn">${IC.plus} הוסף</button>
+                </div>
+                <div id="projectBlocksList" class="project-blocks-list"></div>
+              </div>
+              <div class="gm-card project-documents-card">
+                <div class="gm-header project-documents-header">
+                  <div class="project-documents-head">
+                    <button id="projectDocumentsToggle" type="button" class="collapse-btn" aria-label="סגור או פתח מסמכים" title="סגור או פתח מסמכים">${IC.chevronRight}</button>
+                    <span class="gm-title">מסמכים</span>
+                  </div>
+                  <button id="projectAddDocumentBtn" type="button" class="gm-edit-btn">${IC.plus} הוסף</button>
+                </div>
+                <div id="projectDocumentsList" class="project-documents-list"></div>
+              </div>
+              <div class="project-view-label" style="margin-top:8px;">שיחות בפרויקט</div>
+              <div id="projectViewConversations"></div>
+
+            </div>
+          </div>
+        </div>
+
+        <div id="projectDocsContext" style="display:none"></div>
         </div><!-- /tab-scroll -->
         <footer id="footerContext">
           <button id="injectBtn" disabled style="flex:1">${IC.upload} טען נבחרים</button>
+          <button id="injectDocsBtn" style="display:none">${IC.inject} מסמכים</button>
         </footer>
       </div>
 
@@ -80,17 +165,6 @@ window.__ccbTpl = (() => {
           </div>
         </div>
 
-        <div id="projectsSection">
-          <div class="section-header">
-            <div class="section-head-left">
-              <button id="projectsCollapseBtn" type="button" class="collapse-btn" aria-label="סגור פרויקטים" title="סגור פרויקטים">${IC.chevronRight}</button>
-              <span class="section-label">פרויקטים</span>
-            </div>
-            <button id="addProjectBtn" type="button" aria-label="פרויקט חדש" title="פרויקט חדש">${IC.plus}</button>
-          </div>
-          <div id="projectList"></div>
-        </div>
-
         <div id="historySection">
           <div class="section-header">
             <div class="section-head-left">
@@ -99,36 +173,6 @@ window.__ccbTpl = (() => {
             </div>
           </div>
           <div id="historyList"></div>
-        </div>
-
-        <div id="projectView" style="display:none">
-          <div class="project-view-shell">
-            <div class="project-view-head">
-              <button id="projectViewBack" type="button" aria-label="חזרה">${IC.x}</button>
-              <div class="project-view-title-wrap">
-                <div id="projectViewTitle"></div>
-              </div>
-              <button id="projectViewMenuBtn" type="button" aria-label="אפשרויות">${IC.menuDots}</button>
-            </div>
-            <div class="gm-card project-instructions-card">
-              <div class="gm-header project-instructions-header">
-                <div class="project-instructions-head">
-                  <button id="projectInstructionsToggle" type="button" class="collapse-btn collapsed" aria-label="פתח או סגור עריכת הנחיות" title="פתח או סגור עריכת הנחיות">${IC.chevronRight}</button>
-                  <span class="gm-title">הנחיות הפרויקט</span>
-                </div>
-                <button id="projectInstructionsEditBtn" type="button" class="gm-edit-btn">עריכה</button>
-              </div>
-              <div id="projectInstructionsPreview" class="gm-preview"></div>
-              <div id="projectInstructionsPanel" class="project-accordion-panel collapsed">
-                <div class="project-view-label">הנחיות</div>
-                <textarea id="projectViewInstructions" placeholder="הנחיות הפרויקט..."></textarea>
-                <button id="projectViewSaveBtn" type="button">שמור</button>
-              </div>
-            </div>
-            <div class="project-view-label" style="margin-top:8px;">שיחות בפרויקט</div>
-            <div id="projectViewConversations"></div>
-
-          </div>
         </div>
         </div><!-- /tab-scroll -->
         <footer id="footerHistory">
@@ -147,6 +191,65 @@ window.__ccbTpl = (() => {
           <div class="dialog-btns">
             <button class="dialog-confirm" id="dialogConfirm"></button>
             <button class="dialog-cancel" id="dialogCancel"></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="dialog-overlay" id="addDocumentOverlay">
+        <div class="dialog-box doc-dialog">
+          <div class="dialog-title">הוסף מסמך</div>
+          <div class="doc-tabs">
+            <button class="doc-tab active" data-tab="upload">העלאה</button>
+            <button class="doc-tab" data-tab="paste">הדבקה</button>
+            <button class="doc-tab" data-tab="url">קישור</button>
+          </div>
+          <div class="doc-tab-content active" id="docTabUpload">
+            <div class="doc-drop-zone" id="docDropZone">
+              <span>${IC.upload} גרור קבצים או לחץ להעלאה</span>
+              <input type="file" id="docFileInput" style="display:none" />
+            </div>
+            <div id="docUploadPreview" style="display:none">
+              <div class="doc-preview-info">
+                <div><strong id="docPreviewName"></strong></div>
+                <div id="docPreviewTokens" class="doc-tokens"></div>
+              </div>
+            </div>
+          </div>
+          <div class="doc-tab-content" id="docTabPaste">
+            <textarea id="docPasteContent" class="doc-paste-textarea" placeholder="הדבק תוכן כאן..."></textarea>
+            <div id="docPasteTokens" class="doc-tokens"></div>
+          </div>
+          <div class="doc-tab-content" id="docTabUrl">
+            <input type="text" id="docUrlInput" class="doc-url-input" placeholder="https://example.com/document.pdf" />
+            <input type="text" id="docUrlName" class="doc-url-input" placeholder="שם המסמך (אופציונלי)" />
+          </div>
+          <div class="dialog-btns">
+            <button class="dialog-confirm" id="docAddBtn">הוסף</button>
+            <button class="dialog-cancel" id="docCancelBtn">ביטול</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="code-tree-overlay" id="codeTreeOverlay" aria-hidden="true">
+        <div class="code-tree-modal-box">
+          <div class="code-tree-modal-head">
+            <div class="code-tree-modal-title" id="codeTreeTitle">בחירת קבצים</div>
+          </div>
+          <div class="code-tree-modal-body">
+            <div class="search-wrap code-tree-search-wrap">
+              <input id="codeTreeSearch" type="search" placeholder="חיפוש לפי נתיב..." aria-label="חיפוש קבצים">
+              <span class="search-icon">${IC.search}</span>
+            </div>
+            <div class="code-tree-modal-actions">
+              <button id="codeTreeSelectAllBtn" type="button" class="code-tree-link-btn">בחר הכל</button>
+              <button id="codeTreeClearAllBtn" type="button" class="code-tree-link-btn">נקה הכל</button>
+              <span id="codeTreeTokenCount" class="code-tree-token-count"></span>
+            </div>
+            <div id="codeTreeBody" class="code-tree-body"></div>
+          </div>
+          <div class="code-tree-modal-footer">
+            <button id="codeTreeInjectBtn" type="button" class="prompts-save">${IC.inject} הזרק לצ'אט</button>
+            <button id="codeTreeCloseBtn" type="button" class="prompts-cancel">סגור</button>
           </div>
         </div>
       </div>

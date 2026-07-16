@@ -9,6 +9,7 @@
 //   ui-template.js   → window.__ccbTpl
 //   ctx-meter.js     → window.__ccbCtxMeter
 //   ui-modals.js     → window.__ccbModals
+//   document-handler.js → window.__ccbDocHandler
 //   history-view.js  → window.__ccbHistoryView
 //   chat-features.js → window.__ccbChat
 
@@ -54,8 +55,11 @@
     editingId: null,
     historySearchMode: "title",
     currentProjectId: null,
-    projectsCollapsed: false,
     historyCollapsed: false,
+    // Context tab: "general" (plain text blocks + GM) or "projects" (unified
+    // project list + detail view, merged from the old ctx-project/History
+    // project split).
+    ctxSubview: "general",
     projectInstructionsOpen: false,
     ctxWindow: CTX_WINDOW_DEFAULT,
     ctxWindowLoaded: false,
@@ -82,6 +86,9 @@
     // guard, the URL change handler would wipe currentConversationId and
     // continuationBase right after we set them. Single-shot suppression.
     suppressNextUrlReset: false,
+    // When the user clicks "+ הוסף בלוק" inside a project section, the
+    // project's ID is stored here so saveEdit() can attach it. Cleared on closeEdit().
+    pendingCtxProjectId: null,
   };
 
   // Live FRAMING getters — picks up edits from prompts.js automatically
@@ -138,9 +145,28 @@
   // ============================================================
   // Storage wrappers (mutate state.blocks / state.ctxWindow)
   // ============================================================
+  // One-time (idempotent) migration: fold the old Context-tab "ctx-project"
+  // grouping blocks into the unified History-style "project" shape, so a
+  // project can hold both plain text blocks (via child projectId) AND
+  // documents/code-project file loading. Keeps the same id — child blocks
+  // referencing it via projectId keep working unchanged.
+  async function migrateCtxProjects() {
+    let changed = false;
+    for (const b of Object.values(state.blocks)) {
+      if (b && b.kind === "ctx-project") {
+        b.kind = "project";
+        if (!Array.isArray(b.documents)) b.documents = [];
+        if (b.isCodeProject === undefined) b.isCodeProject = false;
+        changed = true;
+      }
+    }
+    if (changed) await saveBlocks();
+  }
+
   async function loadBlocks() {
     if (state.blocksLoaded) return;
     state.blocks = await _loadBlocks(STORAGE_KEY);
+    await migrateCtxProjects();
     state.blocksLoaded = true;
   }
 
@@ -200,6 +226,18 @@
     indicator.style.width = tab.offsetWidth + "px";
   }
 
+  // Context tab: toggle between the "general texts" and "projects" sub-views.
+  function syncCtxSubview() {
+    const isProjects = state.ctxSubview === "projects";
+    shadow.querySelectorAll(".ctx-subview-tab").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.subview === state.ctxSubview);
+    });
+    const general = $el("ctxSubviewGeneral");
+    const projects = $el("ctxSubviewProjects");
+    if (general) general.style.display = isProjects ? "none" : "";
+    if (projects) projects.style.display = isProjects ? "" : "none";
+  }
+
   // ============================================================
   // Module wiring — build deps + call each module's init()
   // ============================================================
@@ -208,6 +246,7 @@
     const modals = window.__ccbModals;
     const historyView = window.__ccbHistoryView;
     const chat = window.__ccbChat;
+    const docHandler = window.__ccbDocHandler;
 
     window.__ccbCtxMeter.init({
       getShadow,
@@ -229,15 +268,31 @@
       getProjects: () => historyView.getProjects(),
     });
 
+    docHandler.init({
+      loadBlocks,
+      saveBlocks,
+      getBlocks: () => state.blocks,
+    });
+
+    window.__ccbCodeTree.init({
+      docHandler,
+      getShadow,
+      historyView,
+      setStatus,
+    });
+
     historyView.init({
       getShadow,
       state,
       framing,
       modals,
+      docHandler,
       loadBlocks,
       saveBlocks,
       render,
       setStatus,
+      inject: ccbInject,
+      sendButtonSel: SEND_BUTTON_SELECTOR,
     });
 
     chat.init({
@@ -248,6 +303,7 @@
       inject: ccbInject,
       modals,
       historyView,
+      docHandler,
       loadBlocks,
       saveBlocks,
       setStatus,
@@ -277,9 +333,7 @@
         $el("toggleSearchTitle")?.classList.add("active");
         $el("toggleSearchContent")?.classList.remove("active");
         if ($el("searchHistory")) $el("searchHistory").value = "";
-        state.projectsCollapsed = false;
         state.historyCollapsed = false;
-        historyView.closeProjectView();
         historyView.closeConversationView();
       } else if (tabName === "context") {
         state.selected.clear();
@@ -393,6 +447,7 @@
       setPanelOpen(false);
     });
     $el("addProjectBtn").addEventListener("click", () => void historyView.addProject());
+    $el("addCodeProjectBtn").addEventListener("click", () => void historyView.createCodeProjectBookmark());
     $el("searchHistory").addEventListener("input", debouncedRender);
     $el("toggleSearchTitle").addEventListener("click", () => {
       state.historySearchMode = "title";
@@ -408,16 +463,13 @@
       $el("searchHistory").placeholder = "חיפוש מילה בתוכן...";
       historyView.renderHistoryList();
     });
-    $el("projectsCollapseBtn").addEventListener("click", () => {
-      state.projectsCollapsed = !state.projectsCollapsed;
-      historyView.syncCollapsibleSections();
-    });
     $el("historyCollapseBtn").addEventListener("click", () => {
       state.historyCollapsed = !state.historyCollapsed;
       historyView.syncCollapsibleSections();
     });
     $el("addBtn").addEventListener("click", () => openEdit(null));
     $el("injectBtn").addEventListener("click", () => chat.injectSelected());
+    $el("injectDocsBtn").addEventListener("click", () => historyView.injectProjectDocuments());
     $el("summarizeBtnHistory").addEventListener("click", () => void chat.saveChat());
     $el("saveBtn").addEventListener("click", saveEdit);
     $el("cancelBtn").addEventListener("click", closeEdit);
@@ -433,6 +485,19 @@
       historyView.syncProjectInstructionsSection();
       if (state.projectInstructionsOpen) $el("projectViewInstructions")?.focus();
     });
+    $el("projectAddBlockBtn")?.addEventListener("click", () => {
+      if (!state.currentProjectId) return;
+      state.pendingCtxProjectId = state.currentProjectId;
+      openEdit(null);
+    });
+
+    shadow.querySelectorAll(".ctx-subview-tab").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        state.ctxSubview = btn.dataset.subview;
+        syncCtxSubview();
+      });
+    });
+    syncCtxSubview();
 
     const ctxExpand = $el("ccb-ctx-expand");
     if (ctxExpand) {
@@ -462,7 +527,12 @@
     $el("projectViewMenuBtn").addEventListener("click", (e) => {
       e.stopPropagation();
       const project = historyView.getProjectById(state.currentProjectId);
-      if (project) historyView.openProjectDropdown(project, $el("projectViewMenuBtn"));
+      if (!project) return;
+      if (project.isCodeProject) {
+        historyView.openCodeProjectDropdown(project, $el("projectViewMenuBtn"));
+      } else {
+        historyView.openProjectDropdown(project, $el("projectViewMenuBtn"));
+      }
     });
 
     // Conversation View
@@ -617,6 +687,10 @@
       window.__ccbCtxMeter.update();
       const historyView = window.__ccbHistoryView;
       if (historyView.getProjectById(state.currentProjectId)) {
+        state.ctxSubview = "projects";
+        syncCtxSubview();
+        const contextTab = shadow.querySelector('.tab[data-tab="context"]');
+        if (contextTab && !contextTab.classList.contains("active")) contextTab.click();
         if (state.projectInstructionsOpen) $el("projectViewInstructions")?.focus();
         else $el("projectInstructionsEditBtn")?.focus();
       } else {
@@ -643,89 +717,246 @@
   function render() {
     window.__ccbChat.renderGeneralMemory();
     renderContextList();
+    renderProjectBlocksList();
+    renderProjectDocsContext();
     window.__ccbHistoryView.render();
     window.__ccbCtxMeter.watchConversation();
     window.__ccbCtxMeter.update();
   }
 
   // ============================================================
-  // Context list (kept here — small + tightly coupled to selected state)
+  // Context list (kept here — tightly coupled to selected state)
   // ============================================================
+
+  /** Renders a single context block row (shared by general + project sections). */
+  function renderBlockRow(b, projTitle) {
+    const isSelected = state.selected.has(b.id);
+    const row = document.createElement("div");
+    row.className = "block" + (isSelected ? " selected" : "");
+
+    const cbWrap = document.createElement("label");
+    cbWrap.className = "cb-wrap";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = isSelected;
+    cb.setAttribute("aria-label", b.title);
+    cbWrap.addEventListener("click", (e) => e.stopPropagation());
+    cb.addEventListener("change", () => {
+      if (cb.checked) state.selected.add(b.id);
+      else state.selected.delete(b.id);
+      row.classList.toggle("selected", cb.checked);
+      const tag = row.querySelector(".ctx-proj-tag");
+      if (tag) tag.style.display = cb.checked ? "" : "none";
+      updateInjectBtn();
+    });
+    const cbBox = document.createElement("span");
+    cbBox.className = "cb-box";
+    cbBox.innerHTML =
+      '<svg class="cb-check" width="10" height="8" viewBox="0 0 10 8" fill="none"><polyline points="1,4 4,7 9,1" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    cbWrap.appendChild(cb);
+    cbWrap.appendChild(cbBox);
+
+    const main = document.createElement("div");
+    main.className = "block-main";
+    const head = document.createElement("div");
+    head.className = "block-head";
+    const titleEl = document.createElement("div");
+    titleEl.className = "block-title";
+    titleEl.textContent = b.title;
+    head.appendChild(titleEl);
+
+    // Project name tag — visible only when block is selected
+    if (projTitle) {
+      const tag = document.createElement("span");
+      tag.className = "ctx-proj-tag";
+      tag.textContent = projTitle;
+      tag.style.display = isSelected ? "" : "none";
+      head.appendChild(tag);
+    }
+
+    const tagCount = (b.tags || []).length;
+    if (tagCount) {
+      const meta = document.createElement("span");
+      meta.className = "block-meta";
+      meta.textContent = tagCount + " תגים";
+      head.appendChild(meta);
+    }
+    main.appendChild(head);
+    if (tagCount) {
+      const tagsRow = document.createElement("div");
+      tagsRow.className = "block-tags";
+      for (const t of b.tags || []) {
+        const span = document.createElement("span");
+        span.className = "tag";
+        span.textContent = t;
+        tagsRow.appendChild(span);
+      }
+      main.appendChild(tagsRow);
+    }
+
+    row.addEventListener("click", () => openEdit(b.id));
+    row.appendChild(cbWrap);
+    row.appendChild(main);
+    return row;
+  }
+
+  /** Renders the "general texts" sub-view list — plain blocks with no project, not GM. */
   function renderContextList() {
-    const items = Object.values(state.blocks)
-      .filter(
-        (b) =>
-          b.kind !== "conversation" && b.kind !== "project" && b.id !== GM_ID,
-      )
+    const generalItems = Object.values(state.blocks)
+      .filter((b) => !b.kind && !b.projectId && b.id !== GM_ID)
       .sort((a, b) => (b.updated || 0) - (a.updated || 0));
 
     const list = $el("list");
+    if (!list) return;
     list.innerHTML = "";
-    if (!items.length) {
+
+    if (!generalItems.length) {
       const div = document.createElement("div");
       div.className = "empty";
       div.textContent = "בנק ריק\nלחץ + להוספת בלוק ראשון";
       list.appendChild(div);
       return;
     }
-    for (const b of items) {
-      const isSelected = state.selected.has(b.id);
+
+    for (const b of generalItems) {
+      list.appendChild(renderBlockRow(b, null));
+    }
+  }
+
+  /** Renders the currently-open project's own text blocks (inside the project view). */
+  function renderProjectBlocksList() {
+    const container = $el("projectBlocksList");
+    if (!container) return;
+    const project = window.__ccbHistoryView.getProjectById(state.currentProjectId);
+    container.innerHTML = "";
+    if (!project) return;
+
+    const projBlocks = Object.values(state.blocks)
+      .filter((b) => !b.kind && b.projectId === project.id)
+      .sort((a, b) => (b.updated || 0) - (a.updated || 0));
+
+    if (!projBlocks.length) {
+      const empty = document.createElement("div");
+      empty.className = "ctx-proj-empty";
+      empty.textContent = "אין בלוקים — הוסף בלוק ראשון";
+      container.appendChild(empty);
+      return;
+    }
+
+    for (const b of projBlocks) {
+      container.appendChild(renderBlockRow(b, null));
+    }
+  }
+
+  // ============================================================
+  // Project docs in context tab
+  // ============================================================
+  function renderProjectDocsContext() {
+    const section = $el("projectDocsContext");
+    const btn = $el("injectDocsBtn");
+    if (!section || !btn) return;
+
+    // Find all projects that have at least one document
+    const projectsWithDocs = Object.values(state.blocks).filter(
+      b => b.kind === "project" && b.documents?.length
+    );
+
+    if (!projectsWithDocs.length) {
+      section.style.display = "none";
+      btn.style.display = "none";
+      return;
+    }
+
+    // Resolve which project to display:
+    // 1. Prefer the currently open project (History tab)
+    // 2. Then the last manually selected docs project
+    // 3. Fall back to first project with docs
+    if (state.currentProjectId && state.blocks[state.currentProjectId]?.documents?.length) {
+      state.docsProjectId = state.currentProjectId;
+    } else if (!state.docsProjectId || !state.blocks[state.docsProjectId]?.documents?.length) {
+      state.docsProjectId = projectsWithDocs[0].id;
+    }
+
+    const projectId = state.docsProjectId;
+    const project = state.blocks[projectId];
+    const docs = project?.documents || [];
+
+    section.style.display = "block";
+    btn.style.display = "flex";
+    section.innerHTML = "";
+
+    const docHandler = window.__ccbDocHandler;
+
+    // Header: plain title if one project, dropdown selector if multiple
+    const header = document.createElement("div");
+    header.className = "ctx-docs-header";
+
+    if (projectsWithDocs.length > 1) {
+      const icon = document.createElement("span");
+      icon.textContent = "📁 ";
+      const sel = document.createElement("select");
+      sel.className = "ctx-docs-select";
+      projectsWithDocs.forEach(p => {
+        const opt = document.createElement("option");
+        opt.value = p.id;
+        opt.textContent = p.title;
+        if (p.id === projectId) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener("change", () => {
+        state.docsProjectId = sel.value;
+        renderProjectDocsContext();
+      });
+      header.appendChild(icon);
+      header.appendChild(sel);
+    } else {
+      header.textContent = `📁 ${project.title}`;
+    }
+    section.appendChild(header);
+
+    for (const doc of docs) {
       const row = document.createElement("div");
-      row.className = "block" + (isSelected ? " selected" : "");
+      row.className = "ctx-doc-row";
 
       const cbWrap = document.createElement("label");
       cbWrap.className = "cb-wrap";
       const cb = document.createElement("input");
       cb.type = "checkbox";
-      cb.checked = isSelected;
-      cb.setAttribute("aria-label", b.title);
-      cbWrap.addEventListener("click", (e) => e.stopPropagation());
+      cb.checked = doc.enabled;
       cb.addEventListener("change", () => {
-        if (cb.checked) state.selected.add(b.id);
-        else state.selected.delete(b.id);
-        row.classList.toggle("selected", cb.checked);
-        updateInjectBtn();
+        docHandler?.toggleDocument(projectId, doc.id, cb.checked);
+        row.style.opacity = cb.checked ? "1" : "0.45";
       });
       const cbBox = document.createElement("span");
       cbBox.className = "cb-box";
-      cbBox.innerHTML =
-        '<svg class="cb-check" width="10" height="8" viewBox="0 0 10 8" fill="none"><polyline points="1,4 4,7 9,1" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      cbBox.innerHTML = '<svg class="cb-check" width="10" height="8" viewBox="0 0 10 8" fill="none"><polyline points="1,4 4,7 9,1" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
       cbWrap.appendChild(cb);
       cbWrap.appendChild(cbBox);
 
-      const main = document.createElement("div");
-      main.className = "block-main";
-      const head = document.createElement("div");
-      head.className = "block-head";
-      const title = document.createElement("div");
-      title.className = "block-title";
-      title.textContent = b.title;
-      head.appendChild(title);
+      const typeIcon = document.createElement("span");
+      typeIcon.style.cssText = "width:14px;height:14px;flex-shrink:0;color:var(--text-faint)";
+      typeIcon.innerHTML = window.__ccbHistoryView?.getDocumentIcon?.(doc.type) || "📄";
 
-      const tagCount = (b.tags || []).length;
-      if (tagCount) {
-        const meta = document.createElement("span");
-        meta.className = "block-meta";
-        meta.textContent = tagCount + " תגים";
-        head.appendChild(meta);
-      }
-      main.appendChild(head);
-      if (tagCount) {
-        const tagsRow = document.createElement("div");
-        tagsRow.className = "block-tags";
-        for (const t of b.tags || []) {
-          const span = document.createElement("span");
-          span.className = "tag";
-          span.textContent = t;
-          tagsRow.appendChild(span);
-        }
-        main.appendChild(tagsRow);
-      }
+      const name = document.createElement("span");
+      name.className = "ctx-doc-name";
+      name.textContent = doc.name;
+      name.title = doc.name;
 
-      row.addEventListener("click", () => openEdit(b.id));
+      const tokens = document.createElement("span");
+      tokens.className = "ctx-doc-tokens";
+      tokens.textContent = doc.estimatedTokens ? `${doc.estimatedTokens}t` : "";
+
+      row.style.opacity = doc.enabled ? "1" : "0.45";
       row.appendChild(cbWrap);
-      row.appendChild(main);
-      list.appendChild(row);
+      row.appendChild(typeIcon);
+      row.appendChild(name);
+      row.appendChild(tokens);
+      row.addEventListener("click", (e) => {
+        if (e.target === cb || cbWrap.contains(e.target)) return;
+        cb.checked = !cb.checked;
+        cb.dispatchEvent(new Event("change"));
+      });
+      section.appendChild(row);
     }
   }
 
@@ -763,6 +994,7 @@
 
   function closeEdit() {
     state.editingId = null;
+    state.pendingCtxProjectId = null;
     if (!shadow) return;
     $el("panel").classList.remove("editing");
     setStatus("");
@@ -787,6 +1019,10 @@
     if (existing?.kind) state.blocks[id].kind = existing.kind;
     if (existing?.autoLoad !== undefined)
       state.blocks[id].autoLoad = existing.autoLoad;
+    // Preserve projectId on edit; attach pending project when creating a new block
+    if (existing?.projectId) state.blocks[id].projectId = existing.projectId;
+    else if (!existing && state.pendingCtxProjectId)
+      state.blocks[id].projectId = state.pendingCtxProjectId;
     await saveBlocks();
     closeEdit();
     render();
