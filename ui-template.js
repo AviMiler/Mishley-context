@@ -372,6 +372,10 @@ window.__ccbTpl = (() => {
       <input id="importBackupInput" type="file" accept="application/json,.json" style="display:none" />
 
       <div id="editView">
+        <div id="editProjectTag" class="edit-project-tag" style="display:none">
+          ${IC.folder}
+          <span id="editProjectTagText"></span>
+        </div>
         <label>כותרת</label>
         <input id="editTitle" type="text" placeholder="לדוגמה: הפרויקט שלי">
         <label>תגים (מופרדים בפסיק)</label>

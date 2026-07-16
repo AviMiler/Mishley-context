@@ -89,6 +89,7 @@ Each module exposes `init(deps)` (matching the `ctx-meter.js` pattern). `content
 
 **Project-owned text blocks (`projectId` field):**
 A regular context block (no `kind`) may have `projectId` pointing to a `kind: "project"` block. They render inside that project's detail view (`#projectBlocksList`) via `renderProjectBlocksList()` in `content.js`. General blocks (no `projectId`) render in the "טקסטים כלליים" sub-view's `#list`.
+Since the shared `#editView` add/edit form covers the whole panel (no project context visible behind it), `openEdit()` in `content.js` shows a small `#editProjectTag` pill (folder icon + project title) above the title field whenever the block being edited has a `projectId` (or is about to get one via `state.pendingCtxProjectId`) — otherwise it's hidden.
 
 ## Active Site
 

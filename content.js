@@ -988,6 +988,17 @@
     $el("editTags").value = b ? (b.tags || []).join(", ") : prefill?.tags || "";
     $el("editContent").value = b ? b.content : prefill?.content || "";
     $el("deleteBtn").style.display = id ? "block" : "none";
+
+    // Show which project this block belongs to (existing block's projectId,
+    // or the project it's about to be added into via the "+ הוסף בלוק" button).
+    const projectId = b?.projectId || state.pendingCtxProjectId || null;
+    const project = projectId ? window.__ccbHistoryView.getProjectById(projectId) : null;
+    const tag = $el("editProjectTag");
+    if (tag) {
+      tag.style.display = project ? "flex" : "none";
+      if (project) $el("editProjectTagText").textContent = project.title;
+    }
+
     $el("panel").classList.add("editing");
     $el("editTitle").focus();
   }

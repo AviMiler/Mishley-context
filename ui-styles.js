@@ -1769,6 +1769,17 @@ window.__ccbCSS = (() => {
       overflow-y: auto; padding: 18px; background: var(--bg-app);
     }
     .panel.editing #editView { display: flex; }
+    .edit-project-tag {
+      display: flex; align-items: center; gap: 6px;
+      padding: 5px 10px; margin-bottom: 4px;
+      background: var(--bg-clear); color: var(--text-mute);
+      border-radius: var(--r-input); font-size: 12px; font-weight: 500;
+      width: fit-content; max-width: 100%;
+    }
+    .edit-project-tag svg { flex-shrink: 0; width: 12px; height: 12px; }
+    #editProjectTagText {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
     #editView label {
       display: block; font-size: 12px; color: var(--text-mute);
       margin-top: 12px; margin-bottom: 4px; font-weight: 500;
