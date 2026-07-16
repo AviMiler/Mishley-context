@@ -1,11 +1,14 @@
 // code-tree.js — interactive file tree for picking specific files out of a
 // scanned code project (structure + selected files, as opposed to "load all").
+// Renders INLINE into the project detail view's documents section (no modal),
+// so the original tree structure and the dependency-linking option live
+// together at the bottom of the open project. See CLAUDE.md.
 // Exposes: window.__ccbCodeTree
 //
 // Public API:
-//   init(deps)        — { docHandler, getShadow, historyView, setStatus }
-//   open(project)      — opens the tree modal for a code project block
-//   close()
+//   init(deps)                  — { docHandler, getShadow, historyView, setStatus }
+//   renderInline(project, mount) — (re)build the file tree inside `mount`
+//                                  (an element inside #projectDocumentsList)
 
 (() => {
   if (window.__ccbCodeTreeInstalled) return;
@@ -13,11 +16,12 @@
 
   let _deps = null;
   let _project = null;
+  let _mountEl = null;
+  let _bodyEl = null;
+  let _tokenEl = null;
   let _query = "";
   let _collapsedPaths = new Set();
-  let _wired = false;
 
-  const $el = (id) => _deps?.getShadow?.()?.getElementById(id);
   const IC = () => window.__ccbTpl.IC;
 
   // ============================================================
@@ -139,30 +143,91 @@
   }
 
   function updateTokenCount() {
-    const el = $el("codeTreeTokenCount");
-    if (!el || !_project) return;
+    if (!_tokenEl || !_project) return;
     const enabled = (_project.documents || []).filter((d) => d.enabled);
     const tokens = enabled.reduce((sum, d) => sum + (d.estimatedTokens || 0), 0);
-    el.textContent = `${enabled.length} מסמכים נבחרים · ${tokens} tokens`;
+    _tokenEl.textContent = `${enabled.length} מסמכים נבחרים · ${tokens} tokens`;
   }
 
+  // Re-renders only the tree body (folders/files) from the current _project +
+  // _query, leaving the shell (search/actions) in place.
   function render() {
-    const body = $el("codeTreeBody");
-    if (!body || !_project) return;
-    body.innerHTML = "";
+    if (!_bodyEl || !_project) return;
+    _bodyEl.innerHTML = "";
 
     const docs = (_project.documents || []).filter((d) => d.type === "code");
     const q = _query.trim().toLowerCase();
     const filtered = q ? docs.filter((d) => d.name.toLowerCase().includes(q)) : docs;
 
+    if (!filtered.length) {
+      const empty = document.createElement("div");
+      empty.className = "project-view-label";
+      empty.style.color = "var(--text-faint)";
+      empty.style.padding = "8px";
+      empty.textContent = q ? "אין קבצים תואמים" : "טרם נסרקו קבצים — לחץ רענן";
+      _bodyEl.appendChild(empty);
+      updateTokenCount();
+      return;
+    }
+
     const tree = buildTree(filtered);
-    renderNode(tree, body, 0, !!q);
+    renderNode(tree, _bodyEl, 0, !!q);
     updateTokenCount();
   }
 
   function setAllEnabled(enabled) {
     if (!_project) return;
-    _deps.historyView.setAllCodeDocsEnabled(_project.id, enabled).then(render);
+    // setAllCodeDocsEnabled triggers a global render, which re-invokes
+    // renderInline and rebuilds the tree from fresh state.
+    _deps.historyView.setAllCodeDocsEnabled(_project.id, enabled);
+  }
+
+  // ============================================================
+  // Inline shell (search + select-all/clear-all + token count + body)
+  // ============================================================
+  function buildShell() {
+    _mountEl.innerHTML = "";
+
+    const search = document.createElement("div");
+    search.className = "search-wrap code-tree-search-wrap";
+    const input = document.createElement("input");
+    input.type = "search";
+    input.placeholder = "חיפוש לפי נתיב...";
+    input.setAttribute("aria-label", "חיפוש קבצים");
+    input.value = _query;
+    input.addEventListener("input", (e) => {
+      _query = e.target.value || "";
+      render();
+    });
+    const searchIcon = document.createElement("span");
+    searchIcon.className = "search-icon";
+    searchIcon.innerHTML = IC().search;
+    search.appendChild(input);
+    search.appendChild(searchIcon);
+    _mountEl.appendChild(search);
+
+    const actions = document.createElement("div");
+    actions.className = "code-tree-actions";
+    const selectAll = document.createElement("button");
+    selectAll.type = "button";
+    selectAll.className = "code-tree-link-btn";
+    selectAll.textContent = "בחר הכל";
+    selectAll.addEventListener("click", () => setAllEnabled(true));
+    const clearAll = document.createElement("button");
+    clearAll.type = "button";
+    clearAll.className = "code-tree-link-btn";
+    clearAll.textContent = "נקה הכל";
+    clearAll.addEventListener("click", () => setAllEnabled(false));
+    _tokenEl = document.createElement("span");
+    _tokenEl.className = "code-tree-token-count";
+    actions.appendChild(selectAll);
+    actions.appendChild(clearAll);
+    actions.appendChild(_tokenEl);
+    _mountEl.appendChild(actions);
+
+    _bodyEl = document.createElement("div");
+    _bodyEl.className = "code-tree-body";
+    _mountEl.appendChild(_bodyEl);
   }
 
   // Static dependency graph (built at scan time, see dep-graph.js) — follows
@@ -203,8 +268,8 @@
       label = "תלויות";
     }
 
+    // enableFilesForProject triggers a global render → renderInline rebuild.
     await _deps.historyView.enableFilesForProject(_project.id, Array.from(closure));
-    render();
 
     if (closure.size <= 1) {
       _deps.setStatus?.(`לא זוהו קבצים נוספים (${label}) — ניתוח סטטי, לא כל קריאה ניתנת לזיהוי`);
@@ -231,9 +296,9 @@
 
   function openDepsMenu(doc, btn) {
     closeDepsMenu();
-    const dd = $el("hiDropdown");
+    const dd = _deps.getShadow?.()?.getElementById("hiDropdown");
     if (!dd) return;
-    const IC = window.__ccbTpl.IC;
+    const ic = window.__ccbTpl.IC;
 
     const mkItem = (icon, label, mode) => {
       const item = document.createElement("div");
@@ -247,9 +312,9 @@
     };
 
     dd.innerHTML = "";
-    dd.appendChild(mkItem(IC.link, "תלויות", "dependencies"));
-    dd.appendChild(mkItem(IC.download, "תלויים", "dependents"));
-    dd.appendChild(mkItem(IC.context, "הקשר מלא", "full"));
+    dd.appendChild(mkItem(ic.link, "תלויות", "dependencies"));
+    dd.appendChild(mkItem(ic.download, "תלויים", "dependents"));
+    dd.appendChild(mkItem(ic.context, "הקשר מלא", "full"));
 
     const rect = btn.getBoundingClientRect();
     dd.style.top = rect.top + "px";
@@ -264,49 +329,20 @@
   }
 
   // ============================================================
-  // Open / close
+  // Public entry — render the tree inline into `mount`.
   // ============================================================
-  function wireOnce() {
-    if (_wired) return;
-    _wired = true;
-
-    $el("codeTreeSearch").addEventListener("input", (e) => {
-      _query = e.target.value || "";
-      render();
-    });
-    $el("codeTreeSelectAllBtn").addEventListener("click", () => setAllEnabled(true));
-    $el("codeTreeClearAllBtn").addEventListener("click", () => setAllEnabled(false));
-    $el("codeTreeCloseBtn").addEventListener("click", () => close());
-    $el("codeTreeInjectBtn").addEventListener("click", () => {
-      _deps.historyView.injectProjectDocuments();
-    });
-  }
-
-  function open(project) {
-    if (!project) return;
+  function renderInline(project, mount) {
+    if (!project || !mount) return;
+    // Reset per-view state only when switching to a different project, so
+    // search text / collapsed folders survive a same-project re-render.
+    if (!_project || _project.id !== project.id) {
+      _query = "";
+      _collapsedPaths = new Set();
+    }
     _project = project;
-    _query = "";
-    _collapsedPaths = new Set();
-
-    wireOnce();
-
-    const title = $el("codeTreeTitle");
-    if (title) title.textContent = `בחירת קבצים · ${project.title}`;
-    const search = $el("codeTreeSearch");
-    if (search) search.value = "";
-
+    _mountEl = mount;
+    buildShell();
     render();
-    const overlay = $el("codeTreeOverlay");
-    overlay?.classList.add("show");
-    overlay?.setAttribute("aria-hidden", "false");
-  }
-
-  function close() {
-    closeDepsMenu();
-    const overlay = $el("codeTreeOverlay");
-    overlay?.classList.remove("show");
-    overlay?.setAttribute("aria-hidden", "true");
-    _project = null;
   }
 
   // ============================================================
@@ -314,7 +350,6 @@
   // ============================================================
   window.__ccbCodeTree = {
     init(deps) { _deps = deps; },
-    open,
-    close,
+    renderInline,
   };
 })();

@@ -448,6 +448,11 @@
     });
     $el("addProjectBtn").addEventListener("click", () => void historyView.addProject());
     $el("addCodeProjectBtn").addEventListener("click", () => void historyView.createCodeProjectBookmark());
+    $el("projectSelect").addEventListener("change", (e) => {
+      const id = e.target.value;
+      if (id) historyView.openProjectView(id);
+      else historyView.closeProjectView();
+    });
     $el("searchHistory").addEventListener("input", debouncedRender);
     $el("toggleSearchTitle").addEventListener("click", () => {
       state.historySearchMode = "title";

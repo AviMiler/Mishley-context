@@ -16,7 +16,7 @@
 | `fs-handles.js`   | IndexedDB storage for `FileSystemDirectoryHandle` objects → `window.__ccbFsHandles` | ~80   |
 | `document-handler.js` | Document management for projects (files/URLs/text + code-project scanning) → `window.__ccbDocHandler` | ~800  |
 | `dep-graph.js`    | Static (no-AI) import/reference graph for scanned code projects → `window.__ccbDepGraph` | ~415  |
-| `code-tree.js`    | Interactive file-tree picker for code-project documents → `window.__ccbCodeTree` | ~320  |
+| `code-tree.js`    | Inline file-tree picker for code-project documents (rendered into the project view) → `window.__ccbCodeTree` | ~330  |
 | `history-view.js` | Projects + history list + conversation preview + document UI + code-project UI → `window.__ccbHistoryView` | ~1720 |
 | `chat-features.js`| GM + capture + manual injection + inline save → `window.__ccbChat`            | ~465  |
 | `content.js`      | Orchestrator: state, mount, wireEvents, edit form, context list, backup, init | ~1050 |
@@ -43,8 +43,8 @@
 | `__ccbFsHandles`     | `fs-handles.js`    | `put(id, dirHandle)`, `get(id)`, `remove(id)`, `verifyPermission(dirHandle, mode?)`                            |
 | `__ccbDocHandler`    | `document-handler.js` | `init`, `addDocument`, `removeDocument`, `toggleDocument`, `getDocumentContent`, `getOrExtractContent`, `getEnabledDocuments`, `injectFilesToChat`, `estimateTokens`, `estimateFileTokens`, `getFileType`, `isLikelyTextFile`, `scanCodeProject`, `buildStructureMarkdown`, `syncCodeProjectDocuments`, `removeCodeContent` |
 | `__ccbDepGraph`      | `dep-graph.js`     | `buildGraph(included)`, `getTransitiveClosure(graph, path)`, `getDirectDependents(graph, path)`, `getFullContext(graph, path)` |
-| `__ccbCodeTree`      | `code-tree.js`     | `init`, `open(project)`, `close()`                                                                             |
-| `__ccbHistoryView`   | `history-view.js`  | `init`, `render*`, `open*/close*`, `get*`, `build*`, `sync*`, `addProject`, `saveProjectView`, `renderProjectViewDocuments`, `openAddDocumentDialog`, `createCodeProjectBookmark`, `rescanCodeProject`, `loadCodeProjectAll`, `openCodeProjectPicker`, `enableFilesForProject`, `setAllCodeDocsEnabled`, `injectProjectDocuments` |
+| `__ccbCodeTree`      | `code-tree.js`     | `init`, `renderInline(project, mount)`                                                                         |
+| `__ccbHistoryView`   | `history-view.js`  | `init`, `render*`, `open*/close*`, `get*`, `build*`, `sync*`, `addProject`, `saveProjectView`, `renderProjectSelect`, `renderProjectViewDocuments`, `openProjectView`, `closeProjectView`, `openAddDocumentDialog`, `createCodeProjectBookmark`, `rescanCodeProject`, `loadCodeProjectAll`, `enableFilesForProject`, `setAllCodeDocsEnabled`, `injectProjectDocuments` |
 | `__ccbChat`          | `chat-features.js` | `init`, `getGM`, `renderGeneralMemory`, `tryAutoInject`, `injectSelected`, `saveChat`, `start/stopMsgObserver`|
 | `__ccb`              | `content.js`       | `{ MSG_SELECTORS, blocks, saveBlocks, loadBlocks, setStatus, renderPanel }` — consumed by summarizer          |
 
@@ -173,7 +173,7 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | `SEND_BUTTON_SELECTOR` | string       | CSS selector for the send button                                                            |
 | `PUSH_SELECTOR`        | string\|null | Root element to push right when sidebar opens                                               |
 | `PUSH_FIXED_SELECTORS` | string[]     | Fixed-position elements to push separately                                                  |
-| `SIDEBAR_WIDTH`        | number       | Sidebar width in px (340; `push.js` + full-page overlays derive from it)                    |
+| `SIDEBAR_WIDTH`        | number       | Sidebar width in px (380; `push.js` + full-page overlays derive from it)                    |
 | `MSG_SELECTORS`        | object       | Selectors for inline-save / capture features (per site)                                     |
 | `INPUT_FALLBACKS`      | string[]     | Fallback selectors when `CHAT_INPUT_SELECTOR` fails                                         |
 | `STORAGE_KEY`          | string       | chrome.storage key for blocks (`"blocks"`)                                                  |
@@ -277,7 +277,7 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | Function                                  | Description                                              |
 | ----------------------------------------- | -------------------------------------------------------- |
 | `getProjects()`                           | Regular (non-code) project blocks, sorted by `updated` desc |
-| `getAllProjects()`                        | Unified list — regular + code projects together (used by `renderProjectList`) |
+| `getAllProjects()`                        | Unified list — regular + code projects together (used by `renderProjectSelect`) |
 | `getProjectById(id)`                      | Single project block (null if not found)                |
 | `getConversationProject(b)`               | Returns project assigned to a conversation block        |
 | `getProjectConversationCount(projectId)`  | Counts conversations in a project                       |
@@ -295,10 +295,10 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 
 | Function                                                | Description                                                                                  |
 | ------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `render()`                                              | History-side of full render: collapsibles → project list → history list → project view      |
-| `renderProjectList()`                                   | Renders the unified project cards (regular + code projects) into the Context tab's "פרויקטים" sub-view |
-| `renderProjectView()` / `renderProjectViewConversations(project)` | Renders the active project detail screen                                          |
-| `syncCtxProjectsLayout()`                               | Toggles between the project list (`#ctxProjectListWrap`) and the open project's detail (`#projectView`) inside the Context "פרויקטים" sub-view |
+| `render()`                                              | History-side of full render: collapsibles → project selector → history list → project view  |
+| `renderProjectSelect()`                                 | Populates the `<select id="projectSelect">` with all projects (regular + code, code prefixed with 📁) in the Context tab's "פרויקטים" sub-view |
+| `renderProjectView()` / `renderProjectViewConversations(project)` | Renders the active project detail screen (code projects render the inline file tree via `__ccbCodeTree.renderInline` inside `#projectDocumentsList`) |
+| `syncCtxProjectsLayout()`                               | Keeps the selector (`#ctxProjectListWrap`) visible and shows/hides the open project's detail (`#projectView`) beneath it, inside the Context "פרויקטים" sub-view |
 | `renderHistoryList()`                                   | Renders the full history list (title-search or content-search), pinned + grouped            |
 | `createHistoryRow(b, opts)`                             | Builds a single conversation row (with optional snippet + project tag)                       |
 | `syncCollapsibleSections()` / `syncProjectInstructionsSection()` | Updates the section-collapse chevrons and ARIA state                                 |
@@ -346,7 +346,6 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | `createCodeProjectBookmark()`                       | Opens `showDirectoryPicker()`, stores the handle via `__ccbFsHandles`, creates the project block, runs the first `scanCodeProject` + `buildGraph` + `syncCodeProjectDocuments` |
 | `rescanCodeProject(projectId)`                      | Re-verifies (or re-requests) folder permission, then rescans + rebuilds `depGraph` + re-syncs documents |
 | `loadCodeProjectAll(projectId)`                     | Ensures a scan exists, enables every document, injects them all                                 |
-| `openCodeProjectPicker(projectId)`                  | Ensures a scan exists, enables the structure doc, opens `__ccbCodeTree` for hand-picking files   |
 | `enableFilesForProject(projectId, relativePaths)`   | Bulk-enables a set of code docs by path in one `saveBlocks()` call (not one call per file — see perf note in source) |
 | `setAllCodeDocsEnabled(projectId, enabled)`         | Bulk select-all / clear-all for code docs                                                       |
 | `openCodeProjectDropdown(project, menuBtn)`         | Load all / pick files / refresh / remove dropdown                                               |
@@ -383,9 +382,9 @@ Builds a best-effort, deterministic import/reference graph for a scanned code pr
 
 `buildGraph(included)` is called right after `scanCodeProject` while file content is still in memory. `getTransitiveClosure` (BFS, cycle-safe) gives "dependencies"; `getDirectDependents` (one hop, not transitive) gives "dependents"; `getFullContext` combines both.
 
-## code-tree.js — file-tree picker
+## code-tree.js — inline file-tree picker
 
-Renders an interactive checkbox tree (folders + files) over a code project's scanned documents, for hand-picking which files to inject instead of "load all". Each file row has a "deps" button opening a small menu (`תלויות`/`תלויים`/`הקשר מלא`) that calls into `dep-graph.js` via `history-view.js#enableFilesForProject` to bulk-enable the resulting closure. Reuses the shared `#hiDropdown` host element for that menu but manages its own outside-click cleanup.
+`renderInline(project, mount)` renders an interactive checkbox tree (folders + files) over a code project's scanned documents **inline** into the open project's documents section (`#projectDocumentsList`, mounted by `history-view.js#renderProjectViewDocuments` when `project.isCodeProject`) — not a separate modal. It builds its own shell (path search + "בחר הכל"/"נקה הכל" + token count) plus the tree body. Each file row has a "deps" button opening a small menu (`תלויות`/`תלויים`/`הקשר מלא`) that calls into `dep-graph.js` via `history-view.js#enableFilesForProject` to bulk-enable the resulting closure. Reuses the shared `#hiDropdown` host element for that menu (via `deps.getShadow()`) but manages its own outside-click cleanup. Per-view state (`_query`, `_collapsedPaths`) survives same-project re-renders and resets when switching projects. Only `type: "code"` docs appear in the tree; the `type: "structure"` doc is injected but not shown (parity with the former modal).
 
 ## fs-handles.js — directory handle storage
 

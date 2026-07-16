@@ -88,7 +88,7 @@ window.__ccbTpl = (() => {
                 <button id="addCodeProjectBtn" type="button" aria-label="פרויקט קוד חדש" title="פרויקט קוד חדש">${IC.folder}</button>
               </div>
             </div>
-            <div id="projectList"></div>
+            <select id="projectSelect" class="project-select" aria-label="בחר פרויקט"></select>
           </div>
 
           <div id="projectView" style="display:none">
@@ -226,30 +226,6 @@ window.__ccbTpl = (() => {
           <div class="dialog-btns">
             <button class="dialog-confirm" id="docAddBtn">הוסף</button>
             <button class="dialog-cancel" id="docCancelBtn">ביטול</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="code-tree-overlay" id="codeTreeOverlay" aria-hidden="true">
-        <div class="code-tree-modal-box">
-          <div class="code-tree-modal-head">
-            <div class="code-tree-modal-title" id="codeTreeTitle">בחירת קבצים</div>
-          </div>
-          <div class="code-tree-modal-body">
-            <div class="search-wrap code-tree-search-wrap">
-              <input id="codeTreeSearch" type="search" placeholder="חיפוש לפי נתיב..." aria-label="חיפוש קבצים">
-              <span class="search-icon">${IC.search}</span>
-            </div>
-            <div class="code-tree-modal-actions">
-              <button id="codeTreeSelectAllBtn" type="button" class="code-tree-link-btn">בחר הכל</button>
-              <button id="codeTreeClearAllBtn" type="button" class="code-tree-link-btn">נקה הכל</button>
-              <span id="codeTreeTokenCount" class="code-tree-token-count"></span>
-            </div>
-            <div id="codeTreeBody" class="code-tree-body"></div>
-          </div>
-          <div class="code-tree-modal-footer">
-            <button id="codeTreeInjectBtn" type="button" class="prompts-save">${IC.inject} הזרק לצ'אט</button>
-            <button id="codeTreeCloseBtn" type="button" class="prompts-cancel">סגור</button>
           </div>
         </div>
       </div>

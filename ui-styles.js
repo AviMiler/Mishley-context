@@ -408,45 +408,22 @@ window.__ccbCSS = (() => {
       gap: 6px;
       padding: 0 18px;
     }
-    .project-card {
-      display: flex;
-      align-items: center;
-      gap: 8px;
+    .project-select {
+      width: 100%;
+      box-sizing: border-box;
       padding: 8px 10px;
       border-radius: var(--r-input);
-      cursor: pointer;
-      transition: background var(--t-fast);
       background: var(--bg-card);
       border: 1px solid var(--border-subtle);
-    }
-    .project-card:hover { background: var(--bg-tag); }
-    .project-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--text-faint);
-      flex-shrink: 0;
-    }
-    .project-name {
-      flex: 1;
+      color: var(--text-strong);
+      font-family: var(--font-he);
       font-size: 13px;
       font-weight: 600;
-      color: var(--text-strong);
-      min-width: 0;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      cursor: pointer;
+      transition: background var(--t-fast), border-color var(--t-fast);
     }
-    .project-count {
-      font-size: 11px;
-      color: var(--text-ghost);
-      flex-shrink: 0;
-    }
-    .code-project-card { align-items: flex-start; }
-    .code-project-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-    .code-project-meta { font-size: 11px; color: var(--text-ghost); }
-    .code-project-card .hi-menu-btn { opacity: 0; }
-    .code-project-card:hover .hi-menu-btn { opacity: 1; }
+    .project-select:hover { background: var(--bg-tag); }
+    .project-select:focus { outline: none; border-color: var(--text-faint); }
     .code-project-info-row {
       display: flex; align-items: center; gap: 8px;
       padding: 8px 10px; margin: 0 18px 10px;
@@ -833,7 +810,7 @@ window.__ccbCSS = (() => {
       text-align: center;
     }
     /* Ensure project-related names respect RTL and truncate instead of expanding */
-    #projectViewTitle, .project-accordion-toggle, .project-picker-item, .project-name {
+    #projectViewTitle, .project-accordion-toggle, .project-picker-item {
       direction: rtl;
     }
     .project-accordion-toggle {
@@ -1893,32 +1870,9 @@ window.__ccbCSS = (() => {
     .doc-url-input:focus { border-color: var(--text-faint); }
     .doc-url-input:last-child { margin-bottom: 0; }
 
-    /* Code project tree picker — opens over the chat area, same pattern as
-       the prompts editor (.prompts-overlay / .prompts-box), not the small
-       centered dialog used for confirms/prompts. */
-    .panel:has(.code-tree-overlay.show) { overflow: visible; }
-    .code-tree-overlay {
-      position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
-      background: rgba(28,25,23,.45); backdrop-filter: blur(3px);
-      z-index: 10000; opacity: 0; pointer-events: none; transition: opacity .2s;
-    }
-    .code-tree-overlay.show { opacity: 1; pointer-events: auto; }
-    .code-tree-modal-box {
-      position: absolute; top: 0; left: ${w}px; width: calc(100vw - ${w}px); height: 100vh;
-      background: var(--bg-app); display: flex; flex-direction: column; overflow: hidden;
-      border-right: 1px solid var(--border-subtle);
-    }
-    .code-tree-modal-head {
-      padding: 18px 24px 14px; border-bottom: 1px solid var(--border-subtle);
-      background: var(--bg-card); flex-shrink: 0;
-    }
-    .code-tree-modal-title { font-size: 16px; font-weight: 700; color: var(--text-strong); text-align: right; }
-    .code-tree-modal-body { padding: 20px 24px 10px; overflow-y: auto; flex: 1; min-height: 0; }
-    .code-tree-modal-actions { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
-    .code-tree-modal-footer {
-      padding: 14px 24px 18px; border-top: 1px solid var(--border-subtle);
-      background: var(--bg-card); display: flex; gap: 10px; flex-shrink: 0;
-    }
+    /* Code project file tree — rendered inline inside the open project's
+       documents section (#projectDocumentsList), owned by code-tree.js. */
+    .code-tree-actions { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
     .code-tree-search-wrap { margin-bottom: 10px; }
     .code-tree-body {
       border: 1px solid var(--border-light); border-radius: 6px; padding: 6px;

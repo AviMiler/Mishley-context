@@ -4,7 +4,7 @@
 // Public API (after init):
 //   render()                          — full re-render of project list + history list + project view
 //   renderHistoryList()
-//   renderProjectList()
+//   renderProjectSelect()
 //   renderProjectView()
 //   openProjectView(id) / closeProjectView()
 //   openConversationView(b, opts) / closeConversationView()
@@ -19,7 +19,7 @@
 //   saveProjectView()
 //   addProject()
 //   getCodeProjects()
-//   createCodeProjectBookmark() / rescanCodeProject(id) / loadCodeProjectAll(id) / openCodeProjectPicker(id)
+//   createCodeProjectBookmark() / rescanCodeProject(id) / loadCodeProjectAll(id)
 //   openCodeProjectDropdown(project, menuBtn)
 //   enableFilesForProject(projectId, relativePaths) / setAllCodeDocsEnabled(projectId, enabled)
 
@@ -94,8 +94,8 @@
   }
 
   // Unified Context-tab "פרויקטים" list — regular + code projects together,
-  // most-recently-updated first (folder-icon styling distinguishes code
-  // projects at render time; see renderProjectList).
+  // most-recently-updated first (a 📁 prefix distinguishes code projects in
+  // the selector; see renderProjectSelect).
   function getAllProjects() {
     return Object.values(_deps.state.blocks)
       .filter((b) => b.kind === "project")
@@ -364,79 +364,31 @@
   }
 
   // ============================================================
-  // Project list
+  // Project selector
   // ============================================================
-  // Unified list: regular + code projects together, one card style each
-  // (folder icon + scan meta for code projects, dot + conversation count
-  // for regular ones), so the sidebar shows a single "פרויקטים" concept.
-  function renderProjectList() {
-    const list = $el("projectList");
-    if (!list) return;
-    list.innerHTML = "";
+  // Unified <select> of regular + code projects (code projects prefixed with a
+  // folder glyph, since native <option> can't hold an icon), so the sidebar
+  // shows one "פרויקטים" concept while leaving vertical room for the open
+  // project's inline detail (incl. the code-project file tree) below it.
+  function renderProjectSelect() {
+    const sel = $el("projectSelect");
+    if (!sel) return;
+    sel.innerHTML = "";
 
     const projects = getAllProjects();
-    if (!projects.length) {
-      const empty = document.createElement("div");
-      empty.className = "empty";
-      empty.style.padding = "12px 0 2px";
-      empty.textContent = "אין פרויקטים עדיין";
-      list.appendChild(empty);
-      return;
-    }
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = projects.length ? "— בחר פרויקט —" : "אין פרויקטים עדיין";
+    sel.appendChild(placeholder);
 
     for (const project of projects) {
-      const card = document.createElement("div");
-      card.className = "project-card" + (project.isCodeProject ? " code-project-card" : "");
-
-      if (project.isCodeProject) {
-        const icon = document.createElement("span");
-        icon.className = "code-tree-icon";
-        icon.innerHTML = window.__ccbTpl.IC.folder;
-
-        const info = document.createElement("div");
-        info.className = "code-project-info";
-        const name = document.createElement("span");
-        name.className = "project-name";
-        name.textContent = project.title;
-        const meta = document.createElement("span");
-        meta.className = "code-project-meta";
-        meta.textContent = project.lastScanned
-          ? `נסרק לאחרונה: ${formatAge(project.lastScanned)}`
-          : "טרם נסרק";
-        info.appendChild(name);
-        info.appendChild(meta);
-
-        const menuBtn = document.createElement("button");
-        menuBtn.type = "button";
-        menuBtn.className = "hi-menu-btn";
-        menuBtn.innerHTML = window.__ccbTpl.IC.menuDots;
-        menuBtn.setAttribute("aria-label", "אפשרויות");
-        menuBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          openCodeProjectDropdown(project, menuBtn);
-        });
-
-        card.appendChild(icon);
-        card.appendChild(info);
-        card.appendChild(menuBtn);
-      } else {
-        const dot = document.createElement("span");
-        dot.className = "project-dot";
-        const name = document.createElement("span");
-        name.className = "project-name";
-        name.textContent = project.title;
-        const count = document.createElement("span");
-        count.className = "project-count";
-        count.textContent = getProjectConversationCount(project.id) + " שיחות";
-
-        card.appendChild(dot);
-        card.appendChild(name);
-        card.appendChild(count);
-      }
-
-      card.addEventListener("click", () => openProjectView(project.id));
-      list.appendChild(card);
+      const opt = document.createElement("option");
+      opt.value = project.id;
+      opt.textContent = project.isCodeProject ? `📁 ${project.title}` : project.title;
+      sel.appendChild(opt);
     }
+
+    sel.value = _deps.state.currentProjectId || "";
   }
 
   // Opens the OS folder picker, bookmarks the handle, and runs an initial scan.
@@ -546,21 +498,6 @@
     await injectProjectDocuments();
   }
 
-  // Ensures a scan exists, enables the structure doc, and opens the file tree
-  // picker so the user can hand-pick which additional files to inject.
-  async function openCodeProjectPicker(projectId) {
-    const project = getProjectById(projectId);
-    if (!project || !project.isCodeProject) return;
-    if (!project.lastScanned) await rescanCodeProject(projectId);
-    if (!project.lastScanned) return;
-
-    const structureDoc = (project.documents || []).find((d) => d.type === "structure");
-    if (structureDoc) structureDoc.enabled = true;
-    await _deps.saveBlocks();
-    _deps.state.docsProjectId = projectId;
-    window.__ccbCodeTree.open(project);
-  }
-
   // Bulk-enables the given code files (by relativePath) in one go — a single
   // mutate + saveBlocks, not a toggleDocument() call per file. Looping
   // per-file saves is what caused the "injection is very slow" bug: every
@@ -605,14 +542,6 @@
     loadAllItem.addEventListener("click", async () => {
       closeHiDropdown();
       await loadCodeProjectAll(project.id);
-    });
-
-    const pickerItem = document.createElement("div");
-    pickerItem.className = "hd-item";
-    pickerItem.innerHTML = `${IC.folder} טען מבנה וקבצים מסוימים`;
-    pickerItem.addEventListener("click", async () => {
-      closeHiDropdown();
-      await openCodeProjectPicker(project.id);
     });
 
     const sep = document.createElement("div");
@@ -661,7 +590,6 @@
 
     dd.innerHTML = "";
     dd.appendChild(loadAllItem);
-    dd.appendChild(pickerItem);
     dd.appendChild(sep);
     dd.appendChild(refreshItem);
     dd.appendChild(sep.cloneNode());
@@ -683,14 +611,12 @@
   // ============================================================
   // Project view
   // ============================================================
-  // Toggles between the unified project list and the open project's detail
-  // view, both inside the Context tab's "פרויקטים" sub-view. The History tab
-  // no longer hosts any project UI, so it needs no layout changes here.
+  // Projects live in the Context tab's "פרויקטים" sub-view. The selector
+  // (#ctxProjectListWrap) stays visible at all times; only the open project's
+  // detail (#projectView) is shown/hidden beneath it.
   function syncCtxProjectsLayout() {
     const inProject = !!getProjectById(_deps.state.currentProjectId);
-    const listWrap = $el("ctxProjectListWrap");
     const view = $el("projectView");
-    if (listWrap) listWrap.style.display = inProject ? "none" : "";
     if (view) view.style.display = inProject ? "flex" : "none";
   }
 
@@ -1355,7 +1281,7 @@
   // ============================================================
   function render() {
     syncCollapsibleSections();
-    renderProjectList();
+    renderProjectSelect();
     renderHistoryList();
     renderProjectView();
   }
@@ -1438,6 +1364,15 @@
   function renderProjectViewDocuments(project) {
     const docsList = $el("projectDocumentsList");
     if (!docsList) return;
+
+    // Code projects render the original folder tree inline (checkboxes +
+    // per-file dependency-linking), owned by code-tree.js. Regular projects
+    // keep the flat document list below.
+    if (project.isCodeProject) {
+      docsList.innerHTML = "";
+      window.__ccbCodeTree.renderInline(project, docsList);
+      return;
+    }
 
     const docs = project.documents || [];
     docsList.innerHTML = "";
@@ -1668,7 +1603,7 @@
     init(deps) { _deps = deps; },
     render,
     renderHistoryList,
-    renderProjectList,
+    renderProjectSelect,
     renderProjectView,
     openProjectView,
     closeProjectView,
@@ -1703,7 +1638,6 @@
     createCodeProjectBookmark,
     rescanCodeProject,
     loadCodeProjectAll,
-    openCodeProjectPicker,
     openCodeProjectDropdown,
     enableFilesForProject,
     setAllCodeDocsEnabled,
