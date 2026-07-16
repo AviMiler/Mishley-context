@@ -224,7 +224,7 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | `renderProjectBlocksList()`     | Renders the open project's own text blocks inside its detail view (`#projectBlocksList`) |
 | `updateInjectBtn()`             | Updates "טען נבחרים" button state + count pill                    |
 | `hasUnsavedChanges()`           | Checks if the edit form differs from the saved block              |
-| `openEdit(id, prefill)`         | Opens edit form; id=null for new block                            |
+| `openEdit(id, prefill)`         | Opens edit form; id=null for new block. Also resolves the block's project (existing `projectId`, or `state.pendingCtxProjectId` when adding via a project's "+ הוסף בלוק") and shows/hides the `#editProjectTag` pill (folder icon + project title) — the full-panel edit form otherwise hides all project context |
 | `closeEdit()`                   | Exits edit mode, clears form                                      |
 | `saveEdit()`                    | Validates and saves form to `state.blocks`                        |
 | `deleteEdit()`                  | Confirms (via modals) and deletes the block being edited          |
