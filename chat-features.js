@@ -221,7 +221,31 @@
     const isGmOnly = ordered.length === 1 && ordered[0]?.id === GM_ID;
     const f = _deps.framing;
     const blocksBody = ordered
-      .map((b) => "## " + (b.title || (b.id === GM_ID ? "זיכרון כללי" : "")) + "\n" + b.content)
+      .map((b) => {
+        const title = b.title || (b.id === GM_ID ? "זיכרון כללי" : "");
+        let body = "## " + title + "\n" + (b.content || "");
+        if (b.kind === "project" && _deps.docHandler) {
+          const enabledDocs = _deps.docHandler.getEnabledDocuments(b.id);
+          const textDocs = enabledDocs.filter(d => d.content);
+          const fileDocs = enabledDocs.filter(d => !d.content && d.hasBlob);
+          if (textDocs.length > 0) {
+            body += "\n\n<documents>\n";
+            for (const doc of textDocs) {
+              body += `\n**${doc.name}** (${doc.estimatedTokens} tokens)\n---\n`;
+              const maxChars = 10000;
+              body += doc.content.length > maxChars
+                ? doc.content.slice(0, maxChars) + "\n... [truncated]"
+                : doc.content;
+              body += "\n";
+            }
+            body += "</documents>";
+          }
+          if (fileDocs.length > 0) {
+            body += `\n\n[קבצים מצורפים: ${fileDocs.map(d => d.name).join(", ")}]`;
+          }
+        }
+        return body;
+      })
       .join("\n\n");
     const text = isGmOnly
       ? f.gmPre + blocksBody + f.gmPost
