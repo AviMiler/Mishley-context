@@ -16,7 +16,7 @@
 //   openProjectDropdown(project, menuBtn)
 //   syncCollapsibleSections() / syncProjectDocumentsSection()
 //   getProjects() / getAllProjects() / getProjectById(id) / getConversationProject(b)
-//   buildHistoryMessages(b) / buildConversationInjectionText(messages, block, opts) / buildProjectSectionText(block)
+//   buildHistoryMessages(b) / buildConversationInjectionText(messages)
 //   formatTranscript(messages) / formatAge(ts) / dateGroup(ts) / extractSnippet(text, q, fromIndex)
 //   addProject()
 //   getCodeProjects()
@@ -170,56 +170,11 @@
     return text ? [{ role: "ai", text }] : [];
   }
 
-  function buildProjectSectionText(block) {
-    const project = getConversationProject(block);
-    if (!project) return "";
-    const content = (project.content || "").trim();
-    let text = "## " + project.title + "\n" + (content || "") + "\n\n";
-
-    // Inject enabled documents
-    const enabledDocs = _deps.docHandler?.getEnabledDocuments(project.id) || [];
-    if (enabledDocs.length > 0) {
-      text += "<documents>\n";
-      for (const doc of enabledDocs) {
-        text += `\n**${doc.name}** (${doc.estimatedTokens} tokens)\n`;
-        text += "---\n";
-        if (doc.content) {
-          // Truncate very long documents to avoid bloating context
-          const maxChars = 10000;
-          const docContent = doc.content.length > maxChars
-            ? doc.content.slice(0, maxChars) + "\n... [truncated]"
-            : doc.content;
-          text += docContent + "\n";
-        } else {
-          text += `[URL: ${doc.name}]\n`;
-        }
-        text += "\n";
-      }
-      text += "</documents>\n\n";
-    }
-
-    return text;
-  }
-
-  function buildConversationInjectionText(
-    messages,
-    block,
-    { includeProjectInstructions = false } = {},
-  ) {
+  function buildConversationInjectionText(messages) {
     const INJECTED_PREFIX = "[[CCB:INJECTED]]\n";
     const framing = _deps.framing;
     const transcript = formatTranscript(messages);
-
-    let projectBlock = "";
-    if (includeProjectInstructions) {
-      const projectSection = buildProjectSectionText(block);
-      if (projectSection) {
-        projectBlock = (framing.projPre || INJECTED_PREFIX) + projectSection + (framing.projPost || "\n\n");
-      }
-    }
-
-    const conversationBlock = (framing.convPre || INJECTED_PREFIX) + transcript + (framing.convPost || "\n\n");
-    return projectBlock + conversationBlock;
+    return (framing.convPre || INJECTED_PREFIX) + transcript + (framing.convPost || "\n\n");
   }
 
   // ============================================================
@@ -882,33 +837,6 @@
     parts.push(messages.length + " הודעות");
     if (project?.title) parts.push(project.title);
     $el("cvMeta").textContent = parts.join(" · ");
-
-    const projectBar = $el("cvProjectBar");
-    const projectCheckbox = $el("cvIncludeProject");
-    if (project) {
-      if (projectBar) projectBar.style.display = "";
-      // If the conversation is assigned to a project, default the checkbox
-      // to ON regardless of how the view was opened (history list, search,
-      // or project view). If the user is continuing a conversation that
-      // belongs to a project, they almost always want the project's
-      // instructions in the injection. They can untick to opt out.
-      if (projectCheckbox) projectCheckbox.checked = true;
-    } else {
-      if (projectBar) projectBar.style.display = "none";
-      if (projectCheckbox) projectCheckbox.checked = false;
-    }
-
-    // If this conversation is already the active one, swap the "המשך שיחה"
-    // button with a non-clickable label. The button stays as the same DOM
-    // node so its click handler remains wired — we just toggle a class and
-    // its text content, and the CSS removes pointer-events.
-    const continueBtn = $el("cvContinueBtn");
-    if (continueBtn) {
-      const isActive = _deps.state.currentConversationId === b.id;
-      continueBtn.classList.toggle("is-active-label", isActive);
-      continueBtn.textContent = isActive ? "השיחה פעילה" : "המשך שיחה";
-      continueBtn.setAttribute("aria-disabled", isActive ? "true" : "false");
-    }
 
     const view = $el("conversationView");
     view?.classList.add("cv-open");
@@ -1765,7 +1693,6 @@
     getConversationProject,
     buildHistoryMessages,
     buildConversationInjectionText,
-    buildProjectSectionText,
     formatTranscript,
     formatAge,
     dateGroup,

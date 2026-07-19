@@ -381,19 +381,8 @@ window.__ccbTpl = (() => {
           <span id="cvSelCount" class="cv-sel-count"></span>
         </div>
 
-        <div class="cv-project-bar" id="cvProjectBar" style="display:none;">
-          <label class="cv-project-toggle">
-            <span class="cb-wrap">
-              <input type="checkbox" id="cvIncludeProject" />
-              <span class="cb-box"><svg class="cb-check" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
-            </span>
-            <span class="cv-project-label">כלול הנחיות פרויקט</span>
-          </label>
-        </div>
-
         <div class="cv-footer">
           <button id="cvLoadBtn" type="button" class="cv-load-btn" disabled>${IC.upload} טען נבחרים</button>
-          <button id="cvContinueBtn" type="button" class="cv-continue-btn">${IC.msg} המשך שיחה</button>
         </div>
       </div>
     </div>

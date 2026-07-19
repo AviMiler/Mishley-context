@@ -119,10 +119,9 @@
   // conversation start alongside GM — gated by project.autoLoad, mirroring
   // GM's own toggle. Missing autoLoad (older/new projects) defaults to ON,
   // matching the toggle's default checked state (history-view.js#renderProjectContext).
-  // Deliberately instructions-only (project.content), NOT
-  // buildProjectSectionText: that also inlines every enabled document,
-  // which for a code project is tens of thousands of tokens. Documents
-  // stay behind the explicit footer "מסמכים" button (#injectDocsBtn).
+  // Deliberately instructions-only (project.content) — never the enabled
+  // documents, which for a code project can be tens of thousands of tokens.
+  // Documents stay behind the explicit footer "מסמכים" button (#injectDocsBtn).
   function _getActiveProjectInstructions() {
     const project = _deps.historyView?.getProjectById?.(_deps.state.currentProjectId);
     if (!project || project.autoLoad === false) return null;
@@ -408,25 +407,15 @@
       state.blocks[state.currentConversationId]
     ) {
       const block = state.blocks[state.currentConversationId];
-      // If this is a "continuation" (user clicked "המשך שיחה"), the saved
-      // block's historical messages are NOT in the live DOM. Prepend the
-      // snapshot taken at binding time so we never overwrite history with
-      // just the post-continuation turn.
-      const base = Array.isArray(state.continuationBase)
-        ? state.continuationBase
-        : [];
-      const fullMessages = base.length > 0 ? [...base, ...messages] : messages;
-
       const prev = Array.isArray(block.messages) ? block.messages : [];
       if (
-        prev.length === fullMessages.length &&
-        prev[prev.length - 1]?.text ===
-          fullMessages[fullMessages.length - 1]?.text
+        prev.length === messages.length &&
+        prev[prev.length - 1]?.text === messages[messages.length - 1]?.text
       ) {
         return false; // no change
       }
-      block.messages = fullMessages;
-      block.messageCount = fullMessages.length;
+      block.messages = messages;
+      block.messageCount = messages.length;
       block.updated = Date.now();
       await _deps.saveBlocks();
       return true;

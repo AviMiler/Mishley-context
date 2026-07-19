@@ -128,26 +128,18 @@ state: {
 
 **Save eligibility:** `persistConversation` skips any capture that has no `role === "user"` message after `[[CCB:INJECTED]]` filtering, and trims any leading AI messages (which are auto-responses to injections like "Context loaded." that captureConversation can't detect). This prevents injection-only chats from creating noise blocks.
 
-**Injection auto-response filtering:** The framing prompts ask the model to reply with a fixed string after each injection ("Context loaded.", "Transcript loaded.", "Project guidelines loaded."). These responses are not part of the real conversation. They are filtered out:
+**Injection auto-response filtering:** The framing prompts ask the model to reply with a fixed string after each injection ("Context loaded.", "Transcript loaded.", "Project guidelines loaded.", "Files loaded."). These responses are not part of the real conversation. They are filtered out:
 - At capture time — `captureConversation` in `chat-features.js` drops any AI message whose trimmed text matches one of the canned responses.
-- At read time — `buildHistoryMessages` in `history-view.js` filters the same set so older saved blocks (created before the capture-time filter) don't show pollution in the conversation view or re-inject it on continue.
-- At continuation binding — `state.continuationBase` is populated via `buildHistoryMessages(b)` (filtered), so the snapshot used by `persistConversation` to prepend historical messages is clean. The next auto-save then overwrites the saved block with the filtered version, cleaning it permanently.
+- At read time — `buildHistoryMessages` in `history-view.js` filters the same set so older saved blocks (created before the capture-time filter) don't show pollution in the conversation view.
 
 One conversation block per page load. The first message in a fresh chat creates a `kind: "conversation"` block with a default title (`שיחה — date time`) and stores its id in `state.currentConversationId`. Every subsequent message triggers an auto-save (debounced 2.5s) that **updates the same block** in place — no new block is created. The binding is cleared in two ways:
 
 - **Page refresh** — content scripts reload, `state.currentConversationId` is null again, next message creates a new block.
 - **SPA navigation** (URL change) — the `ccb:urlchange` handler in `content.js` explicitly clears `state.currentConversationId`.
 
-The user renames a conversation later from the per-row dropdown in the History list. The conversation preview offers two distinct actions:
+The user renames a conversation later from the per-row dropdown in the History list. The conversation preview's only action is **`cvLoadBtn` ("טען נבחרים")** — injects the selected messages into the current chat as context (`injectIntoInput(text, "replace")`). The current chat stays bound to its own conversation; the loaded messages are just reference material. **Does not auto-send** — the user reviews/edits/sends manually, same as `injectProjectDocuments()`.
 
-- **`cvLoadBtn` ("טען נבחרים")** — injects the selected messages into the current chat as context (`injectIntoInput(text, "replace")`). The current chat stays bound to its own conversation; the loaded messages are just reference material.
-- **`cvContinueBtn` ("המשך שיחה")** — actually resumes the saved conversation. The flow is **save-then-reload-then-resume**:
-  1. **Flush current chat** — `window.__ccbChat.flushAutoSave()` cancels any pending throttled save and runs one synchronously. If the captured messages include at least one `role === "user"` message (i.e. a real, non-injection turn), it's persisted to the bound block; otherwise nothing is written.
-  2. **Record intent in `sessionStorage`** — `{ blockId, includeProject }` under key `ccb_pendingContinue`. This survives the reload.
-  3. **`location.assign(CONFIG_PUBLIC.AUTO_OPEN_URLS[0])`** — navigates to the site's base URL (not just reload), so the host SPA routes us to a *fresh* chat. A plain `location.reload()` would keep us on the previously open chat URL (e.g. `/app/chat/abc`), and injecting the resumed transcript there would mix it with that chat's existing turns. The base URL is same-origin, so `sessionStorage` survives the navigation.
-  4. **After reload, `processPendingContinue()` in `content.js#init`** reads the intent, polls until the chat input + send button are mounted, then builds a **single combined payload** — `framing.gmPre + gm.content + framing.gmPost + "\n\n"` (if `gm.autoLoad`) concatenated with the transcript injection text — and injects it with `mode: "replace"` in **one** call. Two sequential `injectIntoInput` calls (`prepend` GM + `append` transcript) were unreliable on Gemini's input; the second could overwrite the first. After injection it **binds `state.currentConversationId = b.id`**, **snapshots the historical messages into `state.continuationBase`**, sets `state.gmAutoInjected = true` to suppress duplicate GM injection, sets **`state.suppressNextUrlReset = true`** (one-shot, with an 8 s failsafe), and finally clicks send. The `suppressNextUrlReset` flag tells the `ccb:urlchange` handler to skip its normal reset on the very next URL change — Gemini routes from `/app` to `/app/chat/<id>` right after the send, and without this guard the binding/base would be wiped before the first auto-save could run.
-  
-  The `continuationBase` snapshot is critical: `persistConversation` prepends it in front of every DOM-captured message list, otherwise the live DOM after continuation only contains the new turn (the injected transcript is filtered out by the `[[CCB:INJECTED]]` marker) and the saved block's history would be overwritten on the first auto-save. Both `currentConversationId` and `continuationBase` clear on refresh/SPA URL change.
+**Removed features (2026-07-19):** "המשך שיחה" (actually resuming a saved conversation in a fresh chat — `cvContinueBtn`, `pendingContinue`, `executeContinue`/`proceedWithContinue`, `state.continuationBase`, `state.suppressNextUrlReset`, `content.js#waitForInput`) and the "כלול הנחיות פרויקט" checkbox (`cvIncludeProject`/`cvProjectBar`, `history-view.js#buildProjectSectionText`, `buildConversationInjectionText`'s `includeProjectInstructions` option) were removed entirely, not just hidden. `buildConversationInjectionText` now takes just `(messages)`.
 
 The manual save button still exists in the History tab; it scrolls the chat to the top first (to capture lazy-loaded older messages) before persisting through the same path. `summarizer.js` is a separate feature: when the AI emits `[[CCB:SAVE]]` it writes a standalone summary block (`tags: ["summary"]`), independent of the auto-saved conversation.
 
@@ -204,7 +196,7 @@ Note: the prompts editor UI exposes the 5 FRAMING sections only; SUMMARY_PROMPT 
 
 (Legacy flat keys `FRAMING`, `FRAMING_MANUAL`, `FRAMING_GM` are also patched for backward compatibility but no code reads them directly anymore — the `framing` getters in `content.js` fall back to these only if PRE is undefined.)
 
-`FRAMING_DOCS_*` is consumed by exactly one call site: `history-view.js#injectProjectDocuments()` (the footer "מסמכים" button — the dedicated top-level file-injection action). Two other places build a literal `<documents>...</documents>` block but are deliberately **not** wired to this pair, since they're nested inside a different outer wrapper already: `chat-features.js#injectSelected()` (docs of a manually-selected project block, nested inside FRAMING_MANUAL/FRAMING_GM) and `history-view.js#buildProjectSectionText()` (docs of the conversation-continue flow's project section, nested inside FRAMING_PROJ). The canned reply `"Files loaded."` is in `INJECTION_AUTORESPONSES` (both `chat-features.js` and `history-view.js`) alongside `"Context loaded."`/`"Transcript loaded."`/`"Project guidelines loaded."`.
+`FRAMING_DOCS_*` is consumed by exactly one call site: `history-view.js#injectProjectDocuments()` (the footer "מסמכים" button — the dedicated top-level file-injection action). One other place builds a literal `<documents>...</documents>` block but is deliberately **not** wired to this pair, since it's nested inside a different outer wrapper already: `chat-features.js#injectSelected()` (docs of a manually-selected project block, nested inside FRAMING_MANUAL/FRAMING_GM). The canned reply `"Files loaded."` is in `INJECTION_AUTORESPONSES` (both `chat-features.js` and `history-view.js`) alongside `"Context loaded."`/`"Transcript loaded."`/`"Project guidelines loaded."`.
 
 ## config.js — site switching
 
@@ -338,8 +330,7 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | ------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `formatTranscript(messages)`                            | `User: … / Assistant: …` text                                                |
 | `buildHistoryMessages(b)`                               | Normalizes legacy `content` field into `[{role,text}]`                       |
-| `buildProjectSectionText(block)`                        | `## project title\n content` block                                           |
-| `buildConversationInjectionText(messages, block, opts)` | Wraps transcript with FRAMING_CONV_PRE/POST, optionally project block first |
+| `buildConversationInjectionText(messages)`              | Wraps transcript with FRAMING_CONV_PRE/POST                                  |
 
 ### Render
 
@@ -454,7 +445,7 @@ Builds a best-effort, deterministic import/reference graph for a scanned code pr
 | `getGM()`               | Returns the GM block from `state.blocks` (with `title: "זיכרון כללי"` default)            |
 | `renderGeneralMemory()` | Renders the GM card in the context tab (select-for-inject checkbox + autoLoad toggle). No edit button — the whole card's `click` opens `openEdit(GM_ID, ...)`; the checkbox/toggle `stopPropagation()` so using them doesn't also open the form |
 | `tryAutoInject()`       | Polls for input readiness, injects GM **and the active project's instructions** at *conversation start only*, clicks send |
-| `_getActiveProjectInstructions()` | `## title\ncontent` for the active project (`state.currentProjectId`), or `null`. **Instructions only** — deliberately not `buildProjectSectionText`, which also inlines every enabled document (tens of thousands of tokens for a code project); documents stay behind the explicit footer `#injectDocsBtn` |
+| `_getActiveProjectInstructions()` | `## title\ncontent` for the active project (`state.currentProjectId`), or `null`. **Instructions only**, never the project's enabled documents (tens of thousands of tokens for a code project) — those stay behind the explicit footer `#injectDocsBtn` |
 | `_autoInjectPayload()`  | Builds `{ text, hasGm, hasProject }` — GM block (if `autoLoad` + content) and/or the project-instructions block, wrapped in `FRAMING_GM_*` / `FRAMING_PROJ_*`, joined into ONE injection |
 | `_doInject()`           | Guarded by `state.gmAutoInjected`; injects `_autoInjectPayload().text` and clicks send    |
 

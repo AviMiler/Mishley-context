@@ -1258,26 +1258,6 @@ window.__ccbCSS = (() => {
       font-variant-numeric: tabular-nums;
     }
 
-    /* Project toggle bar */
-    .cv-project-bar {
-      padding: 8px 18px;
-      border-top: 1px solid var(--border-subtle);
-      background: var(--bg-app);
-      flex-shrink: 0;
-    }
-    .cv-project-toggle {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      cursor: pointer;
-      user-select: none;
-      font-size: 12px;
-      color: var(--text-body);
-    }
-    .cv-project-label {
-      font-weight: 500;
-    }
-
     /* Footer */
     .cv-footer {
       padding: 10px 18px 14px;
@@ -1288,7 +1268,7 @@ window.__ccbCSS = (() => {
       flex-direction: row;
       gap: 8px;
     }
-    .cv-load-btn, .cv-continue-btn {
+    .cv-load-btn {
       width: 100%;
       height: 40px;
       border: none;
@@ -1302,8 +1282,6 @@ window.__ccbCSS = (() => {
       justify-content: center;
       gap: 6px;
       transition: background var(--t-fast);
-    }
-    .cv-load-btn {
       background: var(--text-strong);
       color: var(--bg-app);
     }
@@ -1313,25 +1291,6 @@ window.__ccbCSS = (() => {
       color: var(--text-ghost);
       cursor: not-allowed;
     }
-    .cv-continue-btn {
-      background: #2c7a7b;
-      color: #fff;
-    }
-    .cv-continue-btn:hover { background: #1f5557; }
-    /* When the viewed conversation is already the active one, the same DOM
-       button is repurposed as a non-clickable status label. */
-    .cv-continue-btn.is-active-label {
-      background: rgba(44, 122, 123, 0.10);
-      color: #1f5557;
-      cursor: default;
-      pointer-events: none;
-      font-weight: 600;
-      box-shadow: inset 0 0 0 1px rgba(44, 122, 123, 0.35);
-    }
-    .cv-continue-btn.is-active-label:hover {
-      background: rgba(44, 122, 123, 0.10);
-    }
-    .cv-continue-btn.is-active-label > svg { display: none; }
     .dialog-confirm:hover { background: #2a2622; }
     .dialog-confirm.danger { background: #c53030; }
     .dialog-confirm.danger:hover { background: #9b2c2c; }
