@@ -272,7 +272,7 @@ window.__ccbCSS = (() => {
       background: var(--bg-app);
       flex-shrink: 0;
     }
-    .global-project-bar .project-select { flex: 1; min-width: 0; }
+    .global-project-bar .project-select-wrap { flex: 1; min-width: 0; position: relative; }
 
     /* ── History: project filter row (shown when a project is active) ── */
     .history-project-filter-row {
@@ -405,6 +405,9 @@ window.__ccbCSS = (() => {
       display: none;
     }
     .project-select {
+      display: flex;
+      align-items: center;
+      gap: 8px;
       width: 100%;
       box-sizing: border-box;
       padding: 8px 10px;
@@ -416,10 +419,60 @@ window.__ccbCSS = (() => {
       font-size: 13px;
       font-weight: 600;
       cursor: pointer;
+      text-align: right;
       transition: background var(--t-fast), border-color var(--t-fast);
     }
     .project-select:hover { background: var(--bg-tag); }
     .project-select:focus { outline: none; border-color: var(--text-faint); }
+    .project-select-icon {
+      display: flex; flex-shrink: 0; color: var(--text-faint);
+      width: 13px; height: 13px;
+    }
+    .project-select-label {
+      flex: 1; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .project-select-chevron {
+      display: flex; flex-shrink: 0; color: var(--text-faint);
+      width: 12px; height: 12px;
+      transition: transform var(--t-fast);
+    }
+    .project-select-chevron svg { width: 12px; height: 12px; transform: rotate(-90deg); }
+    #projectSelectBtn[aria-expanded="true"] .project-select-chevron svg { transform: rotate(90deg); }
+    .project-select-dropdown {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      right: 0;
+      left: 0;
+      z-index: 5;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--r-card);
+      box-shadow: 0 4px 16px rgba(15,23,42,.08), 0 0 0 1px rgba(15,23,42,.02);
+      max-height: 280px;
+      overflow-y: auto;
+      padding: 6px;
+    }
+    .project-select-dropdown.open { display: block; }
+    .project-select-item {
+      display: flex; align-items: center; gap: 8px;
+      width: 100%; box-sizing: border-box;
+      border: none; background: none;
+      padding: 8px 10px; border-radius: var(--r-input);
+      font-family: var(--font-he); font-size: 13px; color: var(--text-body);
+      text-align: right; cursor: pointer;
+    }
+    .project-select-item:hover { background: var(--bg-tag); }
+    .project-select-item.active { background: var(--bg-tag); color: var(--text-strong); font-weight: 600; }
+    .project-select-item .project-select-item-icon {
+      display: flex; flex-shrink: 0; color: var(--text-faint);
+      width: 13px; height: 13px;
+    }
+    .project-select-item .project-select-item-title {
+      flex: 1; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
     .doc-refresh-btn {
       width: 22px; height: 22px; flex-shrink: 0; border: none; background: none;
       color: var(--text-faint); cursor: pointer; border-radius: 5px;

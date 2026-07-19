@@ -5,7 +5,8 @@
 // Public API (after init):
 //   render()                          — full re-render of project selector + history list + project context
 //   renderHistoryList()               — filtered by the active project unless state.historyShowAll
-//   renderProjectSelect()
+//   renderProjectSelect()              — custom dropdown trigger label/icon (not a native <select>)
+//   toggleProjectSelectDropdown() / closeProjectSelectDropdown()
 //   renderProjectContext()            — instructions card + documents section for the active project
 //   loadActiveProjectId() / setActiveProjectId(id) — persisted (chrome.storage) global project selection
 //   openConversationView(b, opts) / closeConversationView()
@@ -94,8 +95,8 @@
   }
 
   // Unified Context-tab "פרויקטים" list — regular + code projects together,
-  // most-recently-updated first (a "[קוד]" text tag distinguishes code
-  // projects in the selector; see renderProjectSelect).
+  // most-recently-updated first (a folder icon distinguishes code projects
+  // in the selector dropdown; see renderProjectSelectItems).
   function getAllProjects() {
     return Object.values(_deps.state.blocks)
       .filter((b) => b.kind === "project")
@@ -420,35 +421,131 @@
   }
 
   // ============================================================
-  // Project selector
+  // Project selector — custom dropdown (regular + code projects together), so
+  // the sidebar shows one "פרויקטים" concept while leaving vertical room for
+  // the open project's inline detail (incl. the code-project file tree)
+  // below it. Not a native <select>: that can't render an SVG folder icon
+  // for code projects (no markup allowed inside <option>, and the folder
+  // emoji has no monochrome fallback glyph), and this way the dropdown
+  // matches the panel's own visual language instead of the OS's.
   // ============================================================
-  // Unified <select> of regular + code projects (code projects prefixed with a
-  // folder glyph, since native <option> can't hold an icon), so the sidebar
-  // shows one "פרויקטים" concept while leaving vertical room for the open
-  // project's inline detail (incl. the code-project file tree) below it.
+  let _projSelectOutsideHandler = null;
+  let _projSelectKeyHandler = null;
+
   function renderProjectSelect() {
-    const sel = $el("projectSelect");
-    if (!sel) return;
-    sel.innerHTML = "";
+    const btn = $el("projectSelectBtn");
+    if (!btn) return;
 
     const projects = getAllProjects();
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = projects.length ? "— בחר פרויקט —" : "אין פרויקטים עדיין";
-    sel.appendChild(placeholder);
+    const current = getProjectById(_deps.state.currentProjectId);
+    const label = $el("projectSelectLabel");
+    const icon = $el("projectSelectIcon");
+
+    if (label) {
+      label.textContent = current
+        ? current.title
+        : projects.length ? "— בחר פרויקט —" : "אין פרויקטים עדיין";
+    }
+    if (icon) icon.style.display = current?.isCodeProject ? "flex" : "none";
+
+    // Keep an already-open dropdown's contents (and active row) in sync —
+    // e.g. after renaming/deleting a project elsewhere while it's open.
+    if ($el("projectSelectDropdown")?.classList.contains("open")) {
+      renderProjectSelectItems(projects, current);
+    }
+  }
+
+  function renderProjectSelectItems(projects, current) {
+    const dd = $el("projectSelectDropdown");
+    if (!dd) return;
+    dd.innerHTML = "";
+
+    const IC = window.__ccbTpl.IC;
+
+    const clearItem = document.createElement("button");
+    clearItem.type = "button";
+    clearItem.className = "project-select-item" + (!current ? " active" : "");
+    clearItem.setAttribute("role", "option");
+    clearItem.setAttribute("aria-selected", String(!current));
+    const clearTitle = document.createElement("span");
+    clearTitle.className = "project-select-item-title";
+    clearTitle.textContent = projects.length ? "ללא פרויקט" : "אין פרויקטים עדיין";
+    clearItem.appendChild(clearTitle);
+    clearItem.addEventListener("click", () => selectProjectFromDropdown(null));
+    dd.appendChild(clearItem);
 
     for (const project of projects) {
-      const opt = document.createElement("option");
-      opt.value = project.id;
-      // Native <option> can't render an SVG icon, and the folder emoji has no
-      // monochrome fallback glyph (U+FE0E only affects legacy dual-presentation
-      // characters, not this one) — a plain text tag is the only way to mark
-      // code projects here that's actually flat/monochrome, not just requested to be.
-      opt.textContent = project.isCodeProject ? `[קוד] ${project.title}` : project.title;
-      sel.appendChild(opt);
+      const item = document.createElement("button");
+      item.type = "button";
+      const isActive = current?.id === project.id;
+      item.className = "project-select-item" + (isActive ? " active" : "");
+      item.setAttribute("role", "option");
+      item.setAttribute("aria-selected", String(isActive));
+      if (project.isCodeProject) {
+        const itemIcon = document.createElement("span");
+        itemIcon.className = "project-select-item-icon";
+        itemIcon.innerHTML = IC.folder;
+        item.appendChild(itemIcon);
+      }
+      const itemTitle = document.createElement("span");
+      itemTitle.className = "project-select-item-title";
+      itemTitle.textContent = project.title;
+      item.appendChild(itemTitle);
+      item.addEventListener("click", () => selectProjectFromDropdown(project.id));
+      dd.appendChild(item);
     }
+  }
 
-    sel.value = _deps.state.currentProjectId || "";
+  function openProjectSelectDropdown() {
+    const dd = $el("projectSelectDropdown");
+    const btn = $el("projectSelectBtn");
+    if (!dd || !btn) return;
+    renderProjectSelectItems(getAllProjects(), getProjectById(_deps.state.currentProjectId));
+    dd.classList.add("open");
+    dd.setAttribute("aria-hidden", "false");
+    btn.setAttribute("aria-expanded", "true");
+
+    _projSelectOutsideHandler = (e) => {
+      if (!dd.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
+        closeProjectSelectDropdown();
+      }
+    };
+    document.addEventListener("click", _projSelectOutsideHandler, { capture: true });
+    _projSelectKeyHandler = (e) => {
+      if (e.key === "Escape") closeProjectSelectDropdown();
+    };
+    document.addEventListener("keydown", _projSelectKeyHandler);
+  }
+
+  function closeProjectSelectDropdown() {
+    const dd = $el("projectSelectDropdown");
+    const btn = $el("projectSelectBtn");
+    if (dd) {
+      dd.classList.remove("open");
+      dd.setAttribute("aria-hidden", "true");
+    }
+    if (btn) btn.setAttribute("aria-expanded", "false");
+    if (_projSelectOutsideHandler) {
+      document.removeEventListener("click", _projSelectOutsideHandler, { capture: true });
+      _projSelectOutsideHandler = null;
+    }
+    if (_projSelectKeyHandler) {
+      document.removeEventListener("keydown", _projSelectKeyHandler);
+      _projSelectKeyHandler = null;
+    }
+  }
+
+  function toggleProjectSelectDropdown() {
+    const dd = $el("projectSelectDropdown");
+    if (!dd) return;
+    if (dd.classList.contains("open")) closeProjectSelectDropdown();
+    else openProjectSelectDropdown();
+  }
+
+  async function selectProjectFromDropdown(id) {
+    closeProjectSelectDropdown();
+    await setActiveProjectId(id);
+    _deps.render();
   }
 
   // Opens the OS folder picker, bookmarks the handle, and runs an initial scan.
@@ -1647,6 +1744,8 @@
     render,
     renderHistoryList,
     renderProjectSelect,
+    toggleProjectSelectDropdown,
+    closeProjectSelectDropdown,
     renderProjectContext,
     loadActiveProjectId,
     setActiveProjectId,

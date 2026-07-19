@@ -447,9 +447,8 @@
     });
     $el("addProjectBtn").addEventListener("click", () => void historyView.addProject());
     $el("addCodeProjectBtn").addEventListener("click", () => void historyView.createCodeProjectBookmark());
-    $el("projectSelect").addEventListener("change", async (e) => {
-      await historyView.setActiveProjectId(e.target.value || null);
-      render();
+    $el("projectSelectBtn").addEventListener("click", () => {
+      historyView.toggleProjectSelectDropdown();
     });
     $el("historyShowAll").addEventListener("change", (e) => {
       state.historyShowAll = e.target.checked;
@@ -629,6 +628,7 @@
     shadow.querySelectorAll(".tab").forEach((tab) => {
       tab.addEventListener("click", async () => {
         historyView.closeConversationView();
+        historyView.closeProjectSelectDropdown();
         resetTabDefaults(tab.dataset.tab);
         if ($el("panel").classList.contains("editing")) {
           if (hasUnsavedChanges()) {
@@ -682,6 +682,7 @@
       }
     } else {
       window.__ccbHistoryView.closeConversationView();
+      window.__ccbHistoryView.closeProjectSelectDropdown();
       $el("panel").classList.remove("open");
       $el("fab").classList.remove("hidden");
       pushPage(false);

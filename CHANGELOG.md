@@ -2,6 +2,12 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-19 — Project selector rebuilt as a custom dropdown
+- Changed: **Replaced the native `<select id="projectSelect">` with a custom dropdown** (`#projectSelectBtn` trigger + `#projectSelectDropdown` panel), matching the panel's own visual language instead of the OS's select styling. Code projects now show a real SVG folder icon in both the trigger and the dropdown rows — the `[קוד]` text-tag workaround from the previous change (native `<option>` can't hold markup) is gone.
+- Added to `history-view.js`: `renderProjectSelectItems()` (builds the dropdown rows — `textContent` for all user data, never `innerHTML`), `openProjectSelectDropdown()`/`closeProjectSelectDropdown()`/`toggleProjectSelectDropdown()` (click-outside via a capturing `document` listener + Escape-to-close, both cleaned up on close), `selectProjectFromDropdown()` (closes, sets the active project, re-renders — same effective behavior as the old `<select>`'s `change` handler).
+- Changed: `content.js#wireEvents` — the old `#projectSelect` `change` listener became a `click` listener on `#projectSelectBtn` calling `toggleProjectSelectDropdown()`. Also added `closeProjectSelectDropdown()` calls on tab switch and panel close, so the dropdown can't stay visually stuck open across those transitions.
+- Added CSS: `.project-select-icon`/`-label`/`-chevron` (trigger button), `.project-select-dropdown` + `.project-select-item` (+ `-icon`/`-title` sub-elements, `.active` state) in `ui-styles.js`.
+
 ### 2026-07-19 — Project selector: text tag instead of folder emoji
 - Changed: The project selector's code-project indicator changed from a `📁` emoji prefix to a plain `[קוד]` text tag. Considered forcing a monochrome emoji via the `U+FE0E` text-presentation variation selector first, but that mechanism only affects a fixed set of legacy dual-presentation characters (☺, ✈, ⚡, etc.) — `📁` (U+1F4C1) isn't one of them and has no monochrome fallback glyph in any common font, so it would have kept rendering in full color regardless. A native `<option>` can't hold an SVG icon either (no HTML/markup allowed inside `<option>`), so plain text is the only actually-flat option here.
 

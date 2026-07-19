@@ -43,7 +43,14 @@ window.__ccbTpl = (() => {
       </div>
 
       <div class="global-project-bar" id="globalProjectBar">
-        <select id="projectSelect" class="project-select" aria-label="בחר פרויקט"></select>
+        <div class="project-select-wrap">
+          <button id="projectSelectBtn" type="button" class="project-select" aria-haspopup="listbox" aria-expanded="false">
+            <span id="projectSelectIcon" class="project-select-icon" style="display:none">${IC.folder}</span>
+            <span id="projectSelectLabel" class="project-select-label"></span>
+            <span class="project-select-chevron">${IC.chevronRight}</span>
+          </button>
+          <div id="projectSelectDropdown" class="project-select-dropdown" role="listbox" aria-hidden="true"></div>
+        </div>
         <button id="projectEditBtn" type="button" aria-label="ניהול פרויקט" title="ניהול פרויקט" style="display:none">${IC.menuDots}</button>
         <button id="addProjectBtn" type="button" aria-label="פרויקט חדש" title="פרויקט חדש">${IC.plus}</button>
         <button id="addCodeProjectBtn" type="button" aria-label="פרויקט קוד חדש" title="פרויקט קוד חדש">${IC.folder}</button>
