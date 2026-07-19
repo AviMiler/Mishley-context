@@ -681,7 +681,11 @@
       render();
       updateInjectBtn();
       window.__ccbCtxMeter.update();
-      $el("searchHistory").focus();
+      // Only the history pane has a search field to focus — guard against
+      // focusing it while hidden behind the (now-default) context tab.
+      if (shadow.querySelector(".tab.active")?.dataset.tab === "history") {
+        $el("searchHistory").focus();
+      }
     } else {
       window.__ccbHistoryView.closeConversationView();
       $el("panel").classList.remove("open");

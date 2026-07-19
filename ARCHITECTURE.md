@@ -253,7 +253,7 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | `initModules()`                 | Builds deps and calls each module's `init`                                   |
 | `moveTabIndicator(tab)`         | Animates the sliding underline to the active tab                             |
 | `wireEvents()`                  | Binds all UI event listeners (central switchboard)                           |
-| `setPanelOpen(open)`            | Opens/closes sidebar, loads blocks, renders                                  |
+| `setPanelOpen(open)`            | Opens/closes sidebar, loads blocks, renders. Focuses `#searchHistory` only when the History tab is the active one — the panel now opens to the Context tab by default (`.tab.active`/`.tab-pane.active` moved to `#pane-context` in `ui-template.js`), so an unconditional focus would target a hidden field |
 | `togglePanel()`                 | Flips panel open/closed                                                      |
 | `resetTabDefaults(tabName)`     | Resets per-tab UI defaults when user clicks a tab                            |
 | `render()`                      | Full re-render — calls `chat.renderGeneralMemory`, `renderUnifiedBlocksList`, `syncInjectDocsBtn`, `historyView.render`, ctx-meter update |

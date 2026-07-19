@@ -2,6 +2,10 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-19 — Panel opens to the Context tab by default
+- Changed: The sidebar now opens to the **Context** tab instead of History (`ui-template.js` — `.tab.active`/`.tab-pane.active` moved from `#pane-history`/its tab button to `#pane-context`/its tab button).
+- Fixed: `content.js#setPanelOpen` was calling `$el("searchHistory").focus()` unconditionally on every panel open, assuming History was the default tab. Now guarded to only focus it when the History tab is actually active, so it doesn't silently focus a hidden field in the History pane while Context is showing.
+
 ### 2026-07-19 — Explicit auto-load toggle for project instructions
 - Changed: **Project instructions auto-load is now an explicit per-project toggle** (`project.autoLoad`), not implied by simply having an active project. New `#projectInstructionsAutoToggle` in the instructions card header (`ui-template.js`, same `.toggle` markup as GM's), wired in `content.js#wireEvents` — flips `project.autoLoad` and saves. **Missing `autoLoad` defaults to ON**, so every existing project keeps its current auto-load behavior with no migration step; new projects also default ON.
 - Changed: `#projectInstructionsAutoBadge` ("נטען אוטומטית") now reflects the **toggle state**, not whether instructions have content — it shows even when the instructions are empty, signaling "this will auto-load once you write something" (`history-view.js#renderProjectContext`).

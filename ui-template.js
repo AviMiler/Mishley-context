@@ -36,8 +36,8 @@ window.__ccbTpl = (() => {
           <button id="settingsBtn" title="אפשרויות מתקדמות" aria-label="אפשרויות מתקדמות">${IC.settings}</button>
         </div>
         <div class="tabs" role="tablist">
-          <div class="tab active" data-tab="history" role="tab" aria-selected="true">${IC.clock} שיחות אחרונות</div>
-          <div class="tab" data-tab="context" role="tab" aria-selected="false">${IC.context} Context</div>
+          <div class="tab" data-tab="history" role="tab" aria-selected="false">${IC.clock} שיחות אחרונות</div>
+          <div class="tab active" data-tab="context" role="tab" aria-selected="true">${IC.context} Context</div>
           <div class="tab-indicator" id="tabIndicator"></div>
         </div>
       </div>
@@ -49,7 +49,7 @@ window.__ccbTpl = (() => {
         <button id="addCodeProjectBtn" type="button" aria-label="פרויקט קוד חדש" title="פרויקט קוד חדש">${IC.folder}</button>
       </div>
 
-      <div class="tab-pane" id="pane-context">
+      <div class="tab-pane active" id="pane-context">
         <div class="tab-scroll">
         <div class="ctx-meter" id="ccb-ctx-meter">
           <div class="ctx-meter-header" id="ccb-ctx-expand" role="button" aria-expanded="false" tabindex="0">
@@ -121,7 +121,7 @@ window.__ccbTpl = (() => {
         </footer>
       </div>
 
-      <div class="tab-pane active" id="pane-history">
+      <div class="tab-pane" id="pane-history">
         <div class="tab-scroll">
         <div class="context-toolbar" id="historyToolbar" style="flex-direction:column; gap:8px;">
           <div class="hi-search-toggle">
