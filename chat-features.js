@@ -121,7 +121,7 @@
   // matching the toggle's default checked state (history-view.js#renderProjectContext).
   // Deliberately instructions-only (project.content) — never the enabled
   // documents, which for a code project can be tens of thousands of tokens.
-  // Documents stay behind the explicit footer "מסמכים" button (#injectDocsBtn).
+  // Documents stay behind the explicit footer "קבצים" button (#injectDocsBtn).
   function _getActiveProjectInstructions() {
     const project = _deps.historyView?.getProjectById?.(_deps.state.currentProjectId);
     if (!project || project.autoLoad === false) return null;
@@ -253,7 +253,7 @@
         const title = b.title || (b.id === GM_ID ? "זיכרון כללי" : "");
         // A kind:"project" block reaches here when its instructions card is
         // ticked — instructions (b.content) ONLY, never its enabled documents.
-        // Documents keep their own explicit footer button ("טען מסמכים"),
+        // Documents keep their own explicit footer button ("טען קבצים"),
         // since a code project's files run to tens of thousands of tokens.
         return "## " + title + "\n" + (b.content || "");
       })

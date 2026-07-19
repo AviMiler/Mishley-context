@@ -756,10 +756,8 @@ window.__ccbCSS = (() => {
     }
 
     /* Ensure project-related names respect RTL and truncate instead of expanding */
-    .project-accordion-toggle, .project-picker-item {
-      direction: rtl;
-    }
     .project-accordion-toggle {
+      direction: rtl;
       width: 100%;
       display: flex;
       align-items: center;
@@ -791,31 +789,19 @@ window.__ccbCSS = (() => {
       letter-spacing: 0.04em;
       padding: 0 2px;
     }
+    /* Rows reuse .project-select-item (the global project dropdown's own
+       styling — flex row, hover/active highlight, truncating title span) —
+       see ui-modals.js#showProjectPicker. */
     .project-picker {
       display: flex;
       flex-direction: column;
-      gap: 6px;
       margin-top: 8px;
-      max-height: 240px;
+      padding: 6px;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--r-card);
+      background: var(--bg-app);
+      max-height: 280px;
       overflow-y: auto;
-    }
-    .project-picker-item {
-      width: 100%;
-      text-align: right;
-      border: 1px solid var(--border-input);
-      background: var(--bg-card);
-      border-radius: 10px;
-      padding: 8px 10px;
-      font-family: var(--font-he);
-      cursor: pointer;
-      color: var(--text-body);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .project-picker-item:hover,
-    .project-picker-item.active {
-      background: var(--bg-tag);
     }
 
     /* ── Footer ── */

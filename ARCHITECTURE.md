@@ -196,7 +196,7 @@ Note: the prompts editor UI exposes the 5 FRAMING sections only; SUMMARY_PROMPT 
 
 (Legacy flat keys `FRAMING`, `FRAMING_MANUAL`, `FRAMING_GM` are also patched for backward compatibility but no code reads them directly anymore — the `framing` getters in `content.js` fall back to these only if PRE is undefined.)
 
-`FRAMING_DOCS_*` is consumed by exactly one call site: `history-view.js#injectProjectDocuments()` (the footer "מסמכים" button — the dedicated top-level file-injection action). One other place builds a literal `<documents>...</documents>` block but is deliberately **not** wired to this pair, since it's nested inside a different outer wrapper already: `chat-features.js#injectSelected()` (docs of a manually-selected project block, nested inside FRAMING_MANUAL/FRAMING_GM). The canned reply `"Files loaded."` is in `INJECTION_AUTORESPONSES` (both `chat-features.js` and `history-view.js`) alongside `"Context loaded."`/`"Transcript loaded."`/`"Project guidelines loaded."`.
+`FRAMING_DOCS_*` is consumed by exactly one call site: `history-view.js#injectProjectDocuments()` (the footer "קבצים" button — the dedicated top-level file-injection action). One other place builds a literal `<documents>...</documents>` block but is deliberately **not** wired to this pair, since it's nested inside a different outer wrapper already: `chat-features.js#injectSelected()` (docs of a manually-selected project block, nested inside FRAMING_MANUAL/FRAMING_GM). The canned reply `"Files loaded."` is in `INJECTION_AUTORESPONSES` (both `chat-features.js` and `history-view.js`) alongside `"Context loaded."`/`"Transcript loaded."`/`"Project guidelines loaded."`.
 
 ## config.js — site switching
 
@@ -298,7 +298,7 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | `showConfirm({title,msg,confirmLabel,danger})` | In-shadow confirm dialog → `Promise<bool>`                             |
 | `showChoice({title,msg,primaryLabel,secondaryLabel})` | Two-button modal → `Promise<"primary"\|"secondary"\|undefined>` |
 | `showPrompt({title,defaultValue})`             | Text-input dialog → `Promise<string\|null>`                            |
-| `showProjectPicker({title,currentId,allowClear})` | Project assignment picker (uses `_deps.getProjects()`)              |
+| `showProjectPicker({title,currentId,allowClear})` | Project assignment picker (uses `_deps.getProjects()`, wired in `content.js` to `historyView.getAllProjects()` — regular + code — so code projects are selectable here too). Rows reuse `.project-select-item` (icon + title + hover/active highlight), the same styling as the global project-selector dropdown, inside a bordered `.project-picker` scroll container (`max-height:280px; overflow-y:auto`) so a long project list scrolls instead of growing the dialog indefinitely |
 | `openSettings()` / `closeSettings()`           | Show/hide and position the advanced options popover                    |
 | `openPromptsEditor()` / `closePromptsEditor()` | Show/hide the prompts editor overlay                                   |
 | `savePromptsEditor()`                          | Persists edits via `__ccbPromptsAPI.save`                              |
@@ -391,7 +391,7 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | `createCodeProjectBookmark()`                       | Opens `showDirectoryPicker()`, stores the handle via `__ccbFsHandles`, creates the project block, runs the first `scanCodeProject` + `buildGraph` + `syncCodeProjectDocuments` |
 | `rescanCodeProject(projectId)`                      | Re-verifies (or re-requests) folder permission, then rescans + rebuilds `depGraph` + re-syncs documents |
 | `loadCodeProjectAll(projectId)`                     | Ensures a scan exists, enables every document, injects them all                                 |
-| `enableFilesForProject(projectId, relativePaths)`   | Bulk-enables a set of code docs by path in one `saveBlocks()` call (not one call per file — see perf note in source) |
+| `enableFilesForProject(projectId, relativePaths, enabled = true)` | Bulk-sets a set of code docs' enabled state by path in one `saveBlocks()` call (not one call per file — see perf note in source). `enabled` defaults to `true` for the dep-graph call sites (which only ever add files); `code-tree.js`'s per-folder checkbox passes it explicitly both ways |
 | `setAllCodeDocsEnabled(projectId, enabled)`         | Bulk select-all / clear-all for code docs                                                       |
 | `openCodeProjectDropdown(project, menuBtn)`         | Load all / pick files / refresh / remove dropdown                                               |
 
@@ -432,6 +432,8 @@ Builds a best-effort, deterministic import/reference graph for a scanned code pr
 
 `renderInline(project, mount)` renders an interactive checkbox tree (folders + files) over a code project's scanned documents **inline** into the open project's documents section (`#projectDocumentsList`, mounted by `history-view.js#renderProjectViewDocuments` when `project.isCodeProject`) — not a separate modal. It builds its own shell (path search + "בחר הכל"/"נקה הכל" + token count) plus the tree body. The search input carries `.code-tree-search-input` (shares the `#search`/`#searchHistory` rule set in `ui-styles.js`) rather than being an unstyled bare `<input type="search">` — it previously fell through both selector lists and rendered with default browser search-input chrome. Each file row has a "deps" button opening a small menu (`תלויות`/`תלויים`/`הקשר מלא`) that calls into `dep-graph.js` via `history-view.js#enableFilesForProject` to bulk-enable the resulting closure. Reuses the shared `#hiDropdown` host element for that menu (via `deps.getShadow()`) but manages its own outside-click cleanup. Per-view state (`_query`, `_collapsedPaths`) survives same-project re-renders and resets when switching projects. Only `type: "code"` docs appear in the tree; the `type: "structure"` doc is injected but not shown (parity with the former modal).
 
+Every folder row also carries its own checkbox (`collectDocs(node)` flattens the folder's descendant file docs; the checkbox is `checked` when all are enabled, `indeterminate` when some are, unchecked when none are) — ticking it bulk-enables or bulk-disables the whole subtree in one `enableFilesForProject(projectId, relativePaths, enabled)` call (same bulk-save principle as "load with dependencies" and "בחר הכל"/"נקה הכל" — one `saveBlocks()`, not one per file). When a search filter (`_query`) is active, the folder checkbox only covers the *visible* (filtered) descendants, since the tree itself is built from the filtered doc list. The checkbox calls `e.stopPropagation()` on its own `click` so it doesn't also trigger the row's collapse-toggle handler.
+
 ## fs-handles.js — directory handle storage
 
 `chrome.storage.local` is JSON-only and can't hold a `FileSystemDirectoryHandle`. IndexedDB supports structured clone, so bookmarked code-project folder handles are stored there instead (`ccbFsHandles` DB, `handles` store, keyed by the project's `id`). `verifyPermission(dirHandle, mode)` re-checks (and if needed re-requests) read/readwrite permission — must be called from a user-gesture handler since `requestPermission()` requires one.
@@ -462,7 +464,7 @@ Both blocks are prefixed with `[[CCB:INJECTED]]` via their FRAMING, so `captureC
 
 | Function              | Description                                                                                              |
 | --------------------- | -------------------------------------------------------------------------------------------------------- |
-| `injectSelected()`    | Builds the prompt and injects: GM-only uses FRAMING_GM, otherwise FRAMING_MANUAL (with GM first if mixed). A `kind:"project"` block reaches this when its instructions card is ticked — only `content` (instructions) is included, never its documents; those stay behind the explicit footer "טען מסמכים" button, same rule as everywhere else |
+| `injectSelected()`    | Builds the prompt and injects: GM-only uses FRAMING_GM, otherwise FRAMING_MANUAL (with GM first if mixed). A `kind:"project"` block reaches this when its instructions card is ticked — only `content` (instructions) is included, never its documents; those stay behind the explicit footer "טען קבצים" button, same rule as everywhere else |
 
 ### Capture + save chat
 

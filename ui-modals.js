@@ -142,15 +142,23 @@
       cancel.textContent = "ביטול";
       overlay.classList.add("show");
 
+      // Reuses the same flat-row/hover/active styling and folder icon as the
+      // global project selector's own dropdown (renderProjectSelectItems in
+      // history-view.js) — one visual language for "pick a project" across
+      // the app, instead of a separate bordered-button look.
       const picker = document.createElement("div");
       picker.className = "project-picker";
+      const IC = window.__ccbTpl?.IC;
 
       if (allowClear) {
         const clearBtn = document.createElement("button");
         clearBtn.type = "button";
         clearBtn.className =
-          "project-picker-item" + (currentId === null ? " active" : "");
-        clearBtn.textContent = "ללא פרויקט";
+          "project-select-item" + (currentId === null ? " active" : "");
+        const clearTitle = document.createElement("span");
+        clearTitle.className = "project-select-item-title";
+        clearTitle.textContent = "ללא פרויקט";
+        clearBtn.appendChild(clearTitle);
         clearBtn.addEventListener("click", () => done(null));
         picker.appendChild(clearBtn);
       }
@@ -159,8 +167,17 @@
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className =
-          "project-picker-item" + (currentId === project.id ? " active" : "");
-        btn.textContent = project.title;
+          "project-select-item" + (currentId === project.id ? " active" : "");
+        if (project.isCodeProject && IC) {
+          const itemIcon = document.createElement("span");
+          itemIcon.className = "project-select-item-icon";
+          itemIcon.innerHTML = IC.folder;
+          btn.appendChild(itemIcon);
+        }
+        const itemTitle = document.createElement("span");
+        itemTitle.className = "project-select-item-title";
+        itemTitle.textContent = project.title;
+        btn.appendChild(itemTitle);
         btn.addEventListener("click", () => done(project.id));
         picker.appendChild(btn);
       }

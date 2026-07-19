@@ -49,6 +49,16 @@
     return root;
   }
 
+  // Flattens every file doc under a directory node (recursive).
+  function collectDocs(node, out = []) {
+    for (const name of Object.keys(node.children)) {
+      const child = node.children[name];
+      if (child.doc) out.push(child.doc);
+      else collectDocs(child, out);
+    }
+    return out;
+  }
+
   function renderNode(node, container, depth, forceExpand) {
     const names = Object.keys(node.children).sort((a, b) => {
       const aIsDir = !node.children[a].doc;
@@ -72,6 +82,27 @@
         btn.className = "collapse-btn" + (collapsed ? " collapsed" : "");
         btn.innerHTML = IC().chevronRight;
         row.appendChild(btn);
+
+        // Select the entire folder (all descendant files) at once — reuses
+        // the same bulk enableFilesForProject() path as "load with
+        // dependencies", one saveBlocks() call regardless of folder size.
+        const dirDocs = collectDocs(child);
+        const enabledCount = dirDocs.filter((d) => d.enabled).length;
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "code-tree-checkbox";
+        checkbox.checked = dirDocs.length > 0 && enabledCount === dirDocs.length;
+        checkbox.indeterminate = enabledCount > 0 && enabledCount < dirDocs.length;
+        checkbox.setAttribute("aria-label", `בחר את כל הקבצים בתיקייה ${name}`);
+        checkbox.addEventListener("click", (e) => e.stopPropagation());
+        checkbox.addEventListener("change", () => {
+          _deps.historyView.enableFilesForProject(
+            _project.id,
+            dirDocs.map((d) => d.name),
+            checkbox.checked,
+          );
+        });
+        row.appendChild(checkbox);
 
         const icon = document.createElement("span");
         icon.className = "code-tree-icon";
@@ -146,7 +177,7 @@
     if (!_tokenEl || !_project) return;
     const enabled = (_project.documents || []).filter((d) => d.enabled);
     const tokens = enabled.reduce((sum, d) => sum + (d.estimatedTokens || 0), 0);
-    _tokenEl.textContent = `${enabled.length} מסמכים נבחרים · ${tokens} tokens`;
+    _tokenEl.textContent = `${enabled.length} קבצים נבחרים · ${tokens} tokens`;
   }
 
   // Re-renders only the tree body (folders/files) from the current _project +

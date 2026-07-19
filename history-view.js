@@ -22,7 +22,7 @@
 //   getCodeProjects()
 //   createCodeProjectBookmark() / rescanCodeProject(id) / loadCodeProjectAll(id)
 //   openCodeProjectDropdown(project, menuBtn)
-//   enableFilesForProject(projectId, relativePaths) / setAllCodeDocsEnabled(projectId, enabled)
+//   enableFilesForProject(projectId, relativePaths, enabled = true) / setAllCodeDocsEnabled(projectId, enabled)
 
 (() => {
   if (window.__ccbHistoryViewInstalled) return;
@@ -657,18 +657,20 @@
     await injectProjectDocuments();
   }
 
-  // Bulk-enables the given code files (by relativePath) in one go — a single
-  // mutate + saveBlocks, not a toggleDocument() call per file. Looping
-  // per-file saves is what caused the "injection is very slow" bug: every
-  // save re-serializes the whole `blocks` object, so doing it N times for a
-  // multi-file selection is wasteful (and used to be worse still, back when
-  // file content itself lived inline in `blocks`).
-  async function enableFilesForProject(projectId, relativePaths) {
+  // Bulk-sets the given code files' (by relativePath) enabled state in one
+  // go — a single mutate + saveBlocks, not a toggleDocument() call per file.
+  // Looping per-file saves is what caused the "injection is very slow" bug:
+  // every save re-serializes the whole `blocks` object, so doing it N times
+  // for a multi-file selection is wasteful (and used to be worse still, back
+  // when file content itself lived inline in `blocks`). `enabled` defaults to
+  // true for the dependency-graph call sites (which only ever add files);
+  // code-tree.js's folder checkbox passes it explicitly both ways.
+  async function enableFilesForProject(projectId, relativePaths, enabled = true) {
     const project = getProjectById(projectId);
     if (!project) return;
     const wanted = new Set(relativePaths);
     for (const doc of project.documents || []) {
-      if (doc.type === "code" && wanted.has(doc.name)) doc.enabled = true;
+      if (doc.type === "code" && wanted.has(doc.name)) doc.enabled = enabled;
     }
     project.updated = Date.now();
     await _deps.saveBlocks();
@@ -824,8 +826,8 @@
     if (list) list.classList.toggle("collapsed", collapsed);
     if (btn) {
       btn.classList.toggle("collapsed", collapsed);
-      btn.title = collapsed ? "פתח מסמכים" : "סגור מסמכים";
-      btn.setAttribute("aria-label", collapsed ? "פתח מסמכים" : "סגור מסמכים");
+      btn.title = collapsed ? "פתח קבצים" : "סגור קבצים";
+      btn.setAttribute("aria-label", collapsed ? "פתח קבצים" : "סגור קבצים");
     }
   }
 
@@ -1404,11 +1406,11 @@
 
     const enabledDocs = (_deps.docHandler?.getEnabledDocuments(project.id) || []);
     if (!enabledDocs.length) {
-      _deps.setStatus("אין מסמכים מסומנים", true);
+      _deps.setStatus("אין קבצים מסומנים", true);
       return;
     }
 
-    _deps.setStatus("טוען מסמכים...");
+    _deps.setStatus("טוען קבצים...");
 
     // Resolve display content per doc without mutating the stored block.
     // Code-project files (and legacy blob-only docs) keep their text out of
@@ -1458,7 +1460,7 @@
       // Deliberately not auto-sending — the user reviews/edits the loaded
       // text (possibly adding their own question) and sends it themselves.
       await _deps.docHandler.injectFilesToChat(project.id);
-      _deps.setStatus("מסמכים נטענו — ניתן לערוך ולשלוח ✓");
+      _deps.setStatus("קבצים נטענו — ניתן לערוך ולשלוח ✓");
     } else {
       _deps.setStatus(r.error || "נכשל", true);
     }
@@ -1485,7 +1487,7 @@
       empty.className = "project-view-label";
       empty.style.color = "var(--text-faint)";
       empty.style.padding = "8px";
-      empty.textContent = "אין מסמכים";
+      empty.textContent = "אין קבצים";
       docsList.appendChild(empty);
       return;
     }
@@ -1533,7 +1535,7 @@
       deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>';
       deleteBtn.addEventListener("click", async () => {
         const ok = await _deps.modals.showConfirm({
-          title: "מחק מסמך",
+          title: "מחק קובץ",
           msg: `למחוק את "${doc.name}"?`,
           confirmLabel: "מחק",
           danger: true,
@@ -1678,11 +1680,11 @@
           await _deps.docHandler.addDocument({ name, size: 0, type: "text/uri-list" }, project.id, url);
         }
         closeDialog();
-        _deps.setStatus("מסמך הוסף ✓");
+        _deps.setStatus("קובץ נוסף ✓");
         _deps.render();
       } catch (e) {
         console.error("[history-view] Failed to add document", e);
-        _deps.setStatus(e?.message || "שגיאה בהוספת מסמך", true);
+        _deps.setStatus(e?.message || "שגיאה בהוספת קובץ", true);
       }
     });
   }

@@ -253,7 +253,7 @@
     chat.init({
       getShadow,
       state,
-      config: { GM_ID, SEND_BUTTON_SELECTOR, MSG_SELECTORS, CHARS_PER_TOKEN },
+      config: { GM_ID, SEND_BUTTON_SELECTOR, NEW_CHAT_BTN_SELECTOR, MSG_SELECTORS, CHARS_PER_TOKEN },
       framing,
       inject: ccbInject,
       modals,
@@ -744,7 +744,7 @@
   // ============================================================
   // Project docs inject button (footer)
   // ============================================================
-  // The footer "מסמכים" button is the single, global entry point for
+  // The footer "קבצים" button is the single, global entry point for
   // injecting the currently open project's enabled documents (whether
   // hand-picked in the code-project file tree or the flat regular-project
   // document list — both live in #projectView, not duplicated here).

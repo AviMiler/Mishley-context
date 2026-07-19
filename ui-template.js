@@ -100,8 +100,8 @@ window.__ccbTpl = (() => {
         <div id="projectDocumentsCard" style="display:none">
           <div class="section-header">
             <div class="section-head-left">
-              <button id="projectDocumentsToggle" type="button" class="collapse-btn" aria-label="סגור או פתח מסמכים" title="סגור או פתח מסמכים">${IC.chevronRight}</button>
-              <span class="section-label">מסמכים</span>
+              <button id="projectDocumentsToggle" type="button" class="collapse-btn" aria-label="סגור או פתח קבצים" title="סגור או פתח קבצים">${IC.chevronRight}</button>
+              <span class="section-label">קבצים</span>
             </div>
             <div class="section-head-right">
               <button id="codeProjectRefreshBtn" type="button" class="doc-refresh-btn" aria-label="רענן" title="רענן" style="display:none">${IC.refresh}</button>
@@ -114,7 +114,7 @@ window.__ccbTpl = (() => {
         </div><!-- /tab-scroll -->
         <footer id="footerContext">
           <button id="injectBtn" disabled>${IC.upload} טען פרומפטים</button>
-          <button id="injectDocsBtn" style="display:none">${IC.inject} טען מסמכים</button>
+          <button id="injectDocsBtn" style="display:none">${IC.inject} טען קבצים</button>
         </footer>
       </div>
 
@@ -168,7 +168,7 @@ window.__ccbTpl = (() => {
 
       <div class="dialog-overlay" id="addDocumentOverlay">
         <div class="dialog-box doc-dialog">
-          <div class="dialog-title">הוסף מסמך</div>
+          <div class="dialog-title">הוסף קובץ</div>
           <div class="doc-tabs">
             <button class="doc-tab active" data-tab="upload">העלאה</button>
             <button class="doc-tab" data-tab="paste">הדבקה</button>
@@ -192,7 +192,7 @@ window.__ccbTpl = (() => {
           </div>
           <div class="doc-tab-content" id="docTabUrl">
             <input type="text" id="docUrlInput" class="doc-url-input" placeholder="https://example.com/document.pdf" />
-            <input type="text" id="docUrlName" class="doc-url-input" placeholder="שם המסמך (אופציונלי)" />
+            <input type="text" id="docUrlName" class="doc-url-input" placeholder="שם הקובץ (אופציונלי)" />
           </div>
           <div class="dialog-btns">
             <button class="dialog-confirm" id="docAddBtn">הוסף</button>
