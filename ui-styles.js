@@ -373,7 +373,7 @@ window.__ccbCSS = (() => {
     }
     .collapse-btn.collapsed svg { transform: rotate(0deg); }
     .collapse-btn:not(.collapsed) svg { transform: rotate(-90deg); }
-    #addProjectBtn, #addCodeProjectBtn, #projectEditBtn, #addBtn {
+    #addProjectBtn, #addCodeProjectBtn, #projectRenameBtn, #projectDeleteBtn, #addBtn {
       width: 22px;
       height: 22px;
       border: 1px solid var(--border-input);
@@ -387,7 +387,11 @@ window.__ccbCSS = (() => {
       padding: 0;
       flex-shrink: 0;
     }
-    #addProjectBtn:hover, #addCodeProjectBtn:hover, #projectEditBtn:hover, #addBtn:hover { background: var(--bg-tag); }
+    #addProjectBtn:hover, #addCodeProjectBtn:hover, #projectRenameBtn:hover, #addBtn:hover { background: var(--bg-tag); }
+    /* Delete is destructive — hover reads red like other danger actions
+       (.doc-item-delete, .dialog-confirm.danger) instead of the neutral
+       hover the other small icon buttons here get. */
+    #projectDeleteBtn:hover { background: #fdecec; border-color: #e8b4b4; color: #c53030; }
     #historySection {
       flex: 0;
       min-height: 0;
@@ -553,8 +557,11 @@ window.__ccbCSS = (() => {
 
     /* Card body */
     .block-main { flex: 1; min-width: 0; }
+    /* flex-start (not space-between): the project tag sits right beside the
+       title, not stretched to the row's far edge — .block-head only ever
+       holds these two items now that the tag-count badge is gone. */
     .block-head {
-      display: flex; align-items: baseline; justify-content: space-between;
+      display: flex; align-items: baseline; justify-content: flex-start;
       gap: 8px; margin-bottom: 8px;
     }
     /* No tags row below → no trailing gap. */
@@ -902,7 +909,8 @@ window.__ccbCSS = (() => {
       gap: 6px; white-space: nowrap;
       transition: background var(--t-fast);
     }
-    #injectDocsBtn:hover { background: var(--bg-hover); }
+    #injectDocsBtn:hover:not(:disabled) { background: var(--bg-hover); }
+    #injectDocsBtn:disabled { background: var(--bg-clear); color: var(--text-ghost); border-color: var(--border-subtle); cursor: not-allowed; }
 
     .count-pill {
       font-size: 11px; padding: 1px 7px;

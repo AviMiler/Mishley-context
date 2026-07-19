@@ -51,7 +51,8 @@ window.__ccbTpl = (() => {
           </button>
           <div id="projectSelectDropdown" class="project-select-dropdown" role="listbox" aria-hidden="true"></div>
         </div>
-        <button id="projectEditBtn" type="button" aria-label="ניהול פרויקט" title="ניהול פרויקט" style="display:none">${IC.menuDots}</button>
+        <button id="projectRenameBtn" type="button" aria-label="שנה שם פרויקט" title="שנה שם פרויקט" style="display:none">${IC.pencil}</button>
+        <button id="projectDeleteBtn" type="button" aria-label="מחק פרויקט" title="מחק פרויקט" style="display:none">${IC.trash}</button>
         <button id="addProjectBtn" type="button" aria-label="פרויקט חדש" title="פרויקט חדש">${IC.plus}</button>
         <button id="addCodeProjectBtn" type="button" aria-label="פרויקט קוד חדש" title="פרויקט קוד חדש">${IC.folder}</button>
       </div>

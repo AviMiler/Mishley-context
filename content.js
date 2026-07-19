@@ -475,15 +475,15 @@
       });
     }
 
-    $el("projectEditBtn").addEventListener("click", (e) => {
+    $el("projectRenameBtn").addEventListener("click", (e) => {
       e.stopPropagation();
       const project = historyView.getProjectById(state.currentProjectId);
-      if (!project) return;
-      if (project.isCodeProject) {
-        historyView.openCodeProjectDropdown(project, $el("projectEditBtn"));
-      } else {
-        historyView.openProjectDropdown(project, $el("projectEditBtn"));
-      }
+      if (project) historyView.renameProject(project);
+    });
+    $el("projectDeleteBtn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      const project = historyView.getProjectById(state.currentProjectId);
+      if (project) historyView.deleteProject(project);
     });
 
     // Conversation View
@@ -752,7 +752,17 @@
     const btn = $el("injectDocsBtn");
     if (!btn) return;
     const project = state.currentProjectId ? state.blocks[state.currentProjectId] : null;
-    btn.style.display = project?.documents?.length ? "flex" : "none";
+    const docs = project?.documents || [];
+    if (!docs.length) {
+      btn.style.display = "none";
+      return;
+    }
+    btn.style.display = "flex";
+    // A code project's auto-generated "structure" doc is always enabled and
+    // never exposed in the file tree to toggle off — it alone shouldn't
+    // count as "something is selected" and keep the button clickable.
+    const hasSelectable = docs.some((d) => d.type !== "structure" && d.enabled);
+    btn.disabled = !hasSelectable;
   }
 
   // ============================================================
@@ -782,9 +792,9 @@
     $el("editTitle").value = b ? b.title : prefill?.title || "";
     $el("editTags").value = b ? (b.tags || []).join(", ") : prefill?.tags || "";
     $el("editContent").value = b ? b.content : prefill?.content || "";
-    // Project blocks have their own delete flow (openProjectDropdown) that
-    // also cleans up child blocks/conversation links — this generic delete
-    // doesn't, so it stays hidden for kind:"project".
+    // Project blocks have their own delete flow (historyView.deleteProject,
+    // via #projectDeleteBtn) that also cleans up child blocks/conversation
+    // links — this generic delete doesn't, so it stays hidden for kind:"project".
     $el("deleteBtn").style.display = id && b?.kind !== "project" ? "block" : "none";
 
     // Show which project this block belongs to: an existing block's own

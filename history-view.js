@@ -13,15 +13,14 @@
 //   renderConversationMessages(b, query)
 //   updateNavMatch() / updateCvFooter()
 //   openHiDropdown(b, menuBtn) / closeHiDropdown()
-//   openProjectDropdown(project, menuBtn)
 //   syncCollapsibleSections() / syncProjectDocumentsSection()
 //   getProjects() / getAllProjects() / getProjectById(id) / getConversationProject(b)
 //   buildHistoryMessages(b) / buildConversationInjectionText(messages)
 //   formatTranscript(messages) / formatAge(ts) / dateGroup(ts) / extractSnippet(text, q, fromIndex)
 //   addProject()
 //   getCodeProjects()
-//   createCodeProjectBookmark() / rescanCodeProject(id) / loadCodeProjectAll(id)
-//   openCodeProjectDropdown(project, menuBtn)
+//   createCodeProjectBookmark() / rescanCodeProject(id)
+//   renameProject(project) / deleteProject(project)
 //   enableFilesForProject(projectId, relativePaths, enabled = true) / setAllCodeDocsEnabled(projectId, enabled)
 
 (() => {
@@ -644,19 +643,6 @@
     _deps.render();
   }
 
-  // Enables every document (structure + all files) and injects them all.
-  async function loadCodeProjectAll(projectId) {
-    const project = getProjectById(projectId);
-    if (!project || !project.isCodeProject) return;
-    if (!project.lastScanned) await rescanCodeProject(projectId);
-    if (!project.lastScanned) return; // scan failed or was cancelled
-
-    for (const doc of project.documents || []) doc.enabled = true;
-    project.updated = Date.now();
-    await _deps.saveBlocks();
-    await injectProjectDocuments();
-  }
-
   // Bulk-sets the given code files' (by relativePath) enabled state in one
   // go — a single mutate + saveBlocks, not a toggleDocument() call per file.
   // Looping per-file saves is what caused the "injection is very slow" bug:
@@ -690,83 +676,87 @@
   }
 
   // ============================================================
-  // Code project dropdown (load all / pick files / refresh / remove)
+  // Project rename / delete — direct actions (no dropdown/menu). Rename
+  // works identically for regular and code projects; delete branches since
+  // a code project also needs to release its directory-handle bookmark and
+  // scanned file content. "Load all"/"refresh" used to live in a 3-dot menu
+  // here too, but they're redundant now: refresh has its own dedicated
+  // #codeProjectRefreshBtn in the documents header, and "load all" overlaps
+  // with the per-folder select-all checkbox + footer "טען קבצים" button.
   // ============================================================
-  function openCodeProjectDropdown(project, menuBtn) {
-    closeHiDropdown();
-    const dd = $el("hiDropdown");
-    const IC = window.__ccbTpl.IC;
-
-    const loadAllItem = document.createElement("div");
-    loadAllItem.className = "hd-item";
-    loadAllItem.innerHTML = `${IC.upload} טען הכל לצ'אט`;
-    loadAllItem.addEventListener("click", async () => {
-      closeHiDropdown();
-      await loadCodeProjectAll(project.id);
+  async function renameProject(project) {
+    const nextTitle = await _deps.modals.showPrompt({
+      title: "שנה שם הפרויקט",
+      defaultValue: project.title,
     });
+    if (nextTitle === null || !nextTitle.trim()) return;
+    await _deps.loadBlocks();
+    _deps.state.blocks[project.id].title = nextTitle.trim();
+    _deps.state.blocks[project.id].updated = Date.now();
+    await _deps.saveBlocks();
+    _deps.render();
+  }
 
-    const sep = document.createElement("div");
-    sep.className = "hd-sep";
-
-    const refreshItem = document.createElement("div");
-    refreshItem.className = "hd-item";
-    refreshItem.innerHTML = `${IC.refresh} רענן`;
-    refreshItem.addEventListener("click", async () => {
-      closeHiDropdown();
-      await rescanCodeProject(project.id);
-    });
-
-    const delItem = document.createElement("div");
-    delItem.className = "hd-item danger";
-    delItem.innerHTML = `${IC.trash} הסר סימניה`;
-    delItem.addEventListener("click", async () => {
-      closeHiDropdown();
-      const ok = await _deps.modals.showConfirm({
-        title: "הסרת סימניה",
-        msg: `להסיר את הסימניה "${project.title}"? הקבצים בדיסק לא יימחקו.`,
-        confirmLabel: "הסר",
-        danger: true,
-      });
-      if (!ok) return;
-      await _deps.loadBlocks();
-      const removedProject = _deps.state.blocks[project.id];
-      const dirHandleId = removedProject?.dirHandleId;
-      const codeDocIds = (removedProject?.documents || [])
-        .filter((d) => d.type === "code")
-        .map((d) => d.id);
-      delete _deps.state.blocks[project.id];
-      for (const b of Object.values(_deps.state.blocks)) {
-        if (!b.kind && b.projectId === project.id) delete b.projectId;
+  // Shared by both delete flows: unlink the project from its conversations
+  // (kept, just no longer tagged) and delete its own text blocks (their
+  // lifecycle is tied to the project, unlike conversations).
+  function unlinkProjectChildren(projectId) {
+    for (const b of Object.values(_deps.state.blocks)) {
+      if (b.projectId !== projectId) continue;
+      if (b.kind === "conversation") {
+        delete b.projectId;
+      } else if (!b.kind) {
+        _deps.state.selected?.delete(b.id);
+        delete _deps.state.blocks[b.id];
       }
-      if (_deps.state.currentProjectId === project.id) await setActiveProjectId(null);
-      await _deps.saveBlocks();
-      if (dirHandleId) {
-        try { await window.__ccbFsHandles.remove(dirHandleId); } catch { /* already gone */ }
-      }
-      await Promise.all(
-        codeDocIds.map((id) => _deps.docHandler.removeCodeContent(id).catch(() => {})),
-      );
-      _deps.render();
+    }
+  }
+
+  async function deleteRegularProject(project) {
+    const ok = await _deps.modals.showConfirm({
+      title: "מחיקת פרויקט",
+      msg: 'למחוק את "' + project.title + '"? הבלוקים של הפרויקט יימחקו; השיחות לא יימחקו, רק השיוך.',
+      confirmLabel: "מחק",
+      danger: true,
     });
+    if (!ok) return;
+    await _deps.loadBlocks();
+    delete _deps.state.blocks[project.id];
+    unlinkProjectChildren(project.id);
+    if (_deps.state.currentProjectId === project.id) await setActiveProjectId(null);
+    await _deps.saveBlocks();
+    _deps.render();
+  }
 
-    dd.innerHTML = "";
-    dd.appendChild(loadAllItem);
-    dd.appendChild(sep);
-    dd.appendChild(refreshItem);
-    dd.appendChild(sep.cloneNode());
-    dd.appendChild(delItem);
+  async function deleteCodeProject(project) {
+    const ok = await _deps.modals.showConfirm({
+      title: "הסרת סימניה",
+      msg: `להסיר את הסימניה "${project.title}"? הקבצים בדיסק לא יימחקו.`,
+      confirmLabel: "הסר",
+      danger: true,
+    });
+    if (!ok) return;
+    await _deps.loadBlocks();
+    const removedProject = _deps.state.blocks[project.id];
+    const dirHandleId = removedProject?.dirHandleId;
+    const codeDocIds = (removedProject?.documents || [])
+      .filter((d) => d.type === "code")
+      .map((d) => d.id);
+    delete _deps.state.blocks[project.id];
+    unlinkProjectChildren(project.id);
+    if (_deps.state.currentProjectId === project.id) await setActiveProjectId(null);
+    await _deps.saveBlocks();
+    if (dirHandleId) {
+      try { await window.__ccbFsHandles.remove(dirHandleId); } catch { /* already gone */ }
+    }
+    await Promise.all(
+      codeDocIds.map((id) => _deps.docHandler.removeCodeContent(id).catch(() => {})),
+    );
+    _deps.render();
+  }
 
-    const rect = menuBtn.getBoundingClientRect();
-    dd.style.top = rect.top + "px";
-    dd.style.left = rect.right + 6 + "px";
-    dd.classList.add("open");
-
-    const onOutside = (e) => {
-      if (!dd.contains(e.target) && e.target !== menuBtn) closeHiDropdown();
-    };
-    document.addEventListener("click", onOutside, { capture: true, once: false });
-    _deps.state.hiDropdownCleanup = () =>
-      document.removeEventListener("click", onOutside, { capture: true });
+  function deleteProject(project) {
+    return project.isCodeProject ? deleteCodeProject(project) : deleteRegularProject(project);
   }
 
   // ============================================================
@@ -778,8 +768,10 @@
   function renderProjectContext() {
     const project = getProjectById(_deps.state.currentProjectId);
 
-    const editBtn = $el("projectEditBtn");
-    if (editBtn) editBtn.style.display = project ? "flex" : "none";
+    const renameBtn = $el("projectRenameBtn");
+    if (renameBtn) renameBtn.style.display = project ? "flex" : "none";
+    const deleteBtn = $el("projectDeleteBtn");
+    if (deleteBtn) deleteBtn.style.display = project ? "flex" : "none";
 
     // A project's instructions card can be ticked for injection, so a project
     // id may sit in state.selected. Only the ACTIVE project's card is rendered,
@@ -1165,82 +1157,6 @@
     dd.appendChild(renameItem);
     dd.appendChild(projectItem);
     dd.appendChild(sep.cloneNode());
-    dd.appendChild(delItem);
-
-    const rect = menuBtn.getBoundingClientRect();
-    dd.style.top = rect.top + "px";
-    dd.style.left = rect.right + 6 + "px";
-    dd.classList.add("open");
-
-    const onOutside = (e) => {
-      if (!dd.contains(e.target) && e.target !== menuBtn) closeHiDropdown();
-    };
-    document.addEventListener("click", onOutside, { capture: true, once: false });
-    _deps.state.hiDropdownCleanup = () =>
-      document.removeEventListener("click", onOutside, { capture: true });
-  }
-
-  // ============================================================
-  // Project dropdown (rename / delete)
-  // ============================================================
-  function openProjectDropdown(project, menuBtn) {
-    closeHiDropdown();
-    const dd = $el("hiDropdown");
-
-    const renameItem = document.createElement("div");
-    renameItem.className = "hd-item";
-    renameItem.innerHTML =
-      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> שנה שם';
-    renameItem.addEventListener("click", async () => {
-      closeHiDropdown();
-      const nextTitle = await _deps.modals.showPrompt({
-        title: "שנה שם הפרויקט",
-        defaultValue: project.title,
-      });
-      if (nextTitle === null || !nextTitle.trim()) return;
-      await _deps.loadBlocks();
-      _deps.state.blocks[project.id].title = nextTitle.trim();
-      _deps.state.blocks[project.id].updated = Date.now();
-      await _deps.saveBlocks();
-      _deps.render();
-    });
-
-    const sep = document.createElement("div");
-    sep.className = "hd-sep";
-
-    const delItem = document.createElement("div");
-    delItem.className = "hd-item danger";
-    delItem.innerHTML =
-      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> מחק';
-    delItem.addEventListener("click", async () => {
-      closeHiDropdown();
-      const ok = await _deps.modals.showConfirm({
-        title: "מחיקת פרויקט",
-        msg: 'למחוק את "' + project.title + '"? הבלוקים של הפרויקט יימחקו; השיחות לא יימחקו, רק השיוך.',
-        confirmLabel: "מחק",
-        danger: true,
-      });
-      if (!ok) return;
-      await _deps.loadBlocks();
-      delete _deps.state.blocks[project.id];
-      for (const b of Object.values(_deps.state.blocks)) {
-        if (b.projectId !== project.id) continue;
-        if (b.kind === "conversation") {
-          delete b.projectId;
-        } else if (!b.kind) {
-          // Project's own text blocks — same lifecycle as the project itself.
-          _deps.state.selected?.delete(b.id);
-          delete _deps.state.blocks[b.id];
-        }
-      }
-      if (_deps.state.currentProjectId === project.id) await setActiveProjectId(null);
-      await _deps.saveBlocks();
-      _deps.render();
-    });
-
-    dd.innerHTML = "";
-    dd.appendChild(renameItem);
-    dd.appendChild(sep);
     dd.appendChild(delItem);
 
     const rect = menuBtn.getBoundingClientRect();
@@ -1722,7 +1638,8 @@
     updateCvFooter,
     openHiDropdown,
     closeHiDropdown,
-    openProjectDropdown,
+    renameProject,
+    deleteProject,
     syncCollapsibleSections,
     syncProjectDocumentsSection,
     getProjects,
@@ -1743,8 +1660,6 @@
     getCodeProjects,
     createCodeProjectBookmark,
     rescanCodeProject,
-    loadCodeProjectAll,
-    openCodeProjectDropdown,
     enableFilesForProject,
     setAllCodeDocsEnabled,
   };
