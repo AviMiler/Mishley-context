@@ -2,6 +2,9 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-19 — Fold GM + instructions cards into the collapsible prompts section
+- Changed: `#blocksSection`'s collapse now hides everything injectable in one go — the "+ new block" toolbar, `#gmCard`, `#projectInstructionsCard`, and `#list` are all nested inside a new `#blocksSectionBody` wrapper, and `#blocksSection.collapsed` hides that wrapper as a whole (was `#blocksSection.collapsed #list` only). `#blocksCollapseBtn` is unaffected by the collapse, staying visible to reopen the section.
+
 ### 2026-07-19 — Reorder Context tab: instructions card below GM
 - Changed: `#projectInstructionsCard` now renders directly below `#gmCard` instead of above the "+ new block" toolbar (`ui-template.js`). Pure DOM reorder — no ids or event wiring changed, since every reference goes through `$el(id)`.
 

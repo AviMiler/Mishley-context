@@ -257,7 +257,7 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | `togglePanel()`                 | Flips panel open/closed                                                      |
 | `resetTabDefaults(tabName)`     | Resets per-tab UI defaults when user clicks a tab                            |
 | `render()`                      | Full re-render — calls `chat.renderGeneralMemory`, `renderUnifiedBlocksList`, `syncBlocksSection`, `syncInjectDocsBtn`, `historyView.render`, ctx-meter update |
-| `syncBlocksSection()`           | Toggles `.collapsed` on `#blocksSection`/`#blocksCollapseBtn` per `state.blocksCollapsed` — collapses `#list` (the injectable blocks list), same pattern as `historyView.syncCollapsibleSections`' history section |
+| `syncBlocksSection()`           | Toggles `.collapsed` on `#blocksSection`/`#blocksCollapseBtn` per `state.blocksCollapsed` — CSS hides `#blocksSectionBody` (the "+" toolbar, `#gmCard`, `#projectInstructionsCard`, and `#list` all together), same pattern as `historyView.syncCollapsibleSections`' history section |
 | `syncInjectDocsBtn()`           | Shows/hides the footer `#injectDocsBtn` based on whether the active project (`state.currentProjectId`) has any documents — the single global entry point for `historyView.injectProjectDocuments()`, covering both the code-project file tree and the flat regular-project document list |
 | `migrateCtxProjects()`          | Idempotent one-time migration of retired `kind:"ctx-project"` blocks → `kind:"project"` (runs inside `loadBlocks`) |
 | `installUrlChangeWatcher()`     | Patches `history.pushState/replaceState`, fires `ccb:urlchange` to reset GM auto-inject |

@@ -392,7 +392,7 @@ window.__ccbCSS = (() => {
     #historySection.collapsed #historyList {
       display: none;
     }
-    #blocksSection.collapsed #list {
+    #blocksSection.collapsed #blocksSectionBody {
       display: none;
     }
     .project-documents-list.collapsed {

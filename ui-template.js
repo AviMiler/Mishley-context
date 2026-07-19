@@ -71,31 +71,6 @@ window.__ccbTpl = (() => {
           </div>
         </div>
 
-        <div class="context-toolbar">
-          <button id="addBtn" title="בלוק חדש" aria-label="הוסף בלוק חדש">${IC.plus}</button>
-        </div>
-        <div id="gmCard"></div>
-
-        <div id="projectInstructionsCard" class="gm-card project-instructions-card" style="display:none">
-          <div class="gm-header project-instructions-header">
-            <div class="project-instructions-head">
-              <button id="projectInstructionsToggle" type="button" class="collapse-btn collapsed" aria-label="פתח או סגור עריכת הנחיות" title="פתח או סגור עריכת הנחיות">${IC.chevronRight}</button>
-              <label class="toggle" title="טעינה אוטומטית של הנחיות הפרויקט בתחילת שיחה">
-                <input type="checkbox" id="projectInstructionsAutoToggle" />
-                <span class="toggle-track"></span>
-              </label>
-              <span class="gm-title">הנחיות הפרויקט</span>
-            </div>
-            <button id="projectInstructionsEditBtn" type="button" class="gm-edit-btn">עריכה</button>
-          </div>
-          <span id="projectInstructionsAutoBadge" class="auto-badge" style="display:none">נטען אוטומטית</span>
-          <div id="projectInstructionsPanel" class="project-accordion-panel collapsed">
-            <div class="project-view-label">הנחיות</div>
-            <textarea id="projectViewInstructions" placeholder="הנחיות הפרויקט..."></textarea>
-            <button id="projectViewSaveBtn" type="button">שמור</button>
-          </div>
-        </div>
-
         <div id="blocksSection">
           <div class="section-header">
             <div class="section-head-left">
@@ -103,7 +78,34 @@ window.__ccbTpl = (() => {
               <span class="section-label">פרומפטים להזרקה</span>
             </div>
           </div>
-          <div id="list"></div>
+          <div id="blocksSectionBody">
+            <div class="context-toolbar">
+              <button id="addBtn" title="בלוק חדש" aria-label="הוסף בלוק חדש">${IC.plus}</button>
+            </div>
+            <div id="gmCard"></div>
+
+            <div id="projectInstructionsCard" class="gm-card project-instructions-card" style="display:none">
+              <div class="gm-header project-instructions-header">
+                <div class="project-instructions-head">
+                  <button id="projectInstructionsToggle" type="button" class="collapse-btn collapsed" aria-label="פתח או סגור עריכת הנחיות" title="פתח או סגור עריכת הנחיות">${IC.chevronRight}</button>
+                  <label class="toggle" title="טעינה אוטומטית של הנחיות הפרויקט בתחילת שיחה">
+                    <input type="checkbox" id="projectInstructionsAutoToggle" />
+                    <span class="toggle-track"></span>
+                  </label>
+                  <span class="gm-title">הנחיות הפרויקט</span>
+                </div>
+                <button id="projectInstructionsEditBtn" type="button" class="gm-edit-btn">עריכה</button>
+              </div>
+              <span id="projectInstructionsAutoBadge" class="auto-badge" style="display:none">נטען אוטומטית</span>
+              <div id="projectInstructionsPanel" class="project-accordion-panel collapsed">
+                <div class="project-view-label">הנחיות</div>
+                <textarea id="projectViewInstructions" placeholder="הנחיות הפרויקט..."></textarea>
+                <button id="projectViewSaveBtn" type="button">שמור</button>
+              </div>
+            </div>
+
+            <div id="list"></div>
+          </div>
         </div>
 
         <div id="codeProjectInfoRow" class="code-project-info-row" style="display:none">
