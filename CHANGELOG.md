@@ -2,6 +2,12 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-19 — Project instructions auto-load
+- Added: **The active project's instructions now auto-load at conversation start**, alongside the General Memory. Being the active project is itself the on/off switch — there is no separate per-project toggle. Implemented in `chat-features.js`: new `_getActiveProjectInstructions()` + `_autoInjectPayload()`; `tryAutoInject`/`_doInject` no longer treat GM as the only trigger, and either source alone will fire.
+- Added: `#projectInstructionsAutoBadge` ("נטען אוטומטית") on the Context tab's project-instructions card (`ui-template.js`), toggled by `history-view.js#renderProjectContext` when the active project has instructions — the visual counterpart of the GM card's badge.
+- Note: **Instructions only, not documents.** `buildProjectSectionText` (used by the conversation-continue flow) also inlines every enabled document, which for a code project is tens of thousands of tokens — auto-injecting that on every new chat would be a context-window disaster. Documents stay behind the explicit footer "מסמכים" button (`#injectDocsBtn`).
+- Note: The payload is computed at inject time rather than when `tryAutoInject` is called. The fallback `MutationObserver` has no timeout, so the user can switch project or edit GM while it waits for the chat UI; reading late keeps the injection consistent with the current selection.
+
 ### 2026-07-16 — Context-tab UX redesign
 - Changed: **Context management is now unified under the Context tab.** Under the context-window meter, a two-button segmented control (`.ctx-subview-toggle`) switches between "טקסטים כלליים" (general blocks + General Memory) and "פרויקטים" (the project list + inline project detail). State: `state.ctxSubview`; toggle logic: `content.js#syncCtxSubview`.
 - Changed: **The History tab is now conversations-only.** Its projects section and project-detail shell were removed from `#pane-history` (`ui-template.js`) and relocated into the Context tab's "פרויקטים" sub-view. The per-conversation "assign to project" picker still works against the unified project list.

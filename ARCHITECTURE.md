@@ -296,7 +296,7 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | ------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | `render()`                                              | Full re-render: collapsibles → project selector → history list → project context             |
 | `renderProjectSelect()`                                 | Populates the global `<select id="projectSelect">` (`#globalProjectBar`, above both tabs) with all projects (regular + code, code prefixed with 📁) plus a "ללא פרויקט" option |
-| `renderProjectContext()`                                | Shows/hides + fills the active project's instructions card and documents section (code projects render the inline file tree via `__ccbCodeTree.renderInline` inside `#projectDocumentsList`); both hidden when no project is active |
+| `renderProjectContext()`                                | Shows/hides + fills the active project's instructions card and documents section (code projects render the inline file tree via `__ccbCodeTree.renderInline` inside `#projectDocumentsList`); both hidden when no project is active. Also toggles `#projectInstructionsAutoBadge` ("נטען אוטומטית") based on whether the project has instructions — the visual counterpart to `chat-features.js#tryAutoInject` |
 | `syncHistoryProjectFilterRow()`                         | Shows/hides `#historyProjectFilterRow` ("מציג שיחות של: …" + "הצג את כל השיחות" checkbox) based on whether a project is active |
 | `renderHistoryList()`                                   | Renders the history list (title-search or content-search), pinned + grouped — filtered to the active project's conversations unless `state.historyShowAll` is set or no project is active |
 | `createHistoryRow(b, opts)`                             | Builds a single conversation row (with optional snippet + project tag)                       |
@@ -397,7 +397,19 @@ Builds a best-effort, deterministic import/reference graph for a scanned code pr
 | ----------------------- | ------------------------------------------------------------------------------------------ |
 | `getGM()`               | Returns the GM block from `state.blocks` (with `title: "זיכרון כללי"` default)            |
 | `renderGeneralMemory()` | Renders the GM card in the context tab (select-for-inject checkbox + autoLoad toggle)      |
-| `tryAutoInject()`       | Polls for input readiness, injects GM at *conversation start only*, clicks send            |
+| `tryAutoInject()`       | Polls for input readiness, injects GM **and the active project's instructions** at *conversation start only*, clicks send |
+| `_getActiveProjectInstructions()` | `## title\ncontent` for the active project (`state.currentProjectId`), or `null`. **Instructions only** — deliberately not `buildProjectSectionText`, which also inlines every enabled document (tens of thousands of tokens for a code project); documents stay behind the explicit footer `#injectDocsBtn` |
+| `_autoInjectPayload()`  | Builds `{ text, hasGm, hasProject }` — GM block (if `autoLoad` + content) and/or the project-instructions block, wrapped in `FRAMING_GM_*` / `FRAMING_PROJ_*`, joined into ONE injection |
+| `_doInject()`           | Guarded by `state.gmAutoInjected`; injects `_autoInjectPayload().text` and clicks send    |
+
+**Auto-inject at conversation start** covers two independent sources, either of which alone triggers it:
+
+- **General Memory** — gated on `gm.autoLoad` + non-empty content (unchanged).
+- **Active project instructions** — gated on a project being active (`state.currentProjectId`) + non-empty `content`. *Being the active project is itself the on/off switch* — there is no separate per-project toggle, mirroring how selecting a project already drives the rest of the panel. The Context tab's `#projectInstructionsCard` shows a `#projectInstructionsAutoBadge` ("נטען אוטומטית") whenever the active project has instructions, matching the GM card's badge.
+
+Both are concatenated into a **single** `injectIntoInput(..., "prepend")` call (two sequential injections are unreliable on Gemini — same reason as the continuation flow). The payload is computed **at inject time**, not when `tryAutoInject` is called: the fallback `MutationObserver` has no timeout, so the user may switch project or edit GM in between, and reading late keeps the injection consistent with the current selection.
+
+Both blocks are prefixed with `[[CCB:INJECTED]]` via their FRAMING, so `captureConversation` filters them out of saved conversations, and the AI's canned replies (`"Context loaded."`, `"Project guidelines loaded."`) are already in `INJECTION_AUTORESPONSES`.
 
 ### Manual injection
 

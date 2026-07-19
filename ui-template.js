@@ -76,6 +76,7 @@ window.__ccbTpl = (() => {
             <div class="project-instructions-head">
               <button id="projectInstructionsToggle" type="button" class="collapse-btn collapsed" aria-label="פתח או סגור עריכת הנחיות" title="פתח או סגור עריכת הנחיות">${IC.chevronRight}</button>
               <span class="gm-title">הנחיות הפרויקט</span>
+              <span id="projectInstructionsAutoBadge" class="auto-badge" style="display:none">נטען אוטומטית</span>
             </div>
             <button id="projectInstructionsEditBtn" type="button" class="gm-edit-btn">עריכה</button>
           </div>

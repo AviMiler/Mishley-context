@@ -118,12 +118,43 @@
   // ============================================================
   let _autoInjectObserver = null;
 
-  function _doInject(gm) {
-    if (_deps.state.gmAutoInjected) return;
-    _deps.state.gmAutoInjected = true;
+  // Active project (global selection) whose INSTRUCTIONS auto-load at
+  // conversation start alongside GM — being the active project IS the
+  // on/off switch here, mirroring GM's autoLoad toggle.
+  // Deliberately instructions-only (project.content), NOT
+  // buildProjectSectionText: that also inlines every enabled document,
+  // which for a code project is tens of thousands of tokens. Documents
+  // stay behind the explicit footer "מסמכים" button (#injectDocsBtn).
+  function _getActiveProjectInstructions() {
+    const project = _deps.historyView?.getProjectById?.(_deps.state.currentProjectId);
+    const content = (project?.content || "").trim();
+    if (!content) return null;
+    return "## " + project.title + "\n" + content;
+  }
+
+  // What would be auto-injected right now: GM (if autoLoad + content) and the
+  // active project's instructions. Recomputed at inject time, not at
+  // tryAutoInject time — the MutationObserver below has no timeout, so the
+  // user can switch project or edit GM between the call and the actual
+  // injection. Reading late keeps us honest about the current selection.
+  function _autoInjectPayload() {
+    const gm = getGM();
+    const hasGm = !!(gm.autoLoad && (gm.content || "").trim());
+    const projectInstructions = _getActiveProjectInstructions();
     const f = _deps.framing;
-    _deps.inject.injectIntoInput(f.gmPre + gm.content + f.gmPost, "prepend");
-    console.debug("[ccb] GM auto-injected (fresh chat detected)");
+    const parts = [];
+    if (hasGm) parts.push(f.gmPre + gm.content + f.gmPost);
+    if (projectInstructions) parts.push(f.projPre + projectInstructions + f.projPost);
+    return { text: parts.join("\n\n"), hasGm, hasProject: !!projectInstructions };
+  }
+
+  function _doInject() {
+    if (_deps.state.gmAutoInjected) return;
+    const { text, hasGm, hasProject } = _autoInjectPayload();
+    if (!text) return;
+    _deps.state.gmAutoInjected = true;
+    _deps.inject.injectIntoInput(text, "prepend");
+    console.debug("[ccb] auto-injected (fresh chat detected)", { hasGm, hasProject });
     setTimeout(() => {
       const btn = document.querySelector(_deps.config.SEND_BUTTON_SELECTOR);
       if (btn) btn.click();
@@ -131,9 +162,8 @@
   }
 
   async function tryAutoInject() {
-    const gm = getGM();
     if (_deps.state.gmAutoInjected) return;
-    if (!gm.autoLoad || !(gm.content || "").trim()) return;
+    if (!_autoInjectPayload().text) return;
     const MSG_SELECTORS = _deps.config.MSG_SELECTORS;
     const NEW_CHAT_BTN_SELECTOR = _deps.config.NEW_CHAT_BTN_SELECTOR;
 
@@ -174,7 +204,7 @@
         console.debug("[ccb] tryAutoInject: messages present, no new-chat btn — skipping");
         return;
       }
-      _doInject(gm);
+      _doInject();
     }
 
     // If chat is already loaded — act immediately

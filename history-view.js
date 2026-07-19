@@ -642,12 +642,17 @@
     const instrCard = $el("projectInstructionsCard");
     if (instrCard) instrCard.style.display = project ? "block" : "none";
     if (project) {
+      const hasContent = !!(project.content || "").trim();
       if ($el("projectInstructionsPreview")) {
         $el("projectInstructionsPreview").textContent =
           (project.content || "").trim() || "אין עדיין הנחיות לפרויקט הזה";
       }
       $el("projectViewInstructions").value = project.content || "";
       syncProjectInstructionsSection();
+      // Instructions auto-load at conversation start whenever this project
+      // is active and has content — mirrors GM's "נטען אוטומטית" badge.
+      const autoBadge = $el("projectInstructionsAutoBadge");
+      if (autoBadge) autoBadge.style.display = hasContent ? "" : "none";
     }
 
     const infoRow = $el("codeProjectInfoRow");
