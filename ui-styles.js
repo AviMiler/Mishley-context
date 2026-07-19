@@ -316,7 +316,7 @@ window.__ccbCSS = (() => {
       flex-shrink: 0;
     }
     .search-wrap { flex: 1; position: relative; }
-    #search, #searchHistory {
+    #search, #searchHistory, .code-tree-search-input {
       width: 100%; height: 36px;
       padding: 0 32px 0 10px;
       border: 1px solid var(--border-input); border-radius: var(--r-input);
@@ -325,8 +325,8 @@ window.__ccbCSS = (() => {
       transition: border-color var(--t-fast);
       -webkit-appearance: none; appearance: none;
     }
-    #search:focus, #searchHistory:focus { border-color: var(--text-faint); }
-    #search::placeholder, #searchHistory::placeholder { color: var(--text-ghost); }
+    #search:focus, #searchHistory:focus, .code-tree-search-input:focus { border-color: var(--text-faint); }
+    #search::placeholder, #searchHistory::placeholder, .code-tree-search-input::placeholder { color: var(--text-ghost); }
     .section-header {
       display: flex;
       align-items: center;
@@ -390,6 +390,12 @@ window.__ccbCSS = (() => {
       min-height: 0;
     }
     #historySection.collapsed #historyList {
+      display: none;
+    }
+    #blocksSection.collapsed #list {
+      display: none;
+    }
+    .project-documents-list.collapsed {
       display: none;
     }
     .project-select {
@@ -714,9 +720,6 @@ window.__ccbCSS = (() => {
       padding: 12px 14px;
       overflow: hidden;
     }
-    .project-instructions-card .gm-preview {
-      margin-top: 8px;
-    }
     .project-instructions-header {
       align-items: center;
     }
@@ -852,10 +855,6 @@ window.__ccbCSS = (() => {
       font-size: 11px; padding: 2px 7px;
       background: var(--bg-tag); color: var(--text-mute);
       border-radius: var(--r-tag); font-weight: 500; white-space: nowrap;
-    }
-    .gm-preview {
-      font-size: 12px; color: var(--text-ghost); line-height: 1.5;
-      margin-top: 8px; word-break: break-word;
     }
     .gm-edit-btn {
       height: 26px; padding: 0 10px; flex-shrink: 0;

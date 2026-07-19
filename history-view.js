@@ -664,10 +664,6 @@
     const instrCard = $el("projectInstructionsCard");
     if (instrCard) instrCard.style.display = project ? "block" : "none";
     if (project) {
-      if ($el("projectInstructionsPreview")) {
-        $el("projectInstructionsPreview").textContent =
-          (project.content || "").trim() || "אין עדיין הנחיות לפרויקט הזה";
-      }
       $el("projectViewInstructions").value = project.content || "";
       syncProjectInstructionsSection();
       // Missing autoLoad (older projects, or brand new ones) defaults to ON —
@@ -703,9 +699,22 @@
       wireProjectViewDocumentEvents();
       const addDocBtn = $el("projectAddDocumentBtn");
       if (addDocBtn) addDocBtn.style.display = project.isCodeProject ? "none" : "";
+      syncProjectDocumentsSection();
     } else {
       const docsList = $el("projectDocumentsList");
       if (docsList) docsList.innerHTML = "";
+    }
+  }
+
+  function syncProjectDocumentsSection() {
+    const collapsed = !!_deps.state.projectDocumentsCollapsed;
+    const list = $el("projectDocumentsList");
+    const btn = $el("projectDocumentsToggle");
+    if (list) list.classList.toggle("collapsed", collapsed);
+    if (btn) {
+      btn.classList.toggle("collapsed", collapsed);
+      btn.title = collapsed ? "פתח מסמכים" : "סגור מסמכים";
+      btn.setAttribute("aria-label", collapsed ? "פתח מסמכים" : "סגור מסמכים");
     }
   }
 
@@ -1638,6 +1647,7 @@
     openProjectDropdown,
     syncCollapsibleSections,
     syncProjectInstructionsSection,
+    syncProjectDocumentsSection,
     getProjects,
     getAllProjects,
     getProjectById,

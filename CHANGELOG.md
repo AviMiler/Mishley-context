@@ -2,6 +2,13 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-19 — Context tab polish: collapsibles, badge placement, doc-search RTL
+- Changed: **Removed the project-instructions content preview** (`#projectInstructionsPreview`) shown below the instructions header — the card no longer displays raw instruction text outside the accordion editor, matching GM (which never showed one either). Also removed the now-dead `.gm-preview` CSS (was unused by GM's own render).
+- Changed: **Moved `#projectInstructionsAutoBadge` below the header row**, as a direct sibling rather than nested inside `.project-instructions-head` — now sits on its own line exactly like GM's badge, instead of squeezed inline next to the title.
+- Fixed: **The project documents section could not be collapsed.** `#projectDocumentsToggle` was rendered in the template but had no click handler anywhere. Added `history-view.js#syncProjectDocumentsSection()` + wiring in `content.js#wireEvents`, plus `.project-documents-list.collapsed{display:none}` in `ui-styles.js`. New `state.projectDocumentsCollapsed` (default false — preserves current always-expanded look).
+- Added: **The injectable-blocks list (`#list`) is now collapsible.** Wrapped it in `#blocksSection` with a `section-header`/`#blocksCollapseBtn` (same component `historySection` already used), wired via new `content.js#syncBlocksSection()` + `state.blocksCollapsed`.
+- Fixed: **Code-project search input (`חיפוש לפי נתיב...`) had no styling and an RTL layout bug.** The bare `<input type="search">` in `code-tree.js#buildShell` matched neither the `#search` nor `#searchHistory` id selectors, so it rendered with default (LTR-biased) browser search-input chrome instead of the app's styled search box. Gave it `.code-tree-search-input` and folded that into the shared `#search, #searchHistory` rule set in `ui-styles.js`.
+
 ### 2026-07-19 — Panel opens to the Context tab by default
 - Changed: The sidebar now opens to the **Context** tab instead of History (`ui-template.js` — `.tab.active`/`.tab-pane.active` moved from `#pane-history`/its tab button to `#pane-context`/its tab button).
 - Fixed: `content.js#setPanelOpen` was calling `$el("searchHistory").focus()` unconditionally on every panel open, assuming History was the default tab. Now guarded to only focus it when the History tab is actually active, so it doesn't silently focus a hidden field in the History pane while Context is showing.

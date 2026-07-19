@@ -80,11 +80,10 @@ window.__ccbTpl = (() => {
                 <span class="toggle-track"></span>
               </label>
               <span class="gm-title">הנחיות הפרויקט</span>
-              <span id="projectInstructionsAutoBadge" class="auto-badge" style="display:none">נטען אוטומטית</span>
             </div>
             <button id="projectInstructionsEditBtn" type="button" class="gm-edit-btn">עריכה</button>
           </div>
-          <div id="projectInstructionsPreview" class="gm-preview"></div>
+          <span id="projectInstructionsAutoBadge" class="auto-badge" style="display:none">נטען אוטומטית</span>
           <div id="projectInstructionsPanel" class="project-accordion-panel collapsed">
             <div class="project-view-label">הנחיות</div>
             <textarea id="projectViewInstructions" placeholder="הנחיות הפרויקט..."></textarea>
@@ -96,7 +95,15 @@ window.__ccbTpl = (() => {
           <button id="addBtn" title="בלוק חדש" aria-label="הוסף בלוק חדש">${IC.plus}</button>
         </div>
         <div id="gmCard"></div>
-        <div id="list"></div>
+        <div id="blocksSection">
+          <div class="section-header">
+            <div class="section-head-left">
+              <button id="blocksCollapseBtn" type="button" class="collapse-btn" aria-label="סגור פרומפטים" title="סגור פרומפטים">${IC.chevronRight}</button>
+              <span class="section-label">פרומפטים להזרקה</span>
+            </div>
+          </div>
+          <div id="list"></div>
+        </div>
 
         <div id="codeProjectInfoRow" class="code-project-info-row" style="display:none">
           <span class="code-project-info-icon">${IC.folder}</span>

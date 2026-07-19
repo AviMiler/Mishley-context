@@ -67,6 +67,8 @@
     historyShowAll: false,
     historyCollapsed: false,
     projectInstructionsOpen: false,
+    projectDocumentsCollapsed: false,
+    blocksCollapsed: false,
     ctxWindow: CTX_WINDOW_DEFAULT,
     ctxWindowLoaded: false,
     gmAutoInjected: false,
@@ -485,6 +487,14 @@
       historyView.syncProjectInstructionsSection();
       if (state.projectInstructionsOpen) $el("projectViewInstructions")?.focus();
     });
+    $el("projectDocumentsToggle").addEventListener("click", () => {
+      state.projectDocumentsCollapsed = !state.projectDocumentsCollapsed;
+      historyView.syncProjectDocumentsSection();
+    });
+    $el("blocksCollapseBtn").addEventListener("click", () => {
+      state.blocksCollapsed = !state.blocksCollapsed;
+      syncBlocksSection();
+    });
     $el("projectInstructionsAutoToggle").addEventListener("change", async (e) => {
       const project = historyView.getProjectById(state.currentProjectId);
       if (!project) return;
@@ -707,10 +717,23 @@
   function render() {
     window.__ccbChat.renderGeneralMemory();
     renderUnifiedBlocksList();
+    syncBlocksSection();
     syncInjectDocsBtn();
     window.__ccbHistoryView.render();
     window.__ccbCtxMeter.watchConversation();
     window.__ccbCtxMeter.update();
+  }
+
+  function syncBlocksSection() {
+    const collapsed = state.blocksCollapsed;
+    const section = $el("blocksSection");
+    const btn = $el("blocksCollapseBtn");
+    if (section) section.classList.toggle("collapsed", collapsed);
+    if (btn) {
+      btn.classList.toggle("collapsed", collapsed);
+      btn.title = collapsed ? "פתח פרומפטים" : "סגור פרומפטים";
+      btn.setAttribute("aria-label", collapsed ? "פתח פרומפטים" : "סגור פרומפטים");
+    }
   }
 
   // ============================================================

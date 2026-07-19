@@ -192,6 +192,7 @@
     search.className = "search-wrap code-tree-search-wrap";
     const input = document.createElement("input");
     input.type = "search";
+    input.className = "code-tree-search-input";
     input.placeholder = "חיפוש לפי נתיב...";
     input.setAttribute("aria-label", "חיפוש קבצים");
     input.value = _query;
