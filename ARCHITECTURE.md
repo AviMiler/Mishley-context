@@ -1,5 +1,50 @@
 # Architecture — Chat Context Bank (v2)
 
+## Rejected: migrating the UI to `chrome.sidePanel`
+
+**Decision (2026-07-19): rejected. Do not re-propose without new information.**
+
+The UI is an injected Shadow-DOM panel inside the host page, not a real
+`chrome.sidePanel`. Moving it was scoped out in full and rejected — the payoff
+(native side-panel chrome) did not justify the breakage. Adding
+`side_panel.default_path` to `manifest.json` on its own is a **no-op**: it also
+needs the `sidePanel` permission, a `background.js` calling
+`chrome.sidePanel.setPanelBehavior`, and a `sidepanel.html` that actually hosts
+the UI.
+
+The migration is cheaper than it looks in one respect: the host-page DOM surface
+is only ~34 call sites across 6 files. `history-view.js` (1712 lines) touches the
+page **once**; `code-tree.js`, `ui-modals.js`, `dep-graph.js`, `fs-handles.js`,
+`storage.js`, `prompts.js`, `ui-styles.js` and `ui-template.js` touch it **zero**
+times — their `document.createElement` calls are context-portable. `push.js`
+would simply be deleted (Chrome reflows the page for a real side panel).
+
+What killed it — four consequences, the first being decisive:
+
+1. **All code-project folder bookmarks break.** `fs-handles.js` keeps
+   `FileSystemDirectoryHandle` objects in IndexedDB. A content script uses the
+   **host page's** origin (`gemini.google.com`); a side panel is a
+   `chrome-extension://` origin — a different database. Every bookmarked folder
+   would need re-picking. (`chrome.storage.local` is shared across both contexts,
+   so blocks, documents, instructions and prompts would survive; only the handles
+   are lost.) Keeping `fs-handles.js` page-side instead does not rescue it:
+   `showDirectoryPicker()` and `requestPermission()` need a user gesture, which
+   would now occur in the panel, not the page.
+2. **`MSG_SELECTORS` holds functions.** `messageText`, `aiMessageMatch` and
+   `userMessageMatch` (`config.js`) execute against live DOM nodes and cannot
+   cross `chrome.runtime` messaging. All capture logic — `captureConversation`,
+   `scrollAndCaptureAll`, and both MutationObservers — must run page-side and
+   hand the panel a finished `[{role,text}]`.
+3. **`File`/`Blob` do not survive messaging.** `docHandler.injectFilesToChat`
+   builds `File` objects and sets them on the page's `<input type="file">` via
+   `DataTransfer`. Solvable — pass only `docId`s and let the page agent read
+   `docBlob_<id>` from `chrome.storage` itself — but it moves the module boundary.
+4. **"One conversation per page load" stops working for free.** Today
+   `state.currentConversationId` resets because content scripts re-execute on
+   refresh. A side panel survives page refreshes *and* tab switches, so that
+   reset would have to be rebuilt on an explicit signal from the page agent —
+   otherwise consecutive chats merge into one saved block.
+
 ## Files
 
 | File              | Purpose                                                                       | Lines |
