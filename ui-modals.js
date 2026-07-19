@@ -247,21 +247,31 @@
   // defaults" and closing without saving both behave predictably.
   // ============================================================
   let _scanDraft = null;
+  // Per-list live filter text — display-only, never touches _scanDraft.
+  // Reset on every openScanSettings() so reopening the dialog starts clean.
+  let _scanSearch = {};
 
   const SCAN_LIST_FIELDS = [
-    { key: "denyDirs", listId: "scanDenyDirsList", inputId: "scanDenyDirsInput", addBtnId: "scanDenyDirsAddBtn" },
-    { key: "denyFilenames", listId: "scanDenyFilesList", inputId: "scanDenyFilesInput", addBtnId: "scanDenyFilesAddBtn" },
-    { key: "codeExtensions", listId: "scanExtList", inputId: "scanExtInput", addBtnId: "scanExtAddBtn" },
+    { key: "denyDirs", listId: "scanDenyDirsList", inputId: "scanDenyDirsInput", addBtnId: "scanDenyDirsAddBtn", searchId: "scanDenyDirsSearch" },
+    { key: "denyFilenames", listId: "scanDenyFilesList", inputId: "scanDenyFilesInput", addBtnId: "scanDenyFilesAddBtn", searchId: "scanDenyFilesSearch" },
+    { key: "codeExtensions", listId: "scanExtList", inputId: "scanExtInput", addBtnId: "scanExtAddBtn", searchId: "scanExtSearch" },
   ];
 
   // Same chip-row markup as history-view.js#renderIgnorePatternsList — the two
   // dialogs are deliberately visually identical, but each module renders its
   // own (no shared render helper exists between them today).
+  //
+  // The search box filters what's SHOWN, not the underlying data — a chip's
+  // remove button always splices _scanDraft[field.key] by its true index
+  // (captured via forEach on the unfiltered array before the query check), so
+  // removing a filtered-in item can't accidentally delete the wrong entry.
   function renderScanList(field) {
     const list = $el(field.listId);
     if (!list) return;
     const values = _scanDraft?.[field.key] || [];
+    const query = (_scanSearch[field.key] || "").trim().toLowerCase();
     list.innerHTML = "";
+
     if (!values.length) {
       const empty = document.createElement("div");
       empty.className = "ignore-patterns-empty";
@@ -269,7 +279,11 @@
       list.appendChild(empty);
       return;
     }
+
+    let shown = 0;
     values.forEach((value, idx) => {
+      if (query && !value.toLowerCase().includes(query)) return;
+      shown++;
       const row = document.createElement("div");
       row.className = "ignore-pattern-row";
       const name = document.createElement("span");
@@ -288,6 +302,13 @@
       row.appendChild(removeBtn);
       list.appendChild(row);
     });
+
+    if (!shown) {
+      const empty = document.createElement("div");
+      empty.className = "ignore-patterns-empty";
+      empty.textContent = "אין תוצאות מתאימות לחיפוש";
+      list.appendChild(empty);
+    }
   }
 
   function renderScanSettings() {
@@ -310,6 +331,7 @@
       codeExtensions: [...(current.codeExtensions || [])],
       maxFileSizeKb: current.maxFileSizeKb,
     };
+    _scanSearch = {};
 
     renderScanSettings();
     overlay.classList.add("show");
@@ -317,6 +339,14 @@
     // Clone each interactive element to strip listeners left over from a prior
     // open — same approach as history-view.js#openIgnorePatternsDialog.
     SCAN_LIST_FIELDS.forEach((field) => {
+      const searchInput = $el(field.searchId).cloneNode(true);
+      $el(field.searchId).replaceWith(searchInput);
+      searchInput.value = "";
+      searchInput.addEventListener("input", () => {
+        _scanSearch[field.key] = searchInput.value || "";
+        renderScanList(field);
+      });
+
       const input = $el(field.inputId).cloneNode(true);
       $el(field.inputId).replaceWith(input);
       input.value = "";
@@ -329,6 +359,10 @@
           if (val && !_scanDraft[field.key].includes(val)) _scanDraft[field.key].push(val);
         });
         input.value = "";
+        // Clear any active search — otherwise an item just added could be
+        // immediately hidden by a filter the user typed into a different box.
+        _scanSearch[field.key] = "";
+        searchInput.value = "";
         renderScanList(field);
         input.focus();
       };
@@ -357,11 +391,19 @@
     const overlay = $el("scanSettingsOverlay");
     if (overlay) overlay.classList.remove("show");
     _scanDraft = null;
+    _scanSearch = {};
   }
 
   // In-memory only — the user still has to press Save to persist.
   function resetScanSettingsToDefaults() {
     _scanDraft = _deps.getDefaultScanSettings();
+    // Clear any active search filters too — otherwise the just-restored
+    // defaults could appear to be "missing" behind a stale query.
+    _scanSearch = {};
+    SCAN_LIST_FIELDS.forEach((field) => {
+      const input = $el(field.searchId);
+      if (input) input.value = "";
+    });
     renderScanSettings();
     _deps.setStatus("שוחזרו ברירות המחדל — לחץ שמור");
   }

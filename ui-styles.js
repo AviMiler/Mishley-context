@@ -313,7 +313,7 @@ window.__ccbCSS = (() => {
       align-items: stretch;
     }
     .search-wrap { flex: 1; position: relative; }
-    #search, #searchHistory, .code-tree-search-input {
+    #search, #searchHistory, .code-tree-search-input, .scan-settings-search-input {
       width: 100%; height: 36px;
       padding: 0 32px 0 10px;
       border: 1px solid var(--border-input); border-radius: var(--r-input);
@@ -322,8 +322,8 @@ window.__ccbCSS = (() => {
       transition: border-color var(--t-fast);
       -webkit-appearance: none; appearance: none;
     }
-    #search:focus, #searchHistory:focus, .code-tree-search-input:focus { border-color: var(--text-faint); }
-    #search::placeholder, #searchHistory::placeholder, .code-tree-search-input::placeholder { color: var(--text-ghost); }
+    #search:focus, #searchHistory:focus, .code-tree-search-input:focus, .scan-settings-search-input:focus { border-color: var(--text-faint); }
+    #search::placeholder, #searchHistory::placeholder, .code-tree-search-input::placeholder, .scan-settings-search-input::placeholder { color: var(--text-ghost); }
     .section-header {
       display: flex;
       align-items: center;
@@ -1730,6 +1730,11 @@ window.__ccbCSS = (() => {
        so several sections stay reachable without a huge scroll. */
     .scan-settings-body .ignore-patterns-list { max-height: 140px; }
     .scan-settings-section .setting-row { margin: 0; }
+    /* Search box that filters each chip list live — a smaller, less
+       prominent variant of the same #search input (36px felt oversized
+       stacked between the add-row and a short list). */
+    .scan-settings-search-wrap { margin-bottom: 8px; }
+    .scan-settings-search-input { height: 30px; font-size: 12px; padding: 0 28px 0 8px; }
 
     /* Code project file tree — rendered inline inside the open project's
        documents section (#projectDocumentsList), owned by code-tree.js. */

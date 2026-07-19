@@ -2,6 +2,12 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-19 — Search/filter box on each global scan-settings list
+- Added: **a live search input above each of the three chip lists in the global scan-settings dialog** (`#scanDenyDirsSearch`/`#scanDenyFilesSearch`/`#scanExtSearch`, next to their `denyDirs`/`denyFilenames`/`codeExtensions` lists) — types-as-you-go, case-insensitive substring match, display-only (never mutates the underlying draft array). Reuses the existing `#search`/`.code-tree-search-input` styling (smaller variant, `.scan-settings-search-input`), so no new visual language.
+- Fixed a subtle correctness detail: since removing an item still has to splice the *true* array index (captured from the unfiltered list, not the filtered/rendered position), a chip's remove button keeps working correctly regardless of an active search filter.
+- Adding a new item, or clicking "אפס לברירת מחדל", now also clears that list's search box — otherwise a just-added or just-restored entry could appear to silently vanish behind a stale filter.
+- See [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ### 2026-07-19 — Global code-project scan rules exposed as editable settings
 - Added: **the previously hardcoded code-project scan rules are now editable, pre-filled settings** under Advanced Options → "קבצים לסריקת פרויקטי קוד" (`#scanSettingsBtn` → `#scanSettingsOverlay`). Four sections: folders to exclude, files/patterns to exclude (globs supported), file extensions to scan, and the max file size in KB. Each list is the same chip-list UI as the existing per-project ignore dialog (reuses `.ignore-patterns-*` CSS verbatim), pre-populated with today's built-in values so existing behavior is unchanged — just visible and editable now. Applies to **every** code project; the per-project ignore list (`project.ignorePatterns`) remains a separate, additional exclude layer on top.
 - Added: **storage key `chrome.storage.local["ccb_scanSettings"]`** — `{ denyDirs, denyFilenames, codeExtensions, maxFileSizeKb }`. Seeded from `document-handler.js#getDefaultScanSettings()` on first load and persisted immediately, so the dialog always shows exactly what the scanner uses. Loaded in `content.js#loadScanSettings()` / written by `saveScanSettings()`, mirroring the existing `loadCtxWindow`/`setCtxWindow` pattern. Each field falls back to its default individually, so a partial/legacy stored object can never leave a filter undefined (an empty `codeExtensions` would otherwise mean "scan every file").

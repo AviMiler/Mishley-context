@@ -236,6 +236,10 @@ window.__ccbTpl = (() => {
                 <input type="text" id="scanDenyDirsInput" class="doc-url-input" placeholder="לדוגמה: node_modules, dist" />
                 <button id="scanDenyDirsAddBtn" type="button" class="gm-edit-btn">${IC.plus} הוסף</button>
               </div>
+              <div class="search-wrap scan-settings-search-wrap">
+                <input type="search" id="scanDenyDirsSearch" class="scan-settings-search-input" placeholder="חיפוש ברשימה..." aria-label="חיפוש בתיקיות להחרגה" />
+                <span class="search-icon">${IC.search}</span>
+              </div>
               <div id="scanDenyDirsList" class="ignore-patterns-list"></div>
             </div>
 
@@ -246,6 +250,10 @@ window.__ccbTpl = (() => {
                 <input type="text" id="scanDenyFilesInput" class="doc-url-input" placeholder="לדוגמה: package.json, *.min.js" />
                 <button id="scanDenyFilesAddBtn" type="button" class="gm-edit-btn">${IC.plus} הוסף</button>
               </div>
+              <div class="search-wrap scan-settings-search-wrap">
+                <input type="search" id="scanDenyFilesSearch" class="scan-settings-search-input" placeholder="חיפוש ברשימה..." aria-label="חיפוש בקבצים להחרגה" />
+                <span class="search-icon">${IC.search}</span>
+              </div>
               <div id="scanDenyFilesList" class="ignore-patterns-list"></div>
             </div>
 
@@ -255,6 +263,10 @@ window.__ccbTpl = (() => {
               <div class="ignore-patterns-add-row">
                 <input type="text" id="scanExtInput" class="doc-url-input" placeholder="לדוגמה: js, ts, cs" />
                 <button id="scanExtAddBtn" type="button" class="gm-edit-btn">${IC.plus} הוסף</button>
+              </div>
+              <div class="search-wrap scan-settings-search-wrap">
+                <input type="search" id="scanExtSearch" class="scan-settings-search-input" placeholder="חיפוש ברשימה..." aria-label="חיפוש בסיומות" />
+                <span class="search-icon">${IC.search}</span>
               </div>
               <div id="scanExtList" class="ignore-patterns-list"></div>
             </div>
