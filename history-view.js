@@ -13,11 +13,10 @@
 //   updateNavMatch() / updateCvFooter()
 //   openHiDropdown(b, menuBtn) / closeHiDropdown()
 //   openProjectDropdown(project, menuBtn)
-//   syncCollapsibleSections() / syncProjectInstructionsSection()
+//   syncCollapsibleSections() / syncProjectDocumentsSection()
 //   getProjects() / getAllProjects() / getProjectById(id) / getConversationProject(b)
 //   buildHistoryMessages(b) / buildConversationInjectionText(messages, block, opts) / buildProjectSectionText(block)
 //   formatTranscript(messages) / formatAge(ts) / dateGroup(ts) / extractSnippet(text, q, fromIndex)
-//   saveProjectView()
 //   addProject()
 //   getCodeProjects()
 //   createCodeProjectBookmark() / rescanCodeProject(id) / loadCodeProjectAll(id)
@@ -242,22 +241,58 @@
     }
   }
 
-  function syncProjectInstructionsSection() {
-    const open = _deps.state.projectInstructionsOpen;
-    const panel = $el("projectInstructionsPanel");
-    const btn = $el("projectInstructionsToggle");
-    const editBtn = $el("projectInstructionsEditBtn");
-    if (panel) panel.classList.toggle("collapsed", !open);
-    if (btn) {
-      btn.classList.toggle("collapsed", !open);
-      btn.title = open ? "סגור עריכת הנחיות" : "פתח עריכת הנחיות";
-      btn.setAttribute("aria-label", open ? "סגור עריכת הנחיות" : "פתח עריכת הנחיות");
-      btn.setAttribute("aria-expanded", String(open));
-    }
-    if (editBtn) {
-      editBtn.textContent = open ? "סגור" : "עריכה";
-      editBtn.setAttribute("aria-label", open ? "סגור עריכת הנחיות" : "פתח עריכת הנחיות");
-    }
+  // Renders the project-instructions card exactly like chat-features.js#renderGeneralMemory:
+  // a toggle (autoLoad) + title header, an "auto-badge" below when on, and the
+  // WHOLE card clickable to open the shared block-edit form (openEdit) — no
+  // dedicated edit button, no inline accordion/textarea.
+  function renderProjectInstructionsCard(project) {
+    const card = $el("projectInstructionsCard");
+    if (!card) return;
+    const on = project.autoLoad !== false; // missing autoLoad defaults to ON
+
+    card.innerHTML = "";
+    const wrap = document.createElement("div");
+    wrap.className = "gm-card";
+    wrap.addEventListener("click", () => _deps.openEdit(project.id));
+
+    const header = document.createElement("div");
+    header.className = "gm-header";
+
+    const toggleLabel = document.createElement("label");
+    toggleLabel.className = "toggle";
+    toggleLabel.title = "טעינה אוטומטית של הנחיות הפרויקט בתחילת שיחה";
+    toggleLabel.addEventListener("click", (e) => e.stopPropagation());
+    const toggleInput = document.createElement("input");
+    toggleInput.type = "checkbox";
+    toggleInput.checked = on;
+    toggleInput.addEventListener("change", async () => {
+      await _deps.loadBlocks();
+      _deps.state.blocks[project.id].autoLoad = toggleInput.checked;
+      _deps.state.blocks[project.id].updated = Date.now();
+      await _deps.saveBlocks();
+      renderProjectInstructionsCard(_deps.state.blocks[project.id]);
+    });
+    const toggleTrack = document.createElement("span");
+    toggleTrack.className = "toggle-track";
+    toggleLabel.appendChild(toggleInput);
+    toggleLabel.appendChild(toggleTrack);
+
+    const title = document.createElement("span");
+    title.className = "gm-title";
+    title.textContent = "הנחיות הפרויקט";
+
+    const badge = document.createElement("span");
+    badge.className = "auto-badge";
+    badge.textContent = "נטען אוטומטית";
+    if (!on) badge.style.display = "none";
+
+    header.appendChild(toggleLabel);
+    header.appendChild(title);
+    wrap.appendChild(header);
+
+    if (on) wrap.appendChild(badge);
+
+    card.appendChild(wrap);
   }
 
   // ============================================================
@@ -663,17 +698,7 @@
 
     const instrCard = $el("projectInstructionsCard");
     if (instrCard) instrCard.style.display = project ? "block" : "none";
-    if (project) {
-      $el("projectViewInstructions").value = project.content || "";
-      syncProjectInstructionsSection();
-      // Missing autoLoad (older projects, or brand new ones) defaults to ON —
-      // preserves the pre-toggle behavior where every active project auto-loaded.
-      const autoOn = project.autoLoad !== false;
-      const autoToggle = $el("projectInstructionsAutoToggle");
-      if (autoToggle) autoToggle.checked = autoOn;
-      const autoBadge = $el("projectInstructionsAutoBadge");
-      if (autoBadge) autoBadge.style.display = autoOn ? "" : "none";
-    }
+    if (project) renderProjectInstructionsCard(project);
 
     const infoRow = $el("codeProjectInfoRow");
     if (infoRow) {
@@ -716,18 +741,6 @@
       btn.title = collapsed ? "פתח מסמכים" : "סגור מסמכים";
       btn.setAttribute("aria-label", collapsed ? "פתח מסמכים" : "סגור מסמכים");
     }
-  }
-
-  async function saveProjectView() {
-    const project = getProjectById(_deps.state.currentProjectId);
-    if (!project) return;
-    await _deps.loadBlocks();
-    const nextContent = ($el("projectViewInstructions")?.value || "").trim();
-    _deps.state.blocks[project.id].content = nextContent;
-    _deps.state.blocks[project.id].updated = Date.now();
-    await _deps.saveBlocks();
-    _deps.render();
-    _deps.setStatus("הפרויקט נשמר ✓");
   }
 
   async function addProject() {
@@ -1628,6 +1641,7 @@
      *   saveBlocks: () => Promise<void>,
      *   render: () => void,
      *   setStatus: (msg, isError?) => void,
+     *   openEdit: (id, prefill?) => void, // shared block-edit form — used by the instructions card's whole-card click
      * }} deps
      */
     init(deps) { _deps = deps; },
@@ -1646,7 +1660,6 @@
     closeHiDropdown,
     openProjectDropdown,
     syncCollapsibleSections,
-    syncProjectInstructionsSection,
     syncProjectDocumentsSection,
     getProjects,
     getAllProjects,
@@ -1659,7 +1672,6 @@
     formatAge,
     dateGroup,
     extractSnippet,
-    saveProjectView,
     addProject,
     renderProjectViewDocuments,
     openAddDocumentDialog,

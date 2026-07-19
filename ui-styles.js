@@ -715,21 +715,6 @@ window.__ccbCSS = (() => {
       white-space: pre-line;
     }
 
-    .project-instructions-card {
-      margin: 2px 18px 0;
-      padding: 12px 14px;
-      overflow: hidden;
-    }
-    .project-instructions-header {
-      align-items: center;
-    }
-    .project-instructions-head {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      min-width: 0;
-      flex: 1;
-    }
     /* Ensure project-related names respect RTL and truncate instead of expanding */
     .project-accordion-toggle, .project-picker-item {
       direction: rtl;
@@ -758,15 +743,6 @@ window.__ccbCSS = (() => {
       color: var(--text-faint);
       flex-shrink: 0;
     }
-    .project-accordion-panel {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      margin-top: 8px;
-    }
-    .project-accordion-panel.collapsed {
-      display: none;
-    }
     .project-view-label {
       font-size: 11px;
       font-weight: 600;
@@ -775,31 +751,6 @@ window.__ccbCSS = (() => {
       letter-spacing: 0.04em;
       padding: 0 2px;
     }
-    #projectViewInstructions {
-      width: 100%;
-      min-height: 120px;
-      resize: vertical;
-      border: 1px solid var(--border-input);
-      border-radius: var(--r-input);
-      padding: 10px;
-      font-size: 13px;
-      font-family: var(--font-he);
-      outline: none;
-      background: var(--bg-card);
-      color: var(--text-strong);
-    }
-    #projectViewSaveBtn {
-      height: 34px;
-      border: none;
-      border-radius: var(--r-input);
-      background: var(--text-strong);
-      color: var(--bg-app);
-      font-size: 13px;
-      font-weight: 600;
-      font-family: var(--font-he);
-      cursor: pointer;
-    }
-    #projectViewSaveBtn:hover { background: #2a2622; }
     .project-picker {
       display: flex;
       flex-direction: column;
@@ -864,6 +815,16 @@ window.__ccbCSS = (() => {
       transition: background var(--t-fast);
     }
     .gm-edit-btn:hover { background: #faf8f4; }
+
+    /* GM + project-instructions cards: the whole card opens the edit form on
+       click (toggle/checkbox stop propagation before it reaches here) */
+    #gmCard .gm-card, #projectInstructionsCard .gm-card {
+      cursor: pointer;
+      transition: border-color var(--t-fast), background var(--t-fast);
+    }
+    #gmCard .gm-card:hover, #projectInstructionsCard .gm-card:hover {
+      background: #fdfdfc; border-color: #e8e5df;
+    }
 
     /* Toggle switch */
     .toggle { position: relative; width: 36px; height: 20px; flex-shrink: 0; cursor: pointer; }

@@ -43,12 +43,16 @@
     card.innerHTML = "";
     const wrap = document.createElement("div");
     wrap.className = "gm-card";
+    wrap.addEventListener("click", () =>
+      _deps.openEdit(GM_ID, { title: "זיכרון כללי", content, tags: "" }),
+    );
 
     const header = document.createElement("div");
     header.className = "gm-header";
 
     const selectLabel = document.createElement("label");
     selectLabel.className = "cb-wrap gm-select";
+    selectLabel.addEventListener("click", (e) => e.stopPropagation());
     const selectInput = document.createElement("input");
     selectInput.type = "checkbox";
     selectInput.checked = selectedForInject;
@@ -67,6 +71,7 @@
 
     const toggleLabel = document.createElement("label");
     toggleLabel.className = "toggle";
+    toggleLabel.addEventListener("click", (e) => e.stopPropagation());
     const toggleInput = document.createElement("input");
     toggleInput.type = "checkbox";
     toggleInput.checked = on;
@@ -95,17 +100,9 @@
     badge.textContent = "נטען אוטומטית";
     if (!on) badge.style.display = "none";
 
-    const editBtn = document.createElement("button");
-    editBtn.className = "gm-edit-btn";
-    editBtn.textContent = "עריכה";
-    editBtn.addEventListener("click", () =>
-      _deps.openEdit(GM_ID, { title: "זיכרון כללי", content, tags: "" }),
-    );
-
     header.appendChild(selectLabel);
     header.appendChild(toggleLabel);
     header.appendChild(title);
-    header.appendChild(editBtn);
     wrap.appendChild(header);
 
     if (on) wrap.appendChild(badge);

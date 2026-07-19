@@ -66,7 +66,6 @@
     // everything. Transient (resets each panel session), like historySearchMode.
     historyShowAll: false,
     historyCollapsed: false,
-    projectInstructionsOpen: false,
     projectDocumentsCollapsed: false,
     blocksCollapsed: false,
     ctxWindow: CTX_WINDOW_DEFAULT,
@@ -287,6 +286,7 @@
       setStatus,
       inject: ccbInject,
       sendButtonSel: SEND_BUTTON_SELECTOR,
+      openEdit,
     });
 
     chat.init({
@@ -444,7 +444,6 @@
     $el("addCodeProjectBtn").addEventListener("click", () => void historyView.createCodeProjectBookmark());
     $el("projectSelect").addEventListener("change", async (e) => {
       await historyView.setActiveProjectId(e.target.value || null);
-      state.projectInstructionsOpen = false;
       render();
     });
     $el("historyShowAll").addEventListener("change", (e) => {
@@ -477,16 +476,6 @@
     $el("saveBtn").addEventListener("click", saveEdit);
     $el("cancelBtn").addEventListener("click", closeEdit);
     $el("deleteBtn").addEventListener("click", deleteEdit);
-    $el("projectInstructionsToggle").addEventListener("click", () => {
-      state.projectInstructionsOpen = !state.projectInstructionsOpen;
-      historyView.syncProjectInstructionsSection();
-      if (state.projectInstructionsOpen) $el("projectViewInstructions")?.focus();
-    });
-    $el("projectInstructionsEditBtn").addEventListener("click", () => {
-      state.projectInstructionsOpen = !state.projectInstructionsOpen;
-      historyView.syncProjectInstructionsSection();
-      if (state.projectInstructionsOpen) $el("projectViewInstructions")?.focus();
-    });
     $el("projectDocumentsToggle").addEventListener("click", () => {
       state.projectDocumentsCollapsed = !state.projectDocumentsCollapsed;
       historyView.syncProjectDocumentsSection();
@@ -494,15 +483,6 @@
     $el("blocksCollapseBtn").addEventListener("click", () => {
       state.blocksCollapsed = !state.blocksCollapsed;
       syncBlocksSection();
-    });
-    $el("projectInstructionsAutoToggle").addEventListener("change", async (e) => {
-      const project = historyView.getProjectById(state.currentProjectId);
-      if (!project) return;
-      await loadBlocks();
-      state.blocks[project.id].autoLoad = e.target.checked;
-      state.blocks[project.id].updated = Date.now();
-      await saveBlocks();
-      historyView.renderProjectContext();
     });
 
     const ctxExpand = $el("ccb-ctx-expand");
@@ -529,7 +509,6 @@
       });
     }
 
-    $el("projectViewSaveBtn").addEventListener("click", () => void historyView.saveProjectView());
     $el("projectEditBtn").addEventListener("click", (e) => {
       e.stopPropagation();
       const project = historyView.getProjectById(state.currentProjectId);
@@ -884,7 +863,10 @@
     $el("editTitle").value = b ? b.title : prefill?.title || "";
     $el("editTags").value = b ? (b.tags || []).join(", ") : prefill?.tags || "";
     $el("editContent").value = b ? b.content : prefill?.content || "";
-    $el("deleteBtn").style.display = id ? "block" : "none";
+    // Project blocks have their own delete flow (openProjectDropdown) that
+    // also cleans up child blocks/conversation links — this generic delete
+    // doesn't, so it stays hidden for kind:"project".
+    $el("deleteBtn").style.display = id && b?.kind !== "project" ? "block" : "none";
 
     // Show which project this block belongs to: an existing block's own
     // projectId, or — for a brand-new block — the currently active project
@@ -923,14 +905,14 @@
       state.editingId ||
       "b_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
     const existing = state.blocks[id];
-    state.blocks[id] = { id, title, content, tags, updated: Date.now() };
-    if (existing?.kind) state.blocks[id].kind = existing.kind;
-    if (existing?.autoLoad !== undefined)
-      state.blocks[id].autoLoad = existing.autoLoad;
-    // Preserve projectId on edit; a brand-new block is created into whichever
-    // project is currently active (or general, if none is).
-    if (existing?.projectId) state.blocks[id].projectId = existing.projectId;
-    else if (!existing && state.currentProjectId)
+    // Spread existing first so fields the form doesn't know about (kind,
+    // autoLoad, projectId, and — critically — a project's documents/
+    // isCodeProject/dirHandleId/lastScanned/depGraph) survive an edit
+    // instead of being silently dropped.
+    state.blocks[id] = { ...existing, id, title, content, tags, updated: Date.now() };
+    // A brand-new block is created into whichever project is currently
+    // active (or general, if none is); an existing block keeps its own.
+    if (!existing && state.currentProjectId)
       state.blocks[id].projectId = state.currentProjectId;
     await saveBlocks();
     closeEdit();

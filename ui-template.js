@@ -84,25 +84,7 @@ window.__ccbTpl = (() => {
             </div>
             <div id="gmCard"></div>
 
-            <div id="projectInstructionsCard" class="gm-card project-instructions-card" style="display:none">
-              <div class="gm-header project-instructions-header">
-                <div class="project-instructions-head">
-                  <button id="projectInstructionsToggle" type="button" class="collapse-btn collapsed" aria-label="פתח או סגור עריכת הנחיות" title="פתח או סגור עריכת הנחיות">${IC.chevronRight}</button>
-                  <label class="toggle" title="טעינה אוטומטית של הנחיות הפרויקט בתחילת שיחה">
-                    <input type="checkbox" id="projectInstructionsAutoToggle" />
-                    <span class="toggle-track"></span>
-                  </label>
-                  <span class="gm-title">הנחיות הפרויקט</span>
-                </div>
-                <button id="projectInstructionsEditBtn" type="button" class="gm-edit-btn">עריכה</button>
-              </div>
-              <span id="projectInstructionsAutoBadge" class="auto-badge" style="display:none">נטען אוטומטית</span>
-              <div id="projectInstructionsPanel" class="project-accordion-panel collapsed">
-                <div class="project-view-label">הנחיות</div>
-                <textarea id="projectViewInstructions" placeholder="הנחיות הפרויקט..."></textarea>
-                <button id="projectViewSaveBtn" type="button">שמור</button>
-              </div>
-            </div>
+            <div id="projectInstructionsCard" style="display:none"></div>
 
             <div id="list"></div>
           </div>

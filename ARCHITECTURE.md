@@ -269,9 +269,9 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | `renderUnifiedBlocksList()`     | Renders `#list`: general blocks (no `projectId`) plus the active project's own blocks, the latter tagged with `.ctx-proj-tag` (project title). Blocks owned by a *different* project stay hidden. |
 | `updateInjectBtn()`             | Updates "טען נבחרים" button state + count pill                    |
 | `hasUnsavedChanges()`           | Checks if the edit form differs from the saved block              |
-| `openEdit(id, prefill)`         | Opens edit form; id=null for new block. Also resolves the block's project (an existing block's own `projectId`, or — for a new block — the active `state.currentProjectId`) and shows/hides the `#editProjectTag` pill (folder icon + project title) — the full-panel edit form otherwise hides all project context |
+| `openEdit(id, prefill)`         | Opens edit form; id=null for new block. Also resolves the block's project (an existing block's own `projectId`, or — for a new block — the active `state.currentProjectId`) and shows/hides the `#editProjectTag` pill (folder icon + project title) — the full-panel edit form otherwise hides all project context. Hides `#deleteBtn` when the block being edited is `kind:"project"` — project deletion needs `history-view.js#openProjectDropdown`'s cleanup (child blocks, active-project reset), which this generic delete doesn't do. Called directly on click of the whole GM/instructions card (see Features overview) |
 | `closeEdit()`                   | Exits edit mode, clears form                                      |
-| `saveEdit()`                    | Validates and saves form to `state.blocks`                        |
+| `saveEdit()`                    | Validates and saves form to `state.blocks` — spreads the existing block first (`{ ...existing, id, title, content, tags, updated }`) so fields the form doesn't touch (`kind`, `autoLoad`, `projectId`, and a project's `documents`/`isCodeProject`/`dirHandleId`/`lastScanned`/`depGraph`) survive an edit instead of being dropped |
 | `deleteEdit()`                  | Confirms (via modals) and deletes the block being edited          |
 
 ### Backup
@@ -342,12 +342,13 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | ------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | `render()`                                              | Full re-render: collapsibles → project selector → history list → project context             |
 | `renderProjectSelect()`                                 | Populates the global `<select id="projectSelect">` (`#globalProjectBar`, above both tabs) with all projects (regular + code, code prefixed with 📁) plus a "ללא פרויקט" option |
-| `renderProjectContext()`                                | Shows/hides + fills the active project's instructions card and documents section (code projects render the inline file tree via `__ccbCodeTree.renderInline` inside `#projectDocumentsList`); both hidden when no project is active. Also syncs `#projectInstructionsAutoToggle` (checked = `project.autoLoad !== false`) and `#projectInstructionsAutoBadge` visibility to the same toggle state — the visual counterpart to `chat-features.js#_getActiveProjectInstructions`'s gate. Calls `syncProjectDocumentsSection()` after rendering documents |
+| `renderProjectContext()`                                | Shows/hides `#projectInstructionsCard` and the documents section (code projects render the inline file tree via `__ccbCodeTree.renderInline` inside `#projectDocumentsList`); both hidden when no project is active. Calls `renderProjectInstructionsCard(project)` and, after rendering documents, `syncProjectDocumentsSection()` |
+| `renderProjectInstructionsCard(project)`                | Builds the instructions card exactly like `chat-features.js#renderGeneralMemory`: an `.auto-badge`-below-header `.gm-card` with an `autoLoad` toggle (missing `autoLoad` defaults to ON) + fixed title "הנחיות הפרויקט", **no edit button** — the whole card's `click` opens `openEdit(project.id)` (the toggle `stopPropagation()`s so flipping it doesn't also open the form) |
 | `syncProjectDocumentsSection()`                          | Toggles `.collapsed` on `#projectDocumentsList` + `#projectDocumentsToggle` per `state.projectDocumentsCollapsed` — same collapse pattern as `syncCollapsibleSections`' history section, but scoped to the documents list (works for both the flat regular-project list and the code-project inline file tree, since both render into the same `#projectDocumentsList` mount) |
 | `syncHistoryProjectFilterRow()`                         | Shows/hides `#historyProjectFilterRow` ("מציג שיחות של: …" + "הצג את כל השיחות" checkbox) based on whether a project is active |
 | `renderHistoryList()`                                   | Renders the history list (title-search or content-search), pinned + grouped — filtered to the active project's conversations unless `state.historyShowAll` is set or no project is active |
 | `createHistoryRow(b, opts)`                             | Builds a single conversation row (with optional snippet + project tag)                       |
-| `syncCollapsibleSections()` / `syncProjectInstructionsSection()` | Updates the section-collapse chevrons and ARIA state                                 |
+| `syncCollapsibleSections()`                             | Updates the History section's collapse chevron + ARIA state                                  |
 
 ### Project actions
 
@@ -355,8 +356,7 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | --------------------------------- | -------------------------------------------------------------------- |
 | `loadActiveProjectId()` / `setActiveProjectId(id)` | Loads/persists the active project (`chrome.storage.local.activeProjectId`); `loadActiveProjectId` is idempotent (guarded by `state.activeProjectLoaded`), both validate the id via `getProjectById` |
 | `addProject()`                    | Prompts (via modals), creates a new project block, and makes it active |
-| `saveProjectView()`               | Persists the active project's instructions                          |
-| `openProjectDropdown(project, menuBtn)` | Rename / delete dropdown for a project                        |
+| `openProjectDropdown(project, menuBtn)` | Rename / delete dropdown for a project — the only safe path to delete a project (cleans up child blocks + conversation links + active-project reset); `content.js#deleteEdit` refuses this by hiding `#deleteBtn` for `kind:"project"` |
 
 ### Conversation preview panel
 
@@ -423,8 +423,9 @@ Requires the `unlimitedStorage` permission (manifest.json) since file blobs and 
 Builds a best-effort, deterministic import/reference graph for a scanned code project — no AI involved. Used by `code-tree.js`'s "load with dependencies" menu.
 
 - **JS/TS/JSX**: resolves `import`/`export …from`/`require`/dynamic `import()` to files. Handles relative paths, `@/`/`~/` alias imports (tried against `src/` then project root), and is case-insensitive as a fallback.
-- **C#**: builds a namespace/class symbol table, then does a best-effort text scan for referenced type names, preferring matches in the file's own namespace or `using`s.
-- Both use a shared comment/string scanner (`scanRegions`) so regex passes aren't confused by code-like text inside strings/comments. Neither resolver is 100% — dynamic dispatch (computed member access, reflection, `eval`, virtual/interface calls) can't be resolved statically.
+- **C#**: builds a namespace/class symbol table (`buildCsharpSymbolTable`), then `analyzeCsharpFile` does a best-effort text scan for referenced type names, preferring matches in the file's own namespace or `using`s.
+- **Razor (`.cshtml`/`.razor`)**: `analyzeRazorFile` reuses the same C# symbol table — it declares no types of its own, so any known type name found anywhere in the markup (`@model`, `@inject`, tag helpers, embedded `@{ }` C# blocks) becomes a dependency edge, filtered by `@using` directives (`extractRazorUsings`) the same way C# `using`s filter candidates. Code-behind pairs (`Foo.cshtml`↔`Foo.cshtml.cs`, `Foo.razor`↔`Foo.razor.cs`) additionally get a guaranteed bidirectional edge in `buildGraph()` regardless of whether either side textually references the other — they're one logical unit split across two files.
+- All three share a comment/string scanner (`scanRegions`) so regex passes aren't confused by code-like text inside strings/comments; Razor gets its own `lang: "razor"` branch there for `@* ... *@` and `<!-- ... -->`. None of the resolvers are 100% — dynamic dispatch (computed member access, reflection, `eval`, virtual/interface calls, DI-container-injected services, partial-view names passed as strings) can't be resolved statically.
 
 `buildGraph(included)` is called right after `scanCodeProject` while file content is still in memory. `getTransitiveClosure` (BFS, cycle-safe) gives "dependencies"; `getDirectDependents` (one hop, not transitive) gives "dependents"; `getFullContext` combines both.
 
@@ -443,7 +444,7 @@ Builds a best-effort, deterministic import/reference graph for a scanned code pr
 | Function                | Description                                                                                |
 | ----------------------- | ------------------------------------------------------------------------------------------ |
 | `getGM()`               | Returns the GM block from `state.blocks` (with `title: "זיכרון כללי"` default)            |
-| `renderGeneralMemory()` | Renders the GM card in the context tab (select-for-inject checkbox + autoLoad toggle)      |
+| `renderGeneralMemory()` | Renders the GM card in the context tab (select-for-inject checkbox + autoLoad toggle). No edit button — the whole card's `click` opens `openEdit(GM_ID, ...)`; the checkbox/toggle `stopPropagation()` so using them doesn't also open the form |
 | `tryAutoInject()`       | Polls for input readiness, injects GM **and the active project's instructions** at *conversation start only*, clicks send |
 | `_getActiveProjectInstructions()` | `## title\ncontent` for the active project (`state.currentProjectId`), or `null`. **Instructions only** — deliberately not `buildProjectSectionText`, which also inlines every enabled document (tens of thousands of tokens for a code project); documents stay behind the explicit footer `#injectDocsBtn` |
 | `_autoInjectPayload()`  | Builds `{ text, hasGm, hasProject }` — GM block (if `autoLoad` + content) and/or the project-instructions block, wrapped in `FRAMING_GM_*` / `FRAMING_PROJ_*`, joined into ONE injection |
@@ -452,7 +453,7 @@ Builds a best-effort, deterministic import/reference graph for a scanned code pr
 **Auto-inject at conversation start** covers two independent sources, either of which alone triggers it:
 
 - **General Memory** — gated on `gm.autoLoad` + non-empty content (unchanged).
-- **Active project instructions** — gated on a project being active (`state.currentProjectId`), `project.autoLoad !== false`, + non-empty `content`. `project.autoLoad` is an explicit per-project toggle (`#projectInstructionsAutoToggle` in the instructions card header, same `.toggle` markup as GM's), wired in `content.js#wireEvents`. **Missing `autoLoad` defaults to ON** — both the toggle's checked state and the actual gate treat `undefined` as `true`, so older projects (created before the toggle existed) keep auto-loading without a migration step. The Context tab's `#projectInstructionsAutoBadge` ("נטען אוטומטית") reflects the toggle state, not the content — it shows even when instructions are empty, since it communicates intent ("this project *will* auto-load once you write something"), matching the GM card's badge pattern.
+- **Active project instructions** — gated on a project being active (`state.currentProjectId`), `project.autoLoad !== false`, + non-empty `content`. `project.autoLoad` is an explicit per-project toggle, built dynamically inside `history-view.js#renderProjectInstructionsCard` (same `.toggle` markup as GM's, wired inline — no static id, no `content.js#wireEvents` entry). **Missing `autoLoad` defaults to ON** — both the toggle's checked state and the actual gate treat `undefined` as `true`, so older projects (created before the toggle existed) keep auto-loading without a migration step. The instructions card's `.auto-badge` ("נטען אוטומטית") reflects the toggle state, not the content — it shows even when instructions are empty, since it communicates intent ("this project *will* auto-load once you write something"), matching the GM card's badge pattern.
 
 Both are concatenated into a **single** `injectIntoInput(..., "prepend")` call (two sequential injections are unreliable on Gemini — same reason as the continuation flow). The payload is computed **at inject time**, not when `tryAutoInject` is called: the fallback `MutationObserver` has no timeout, so the user may switch project or edit GM in between, and reading late keeps the injection consistent with the current selection.
 
