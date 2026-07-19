@@ -758,6 +758,11 @@
     if (instrCard) instrCard.style.display = project ? "block" : "none";
     if (project) renderProjectInstructionsCard(project);
 
+    const injectInstrBtn = $el("injectInstructionsBtn");
+    if (injectInstrBtn) {
+      injectInstrBtn.style.display = project && (project.content || "").trim() ? "flex" : "none";
+    }
+
     const docsCard = $el("projectDocumentsCard");
     if (docsCard) docsCard.style.display = project ? "block" : "none";
     if (project) {
@@ -1363,6 +1368,29 @@
 
   }
 
+  // Manual load of the active project's instructions — distinct from the
+  // passive autoLoad toggle (conversation-start only). Same "don't auto-send"
+  // convention as injectProjectDocuments/cvLoadBtn: loads the text, the user
+  // reviews/edits/sends themselves.
+  function injectProjectInstructions() {
+    const project = getProjectById(_deps.state.currentProjectId);
+    const content = (project?.content || "").trim();
+    if (!content) {
+      _deps.setStatus("אין הנחיות לפרויקט הזה", true);
+      return;
+    }
+    const f = _deps.framing;
+    const INJECTED_PREFIX = "[[CCB:INJECTED]]\n";
+    const body = "## " + project.title + "\n" + content;
+    const text = (f.projPre || INJECTED_PREFIX) + body + (f.projPost || "\n\n");
+    const r = _deps.inject.injectIntoInput(text, "prepend");
+    if (r.ok) {
+      _deps.setStatus("הנחיות נטענו — ניתן לערוך ולשלוח ✓");
+    } else {
+      _deps.setStatus(r.error || "נכשל", true);
+    }
+  }
+
   async function injectProjectDocuments() {
     const project = getProjectById(_deps.state.currentProjectId);
     if (!project) return;
@@ -1702,6 +1730,7 @@
     renderProjectViewDocuments,
     openAddDocumentDialog,
     injectProjectDocuments,
+    injectProjectInstructions,
     getDocumentIcon,
     getCodeProjects,
     createCodeProjectBookmark,

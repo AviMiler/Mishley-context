@@ -435,6 +435,7 @@
     $el("addBtn").addEventListener("click", () => openEdit(null));
     $el("injectBtn").addEventListener("click", () => chat.injectSelected());
     $el("injectDocsBtn").addEventListener("click", () => historyView.injectProjectDocuments());
+    $el("injectInstructionsBtn").addEventListener("click", () => historyView.injectProjectInstructions());
     $el("summarizeBtnHistory").addEventListener("click", () => void chat.saveChat());
     $el("saveBtn").addEventListener("click", saveEdit);
     $el("cancelBtn").addEventListener("click", closeEdit);

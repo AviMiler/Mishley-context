@@ -84,11 +84,12 @@ window.__ccbTpl = (() => {
               <button id="blocksCollapseBtn" type="button" class="collapse-btn" aria-label="סגור פרומפטים" title="סגור פרומפטים">${IC.chevronRight}</button>
               <span class="section-label">פרומפטים להזרקה</span>
             </div>
+            <div class="section-head-right">
+              <button id="injectInstructionsBtn" type="button" aria-label="טען הנחיות פרויקט" title="טען הנחיות פרויקט" style="display:none">${IC.upload}</button>
+              <button id="addBtn" type="button" title="בלוק חדש" aria-label="הוסף בלוק חדש">${IC.plus}</button>
+            </div>
           </div>
           <div id="blocksSectionBody">
-            <div class="context-toolbar">
-              <button id="addBtn" title="בלוק חדש" aria-label="הוסף בלוק חדש">${IC.plus}</button>
-            </div>
             <div id="gmCard"></div>
 
             <div id="projectInstructionsCard" style="display:none"></div>

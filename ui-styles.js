@@ -312,10 +312,6 @@ window.__ccbCSS = (() => {
       gap: 8px;
       align-items: stretch;
     }
-    #pane-context .context-toolbar {
-      flex-shrink: 0;
-      justify-content: flex-end;
-    }
     .search-wrap { flex: 1; position: relative; }
     #search, #searchHistory, .code-tree-search-input {
       width: 100%; height: 36px;
@@ -377,7 +373,7 @@ window.__ccbCSS = (() => {
     }
     .collapse-btn.collapsed svg { transform: rotate(0deg); }
     .collapse-btn:not(.collapsed) svg { transform: rotate(-90deg); }
-    #addProjectBtn, #addCodeProjectBtn, #projectEditBtn {
+    #addProjectBtn, #addCodeProjectBtn, #projectEditBtn, #addBtn, #injectInstructionsBtn {
       width: 22px;
       height: 22px;
       border: 1px solid var(--border-input);
@@ -391,7 +387,7 @@ window.__ccbCSS = (() => {
       padding: 0;
       flex-shrink: 0;
     }
-    #addProjectBtn:hover, #addCodeProjectBtn:hover, #projectEditBtn:hover { background: var(--bg-tag); }
+    #addProjectBtn:hover, #addCodeProjectBtn:hover, #projectEditBtn:hover, #addBtn:hover, #injectInstructionsBtn:hover { background: var(--bg-tag); }
     #historySection {
       flex: 0;
       min-height: 0;
@@ -502,16 +498,6 @@ window.__ccbCSS = (() => {
       color: var(--text-ghost); pointer-events: none;
       display: flex; align-items: center;
     }
-    #addBtn {
-      width: 28px; height: 28px; flex-shrink: 0;
-      border: none; background: var(--text-strong);
-      border-radius: 50%; cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      color: var(--bg-app); font-family: var(--font-he);
-      box-shadow: 0 1px 3px rgba(0,0,0,.15);
-      transition: background var(--t-fast), transform var(--t-fast);
-    }
-    #addBtn:hover { background: #2a2622; transform: scale(1.06); }
 
     /* ── Block list ── */
     #list, #historyList {

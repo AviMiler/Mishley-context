@@ -2,6 +2,10 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-19 — Manual "load instructions" action; "+" restyled and moved into the header row
+- Added: **manual load of the active project's instructions** — `#injectInstructionsBtn` (upload icon) in `#blocksSection`'s header, next to `#addBtn`. Shown only when the active project has non-empty instructions. `history-view.js#injectProjectInstructions()` wraps the instructions in `FRAMING_PROJ_PRE`/`POST` and injects via `injectIntoInput(text, "prepend")` — does not auto-send, same convention as `injectProjectDocuments()`/`cvLoadBtn`. This is separate from the `autoLoad` toggle, which only fires passively at conversation start.
+- Changed: **`#addBtn` moved out of its own toolbar row into `#blocksSection`'s `.section-header`** (the same row as "פרומפטים להזרקה"), restyled from the circular dark button to match `#addProjectBtn`/`#addCodeProjectBtn`/`#projectEditBtn` — small (22×22), square, bordered, light `--bg-card` background. Removed the now-empty `.context-toolbar` wrapper from `ui-template.js` and its now-dead `#pane-context .context-toolbar` CSS override (`justify-content: flex-end`, added last session specifically to position the old floating button — no longer needed once it moved into a header row that's already laid out with `justify-content: space-between`).
+
 ### 2026-07-19 — "+ new block" button restyled and moved left
 - Changed: `#addBtn` (the "+" that opens a new block in the Context tab) shrunk from 36×36 to 28×28 and changed from a rounded-square filled button to a circular one with a subtle shadow and a small hover scale-up. Added `justify-content: flex-end` to `#pane-context .context-toolbar` — in this RTL layout, `flex-end` is the visual left, so the button moved from the row's default right-aligned position to the left. Scoped to `#pane-context` only — `#historyToolbar` in the History tab is untouched.
 
