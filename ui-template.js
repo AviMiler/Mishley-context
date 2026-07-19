@@ -71,6 +71,11 @@ window.__ccbTpl = (() => {
           </div>
         </div>
 
+        <div class="context-toolbar">
+          <button id="addBtn" title="בלוק חדש" aria-label="הוסף בלוק חדש">${IC.plus}</button>
+        </div>
+        <div id="gmCard"></div>
+
         <div id="projectInstructionsCard" class="gm-card project-instructions-card" style="display:none">
           <div class="gm-header project-instructions-header">
             <div class="project-instructions-head">
@@ -91,10 +96,6 @@ window.__ccbTpl = (() => {
           </div>
         </div>
 
-        <div class="context-toolbar">
-          <button id="addBtn" title="בלוק חדש" aria-label="הוסף בלוק חדש">${IC.plus}</button>
-        </div>
-        <div id="gmCard"></div>
         <div id="blocksSection">
           <div class="section-header">
             <div class="section-head-left">

@@ -2,6 +2,9 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-19 — Reorder Context tab: instructions card below GM
+- Changed: `#projectInstructionsCard` now renders directly below `#gmCard` instead of above the "+ new block" toolbar (`ui-template.js`). Pure DOM reorder — no ids or event wiring changed, since every reference goes through `$el(id)`.
+
 ### 2026-07-19 — Context tab polish: collapsibles, badge placement, doc-search RTL
 - Changed: **Removed the project-instructions content preview** (`#projectInstructionsPreview`) shown below the instructions header — the card no longer displays raw instruction text outside the accordion editor, matching GM (which never showed one either). Also removed the now-dead `.gm-preview` CSS (was unused by GM's own render).
 - Changed: **Moved `#projectInstructionsAutoBadge` below the header row**, as a direct sibling rather than nested inside `.project-instructions-head` — now sits on its own line exactly like GM's badge, instead of squeezed inline next to the title.
