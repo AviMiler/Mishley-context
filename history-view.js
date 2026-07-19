@@ -575,7 +575,10 @@
     _deps.setStatus("סורק פרויקט...");
     try {
       console.log("[ccb-scan][history-view] calling docHandler.scanCodeProject()");
-      const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle, _deps.state.blocks[id].ignorePatterns);
+      const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle, {
+        ..._deps.getScanSettings(),
+        ignorePatterns: _deps.state.blocks[id].ignorePatterns,
+      });
       console.log("[ccb-scan][history-view] scanCodeProject() returned", counts);
       // Built while `included` still holds full file content in memory — the
       // graph itself is just path strings, so it stays cheap to persist.
@@ -629,7 +632,10 @@
     _deps.setStatus("סורק פרויקט...");
     try {
       console.log("[ccb-scan][history-view] calling docHandler.scanCodeProject() (rescan)");
-      const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle, proj.ignorePatterns);
+      const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle, {
+        ..._deps.getScanSettings(),
+        ignorePatterns: proj.ignorePatterns,
+      });
       console.log("[ccb-scan][history-view] scanCodeProject() returned (rescan)", counts);
       proj.depGraph = window.__ccbDepGraph.buildGraph(included);
       await _deps.docHandler.syncCodeProjectDocuments(proj, included, dirHandle.name);

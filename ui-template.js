@@ -219,6 +219,65 @@ window.__ccbTpl = (() => {
         </div>
       </div>
 
+      <div class="dialog-overlay" id="scanSettingsOverlay">
+        <div class="dialog-box doc-dialog scan-settings-dialog">
+          <div class="dialog-title">קבצים לסריקת פרויקטי קוד</div>
+          <div class="ignore-patterns-hint">
+            הכללים כאן חלים על <strong>כל</strong> פרויקטי הקוד וקובעים אילו קבצים נסרקים.
+            כל פרויקט יכול להוסיף החרגות משלו דרך כפתור ההתעלמות שבראש רשימת הקבצים.
+            שינויים ייכנסו לתוקף בסריקה/רענון הבא של כל פרויקט.
+          </div>
+
+          <div class="scan-settings-body">
+            <div class="scan-settings-section">
+              <div class="scan-settings-label">תיקיות להחרגה</div>
+              <div class="ignore-patterns-hint">תיקיות שלא ייסרקו כלל (כולל כל מה שבתוכן).</div>
+              <div class="ignore-patterns-add-row">
+                <input type="text" id="scanDenyDirsInput" class="doc-url-input" placeholder="לדוגמה: node_modules, dist" />
+                <button id="scanDenyDirsAddBtn" type="button" class="gm-edit-btn">${IC.plus} הוסף</button>
+              </div>
+              <div id="scanDenyDirsList" class="ignore-patterns-list"></div>
+            </div>
+
+            <div class="scan-settings-section">
+              <div class="scan-settings-label">קבצים להחרגה</div>
+              <div class="ignore-patterns-hint">שמות קבצים או תבניות עם * (לדוגמה tsconfig*.json).</div>
+              <div class="ignore-patterns-add-row">
+                <input type="text" id="scanDenyFilesInput" class="doc-url-input" placeholder="לדוגמה: package.json, *.min.js" />
+                <button id="scanDenyFilesAddBtn" type="button" class="gm-edit-btn">${IC.plus} הוסף</button>
+              </div>
+              <div id="scanDenyFilesList" class="ignore-patterns-list"></div>
+            </div>
+
+            <div class="scan-settings-section">
+              <div class="scan-settings-label">סיומות קבצים לסריקה</div>
+              <div class="ignore-patterns-hint">רק קבצים עם הסיומות האלה ייסרקו. ללא נקודה.</div>
+              <div class="ignore-patterns-add-row">
+                <input type="text" id="scanExtInput" class="doc-url-input" placeholder="לדוגמה: js, ts, cs" />
+                <button id="scanExtAddBtn" type="button" class="gm-edit-btn">${IC.plus} הוסף</button>
+              </div>
+              <div id="scanExtList" class="ignore-patterns-list"></div>
+            </div>
+
+            <div class="scan-settings-section">
+              <div class="setting-row">
+                <div class="setting-row-label">
+                  <span class="setting-row-title">גודל קובץ מקסימלי</span>
+                  <span class="setting-row-sub">KB — קבצים גדולים יותר מדולגים</span>
+                </div>
+                <input id="scanMaxSizeInput" type="number" min="1" max="10240" step="10" value="200" />
+              </div>
+            </div>
+          </div>
+
+          <div class="dialog-btns">
+            <button class="dialog-confirm" id="scanSettingsSaveBtn">שמור</button>
+            <button class="dialog-cancel" id="scanSettingsResetBtn">אפס לברירת מחדל</button>
+            <button class="dialog-cancel" id="scanSettingsCloseBtn">סגור</button>
+          </div>
+        </div>
+      </div>
+
       <div class="settings-overlay" id="settingsOverlay">
         <div class="settings-box" id="settingsBox">
           <div class="settings-head">
@@ -252,6 +311,13 @@ window.__ccbTpl = (() => {
               <span class="settings-item-text">
                 <span class="settings-item-title">עריכת פרומפטים</span>
                 <span class="settings-item-sub">מסגרות הזרקה (FRAMING)</span>
+              </span>
+            </button>
+            <button class="settings-item" id="scanSettingsBtn" type="button">
+              <span class="settings-item-icon">${IC.ban}</span>
+              <span class="settings-item-text">
+                <span class="settings-item-title">קבצים לסריקת פרויקטי קוד</span>
+                <span class="settings-item-sub">תיקיות/קבצים להחרגה, סיומות, גודל מקסימלי</span>
               </span>
             </button>
           </div>

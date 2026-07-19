@@ -70,6 +70,11 @@
     blocksCollapsed: false,
     ctxWindow: CTX_WINDOW_DEFAULT,
     ctxWindowLoaded: false,
+    // Global code-project scan rules (which folders/files/extensions get
+    // scanned, and the per-file size cap). Seeded from document-handler.js's
+    // defaults on first load, then user-editable from Advanced Options.
+    scanSettings: null,
+    scanSettingsLoaded: false,
     gmAutoInjected: false,
     currentConversationViewId: null,
     cvSelectedIndices: new Set(),
@@ -156,6 +161,50 @@
     return val;
   }
 
+  // Global code-project scan rules. On first ever load there's no stored
+  // value, so we seed from document-handler.js's built-in defaults AND persist
+  // that immediately — so what the settings dialog shows is always exactly
+  // what the scanner uses, and existing users see today's behavior unchanged,
+  // just now visible and editable. Each field falls back individually so a
+  // partially-written object (older build, interrupted write) can't leave a
+  // filter undefined.
+  async function loadScanSettings() {
+    if (state.scanSettingsLoaded) return;
+    const defaults = window.__ccbDocHandler.getDefaultScanSettings();
+    const data = await new Promise((r) =>
+      chrome.storage.local.get("ccb_scanSettings", r),
+    );
+    const stored = data.ccb_scanSettings;
+    if (!stored) {
+      state.scanSettings = defaults;
+      await new Promise((r) =>
+        chrome.storage.local.set({ ccb_scanSettings: defaults }, r),
+      );
+    } else {
+      state.scanSettings = {
+        denyDirs: Array.isArray(stored.denyDirs) ? stored.denyDirs : defaults.denyDirs,
+        denyFilenames: Array.isArray(stored.denyFilenames) ? stored.denyFilenames : defaults.denyFilenames,
+        codeExtensions: Array.isArray(stored.codeExtensions) ? stored.codeExtensions : defaults.codeExtensions,
+        maxFileSizeKb: Number(stored.maxFileSizeKb) > 0 ? Number(stored.maxFileSizeKb) : defaults.maxFileSizeKb,
+      };
+    }
+    state.scanSettingsLoaded = true;
+  }
+
+  async function saveScanSettings(next) {
+    const defaults = window.__ccbDocHandler.getDefaultScanSettings();
+    const val = {
+      denyDirs: Array.isArray(next?.denyDirs) ? next.denyDirs : defaults.denyDirs,
+      denyFilenames: Array.isArray(next?.denyFilenames) ? next.denyFilenames : defaults.denyFilenames,
+      codeExtensions: Array.isArray(next?.codeExtensions) ? next.codeExtensions : defaults.codeExtensions,
+      maxFileSizeKb: Math.max(1, Number(next?.maxFileSizeKb) || defaults.maxFileSizeKb),
+    };
+    state.scanSettings = val;
+    state.scanSettingsLoaded = true;
+    await new Promise((r) => chrome.storage.local.set({ ccb_scanSettings: val }, r));
+    return val;
+  }
+
   // ============================================================
   // Mount
   // ============================================================
@@ -220,6 +269,13 @@
       loadCtxWindow,
       getCtxWindow: () => state.ctxWindow,
       getProjects: () => historyView.getAllProjects(),
+      loadScanSettings,
+      // Never null: falls back to the built-in defaults if a scan somehow
+      // fires before loadScanSettings() resolved, so a scan can't run with
+      // every filter silently disabled.
+      getScanSettings: () => state.scanSettings || docHandler.getDefaultScanSettings(),
+      saveScanSettings,
+      getDefaultScanSettings: () => docHandler.getDefaultScanSettings(),
     });
 
     docHandler.init({
@@ -249,6 +305,10 @@
       inject: ccbInject,
       openEdit,
       updateInjectBtn,
+      // Never null: falls back to the built-in defaults if a scan somehow
+      // fires before loadScanSettings() resolved, so a scan can't run with
+      // every filter silently disabled.
+      getScanSettings: () => state.scanSettings || docHandler.getDefaultScanSettings(),
     });
 
     chat.init({
@@ -323,7 +383,13 @@
       if (e.target === $el("settingsOverlay")) modals.closeSettings();
     });
     window.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") modals.closeSettings();
+      if (e.key === "Escape") {
+        modals.closeSettings();
+        modals.closeScanSettings();
+      }
+    });
+    $el("scanSettingsOverlay")?.addEventListener("click", (e) => {
+      if (e.target === $el("scanSettingsOverlay")) modals.closeScanSettings();
     });
     $el("exportBackupBtn").addEventListener("click", exportBackup);
     $el("importBackupBtn").addEventListener("click", () => {
@@ -333,6 +399,10 @@
     });
     $el("editPromptsBtn")?.addEventListener("click", () => {
       modals.openPromptsEditor();
+    });
+    $el("scanSettingsBtn")?.addEventListener("click", () => {
+      modals.closeSettings();
+      void modals.openScanSettings();
     });
     $el("importBackupInput").addEventListener("change", async () => {
       const file = $el("importBackupInput").files?.[0];
@@ -1090,6 +1160,7 @@
   async function init() {
     if (!isActiveSitePage()) return;
     await loadCtxWindow();
+    await loadScanSettings();
     // mountUI must run before chat module touches shadow DOM
     mountUI();
     window.__ccbChat.startMsgObserver();

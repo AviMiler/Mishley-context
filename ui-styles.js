@@ -1712,6 +1712,25 @@ window.__ccbCSS = (() => {
     }
     .ignore-pattern-remove:hover { opacity: 1; }
 
+    /* Global scan-settings dialog (#scanSettingsOverlay) — the editable
+       versions of document-handler.js's built-in scan rules, applying to every
+       code project. Reuses the .ignore-patterns-* chip-list styling above for
+       each of its three lists; only the multi-section shell is new. The body
+       scrolls (4 sections don't fit a short viewport) while the title/hint and
+       the button row stay pinned. */
+    .scan-settings-dialog { display: flex; flex-direction: column; max-height: 85vh; }
+    .scan-settings-body { overflow-y: auto; flex: 1; min-height: 0; margin-bottom: 12px; }
+    .scan-settings-section { margin-bottom: 18px; }
+    .scan-settings-section:last-child { margin-bottom: 0; }
+    .scan-settings-label {
+      font-size: 12px; font-weight: 600; color: var(--text-strong);
+      text-align: right; margin-bottom: 4px;
+    }
+    /* Each list is shorter here than in the single-list per-project dialog,
+       so several sections stay reachable without a huge scroll. */
+    .scan-settings-body .ignore-patterns-list { max-height: 140px; }
+    .scan-settings-section .setting-row { margin: 0; }
+
     /* Code project file tree — rendered inline inside the open project's
        documents section (#projectDocumentsList), owned by code-tree.js. */
     .code-tree-actions { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }

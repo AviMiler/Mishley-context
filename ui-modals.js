@@ -8,6 +8,7 @@
 //   showPrompt({title, defaultValue?}) → Promise<string|null>
 //   showProjectPicker({title, currentId, allowClear}) → Promise<id|null|undefined>
 //   openSettings() / closeSettings()
+//   openScanSettings() / closeScanSettings() / saveScanSettings() / resetScanSettingsToDefaults()
 //   openPromptsEditor() / closePromptsEditor()
 //   savePromptsEditor() / resetPromptsEditor(key)
 
@@ -235,6 +236,154 @@
   }
 
   // ============================================================
+  // Global code-project scan settings (#scanSettingsOverlay)
+  //
+  // The editable form of document-handler.js's built-in scan rules: which
+  // folders/files are skipped, which extensions are scanned, and the per-file
+  // size cap. Applies to EVERY code project (the per-project ignore list in
+  // history-view.js#openIgnorePatternsDialog is a separate, additional layer).
+  //
+  // Edits are held in this module-scoped draft until Save, so "reset to
+  // defaults" and closing without saving both behave predictably.
+  // ============================================================
+  let _scanDraft = null;
+
+  const SCAN_LIST_FIELDS = [
+    { key: "denyDirs", listId: "scanDenyDirsList", inputId: "scanDenyDirsInput", addBtnId: "scanDenyDirsAddBtn" },
+    { key: "denyFilenames", listId: "scanDenyFilesList", inputId: "scanDenyFilesInput", addBtnId: "scanDenyFilesAddBtn" },
+    { key: "codeExtensions", listId: "scanExtList", inputId: "scanExtInput", addBtnId: "scanExtAddBtn" },
+  ];
+
+  // Same chip-row markup as history-view.js#renderIgnorePatternsList — the two
+  // dialogs are deliberately visually identical, but each module renders its
+  // own (no shared render helper exists between them today).
+  function renderScanList(field) {
+    const list = $el(field.listId);
+    if (!list) return;
+    const values = _scanDraft?.[field.key] || [];
+    list.innerHTML = "";
+    if (!values.length) {
+      const empty = document.createElement("div");
+      empty.className = "ignore-patterns-empty";
+      empty.textContent = "הרשימה ריקה";
+      list.appendChild(empty);
+      return;
+    }
+    values.forEach((value, idx) => {
+      const row = document.createElement("div");
+      row.className = "ignore-pattern-row";
+      const name = document.createElement("span");
+      name.className = "ignore-pattern-name";
+      name.textContent = value;
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "ignore-pattern-remove";
+      removeBtn.innerHTML = window.__ccbTpl.IC.x;
+      removeBtn.setAttribute("aria-label", "הסר");
+      removeBtn.onclick = () => {
+        _scanDraft[field.key].splice(idx, 1);
+        renderScanList(field);
+      };
+      row.appendChild(name);
+      row.appendChild(removeBtn);
+      list.appendChild(row);
+    });
+  }
+
+  function renderScanSettings() {
+    SCAN_LIST_FIELDS.forEach(renderScanList);
+    const sizeInput = $el("scanMaxSizeInput");
+    if (sizeInput) sizeInput.value = String(_scanDraft?.maxFileSizeKb ?? 200);
+  }
+
+  async function openScanSettings() {
+    const overlay = $el("scanSettingsOverlay");
+    if (!overlay) return;
+    await _deps.loadScanSettings?.();
+
+    // Deep-ish copy: the arrays must not alias state.scanSettings, or editing
+    // the draft would mutate live settings even if the user never saves.
+    const current = _deps.getScanSettings?.() || _deps.getDefaultScanSettings();
+    _scanDraft = {
+      denyDirs: [...(current.denyDirs || [])],
+      denyFilenames: [...(current.denyFilenames || [])],
+      codeExtensions: [...(current.codeExtensions || [])],
+      maxFileSizeKb: current.maxFileSizeKb,
+    };
+
+    renderScanSettings();
+    overlay.classList.add("show");
+
+    // Clone each interactive element to strip listeners left over from a prior
+    // open — same approach as history-view.js#openIgnorePatternsDialog.
+    SCAN_LIST_FIELDS.forEach((field) => {
+      const input = $el(field.inputId).cloneNode(true);
+      $el(field.inputId).replaceWith(input);
+      input.value = "";
+      const addFromInput = () => {
+        const raw = input.value.trim();
+        if (!raw) return;
+        raw.split(",").map((s) => s.trim()).filter(Boolean).forEach((v) => {
+          // Extensions are stored bare ("js"), so a typed ".js" still matches.
+          const val = field.key === "codeExtensions" ? v.replace(/^\./, "").toLowerCase() : v;
+          if (val && !_scanDraft[field.key].includes(val)) _scanDraft[field.key].push(val);
+        });
+        input.value = "";
+        renderScanList(field);
+        input.focus();
+      };
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); addFromInput(); }
+      });
+      const addBtn = $el(field.addBtnId).cloneNode(true);
+      $el(field.addBtnId).replaceWith(addBtn);
+      addBtn.addEventListener("click", addFromInput);
+    });
+
+    const saveBtn = $el("scanSettingsSaveBtn").cloneNode(true);
+    $el("scanSettingsSaveBtn").replaceWith(saveBtn);
+    saveBtn.addEventListener("click", () => void saveScanSettings());
+
+    const resetBtn = $el("scanSettingsResetBtn").cloneNode(true);
+    $el("scanSettingsResetBtn").replaceWith(resetBtn);
+    resetBtn.addEventListener("click", resetScanSettingsToDefaults);
+
+    const closeBtn = $el("scanSettingsCloseBtn").cloneNode(true);
+    $el("scanSettingsCloseBtn").replaceWith(closeBtn);
+    closeBtn.addEventListener("click", closeScanSettings);
+  }
+
+  function closeScanSettings() {
+    const overlay = $el("scanSettingsOverlay");
+    if (overlay) overlay.classList.remove("show");
+    _scanDraft = null;
+  }
+
+  // In-memory only — the user still has to press Save to persist.
+  function resetScanSettingsToDefaults() {
+    _scanDraft = _deps.getDefaultScanSettings();
+    renderScanSettings();
+    _deps.setStatus("שוחזרו ברירות המחדל — לחץ שמור");
+  }
+
+  async function saveScanSettings() {
+    if (!_scanDraft) return;
+    const sizeInput = $el("scanMaxSizeInput");
+    const size = Number(sizeInput?.value);
+    if (!Number.isFinite(size) || size < 1) {
+      _deps.setStatus("גודל קובץ מקסימלי חייב להיות מספר חיובי", true);
+      return;
+    }
+    if (!_scanDraft.codeExtensions.length) {
+      _deps.setStatus("חייבת להיות לפחות סיומת קובץ אחת לסריקה", true);
+      return;
+    }
+    await _deps.saveScanSettings({ ..._scanDraft, maxFileSizeKb: size });
+    closeScanSettings();
+    _deps.setStatus("ההגדרות נשמרו — יחולו בסריקה הבאה ✓");
+  }
+
+  // ============================================================
   // Prompts editor
   // ============================================================
   function openPromptsEditor() {
@@ -368,6 +517,10 @@
      *   loadCtxWindow: () => Promise<void>,
      *   getCtxWindow: () => number,
      *   getProjects: () => Array, // ALL projects (regular + code) — showProjectPicker lists both
+     *   loadScanSettings: () => Promise<void>,
+     *   getScanSettings: () => object,        // live global code-project scan rules
+     *   saveScanSettings: (next) => Promise<object>,
+     *   getDefaultScanSettings: () => object, // built-in defaults, for "reset to defaults"
      * }} deps
      */
     init(deps) { _deps = deps; },
@@ -377,6 +530,10 @@
     showProjectPicker,
     openSettings,
     closeSettings,
+    openScanSettings,
+    closeScanSettings,
+    saveScanSettings,
+    resetScanSettingsToDefaults,
     openPromptsEditor,
     closePromptsEditor,
     savePromptsEditor,

@@ -9,7 +9,9 @@
 //   toggleDocument(projectId, docId, enabled) — toggle document inclusion
 //   getDocumentContent(projectId, docId)    — retrieve full content for injection
 //   estimateTokens(content, type)      — estimate tokens for content
-//   scanCodeProject(dirHandle, ignorePatterns?) — recursively scan a code project folder, skipping user-defined ignore patterns
+//   scanCodeProject(dirHandle, scanSettings?) — recursively scan a code project folder
+//                                      ({ ignorePatterns, denyDirs, denyFilenames, codeExtensions, maxFileSizeKb })
+//   getDefaultScanSettings()           — the built-in scan rules, for first-load seeding + "reset to defaults"
 //   buildStructureMarkdown(included, rootName) — render a folder tree as markdown
 //   syncCodeProjectDocuments(project, included, rootName) — upsert scanned files into project.documents
 //   removeCodeContent(docId)           — delete a code file's stored content (e.g. on bookmark removal)
@@ -22,19 +24,27 @@
   const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
   // ============================================================
-  // Code project scanning — filters for scanCodeProject()
+  // Code project scanning — DEFAULT filters for scanCodeProject()
+  //
+  // These are seed/reset values only, NOT the live source of truth. On first
+  // load content.js copies them into chrome.storage.local["ccb_scanSettings"],
+  // after which the user can edit them from the Advanced Options settings
+  // dialog and the stored version is what every scan actually uses (passed in
+  // via scanCodeProject's `scanSettings` argument). getDefaultScanSettings()
+  // exposes them for that initial seeding and for the dialog's
+  // "reset to defaults" button.
   // ============================================================
-  const MAX_CODE_FILE_SIZE = 200 * 1024; // 200 KB — larger is likely generated/minified
+  const DEFAULT_MAX_FILE_SIZE_KB = 200; // larger is likely generated/minified
 
-  const DENY_DIRS = new Set([
+  const DEFAULT_DENY_DIRS = [
     "node_modules", ".git", ".svn", ".hg", "dist", "build", "out", ".next", ".nuxt", ".output",
     "coverage", ".nyc_output", ".cache", ".parcel-cache", ".turbo", "vendor", "venv", ".venv", "env",
     "__pycache__", ".pytest_cache", ".mypy_cache", ".idea", ".vscode", ".vs", "bin", "obj", "target",
     ".gradle", ".terraform", ".angular", ".svelte-kit", ".yarn", ".pnp", "logs", "tmp", "temp",
     ".serverless", ".vercel", ".netlify",
-  ]);
+  ];
 
-  const DENY_FILENAMES_RAW = [
+  const DEFAULT_DENY_FILENAMES = [
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "Cargo.lock", "poetry.lock",
     "Pipfile.lock", "composer.lock", "package.json", "tsconfig*.json", "jsconfig.json", ".eslintrc*",
     "eslint.config.*", ".prettierrc*", "prettier.config.*", "babel.config.*", ".babelrc*",
@@ -45,38 +55,41 @@
     ".gitignore", ".gitattributes", ".gitmodules", "Dockerfile*", "docker-compose*.y*ml",
     ".dockerignore", "Makefile", "Procfile", "LICENSE*", "README*", "CHANGELOG*", "CONTRIBUTING*",
   ];
-  const DENY_FILENAMES_EXACT = new Set(DENY_FILENAMES_RAW.filter((p) => !p.includes("*")));
-  const DENY_FILENAMES_GLOB = DENY_FILENAMES_RAW.filter((p) => p.includes("*")).map(
-    (p) => new RegExp("^" + p.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$", "i"),
-  );
 
-  function matchesDenyFilename(name) {
-    if (DENY_FILENAMES_EXACT.has(name)) return true;
-    return DENY_FILENAMES_GLOB.some((re) => re.test(name));
+  const DEFAULT_CODE_EXTENSIONS = [
+    "js", "jsx", "mjs", "cjs", "ts", "tsx", "vue", "svelte", "py", "rb", "java", "kt", "kts", "go",
+    "rs", "php", "c", "h", "cc", "cpp", "hpp", "cs", "swift", "m", "mm", "scala", "sh", "bash", "zsh",
+    "ps1", "sql", "html", "htm", "css", "scss", "sass", "less", "graphql", "gql", "proto",
+    "cshtml", "razor", "json",
+  ];
+
+  // Fresh copies every call — the caller stores these and would otherwise be
+  // mutating the module's own defaults (breaking "reset to defaults" later).
+  function getDefaultScanSettings() {
+    return {
+      denyDirs: [...DEFAULT_DENY_DIRS],
+      denyFilenames: [...DEFAULT_DENY_FILENAMES],
+      codeExtensions: [...DEFAULT_CODE_EXTENSIONS],
+      maxFileSizeKb: DEFAULT_MAX_FILE_SIZE_KB,
+    };
   }
 
-  // User-defined ignore patterns (project.ignorePatterns) — plain names or
-  // globs (`*`), matched case-insensitively against either the bare
-  // file/dir name or its full relative path from the project root, so a
-  // pattern like "src/legacy" or "*.spec.js" both work.
-  function buildIgnoreMatchers(patterns) {
+  // Pattern matching shared by every scan filter (project ignorePatterns, and
+  // the user-editable global denyDirs/denyFilenames). Plain names or globs
+  // (`*`), matched case-insensitively against either the bare file/dir name or
+  // its full relative path from the project root, so both "src/legacy" and
+  // "*.spec.js" work.
+  function buildPatternMatchers(patterns) {
     return (patterns || [])
       .map((p) => String(p || "").trim())
       .filter(Boolean)
       .map((p) => new RegExp("^" + p.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$", "i"));
   }
 
-  function matchesIgnoreMatchers(name, relativePath, matchers) {
+  function matchesPatterns(name, relativePath, matchers) {
     if (!matchers.length) return false;
     return matchers.some((re) => re.test(name) || re.test(relativePath));
   }
-
-  const CODE_EXTENSIONS = new Set([
-    "js", "jsx", "mjs", "cjs", "ts", "tsx", "vue", "svelte", "py", "rb", "java", "kt", "kts", "go",
-    "rs", "php", "c", "h", "cc", "cpp", "hpp", "cs", "swift", "m", "mm", "scala", "sh", "bash", "zsh",
-    "ps1", "sql", "html", "htm", "css", "scss", "sass", "less", "graphql", "gql", "proto",
-    "cshtml", "razor", "json",
-  ]);
 
   // ============================================================
   // chrome.storage.local — stores file blobs as base64 data URLs
@@ -638,17 +651,48 @@
   // ============================================================
   // Code project scanning
   // ============================================================
-  // Recursively walks a directory handle, skipping DENY_DIRS entirely (never
-  // descends into them) and DENY_FILENAMES / non-code extensions / oversized
-  // files. `ignorePatterns` (from project.ignorePatterns, user-editable via
-  // the documents header's ignore-list dialog) adds user-defined names/globs
-  // to skip on top of the built-in deny lists. Reads matching files
-  // immediately (no lazy loading — see spec).
-  async function scanCodeProject(dirHandle, ignorePatterns = []) {
-    console.log("[ccb-scan] scanCodeProject: start", { name: dirHandle && dirHandle.name, ignorePatterns });
+  // Recursively walks a directory handle, skipping excluded folders entirely
+  // (never descends into them) plus excluded filenames / non-listed extensions
+  // / oversized files. Reads matching files immediately (no lazy loading —
+  // see spec).
+  //
+  // `scanSettings` bundles the two layers of filtering:
+  //   ignorePatterns  — this project's own exclude list (project.ignorePatterns,
+  //                     edited from the documents header's ignore dialog)
+  //   denyDirs / denyFilenames / codeExtensions / maxFileSizeKb
+  //                   — the GLOBAL, user-editable rules that apply to every
+  //                     code project (chrome.storage.local["ccb_scanSettings"],
+  //                     seeded from getDefaultScanSettings()). Each falls back
+  //                     to its default if the caller omits it, so a stale or
+  //                     partial settings object can never silently disable a
+  //                     filter (e.g. an empty codeExtensions would otherwise
+  //                     mean "scan every file in the folder").
+  async function scanCodeProject(dirHandle, scanSettings = {}) {
+    const {
+      ignorePatterns = [],
+      denyDirs = DEFAULT_DENY_DIRS,
+      denyFilenames = DEFAULT_DENY_FILENAMES,
+      codeExtensions = DEFAULT_CODE_EXTENSIONS,
+      maxFileSizeKb = DEFAULT_MAX_FILE_SIZE_KB,
+    } = scanSettings || {};
+
+    console.log("[ccb-scan] scanCodeProject: start", {
+      name: dirHandle && dirHandle.name,
+      ignorePatterns,
+      denyDirs: denyDirs.length,
+      denyFilenames: denyFilenames.length,
+      codeExtensions: codeExtensions.length,
+      maxFileSizeKb,
+    });
     const included = [];
     const counts = { total: 0, included: 0, skippedDirs: 0, skippedConfig: 0, skippedExt: 0, skippedLarge: 0, skippedCustom: 0 };
-    const customMatchers = buildIgnoreMatchers(ignorePatterns);
+    const customMatchers = buildPatternMatchers(ignorePatterns);
+    const denyDirMatchers = buildPatternMatchers(denyDirs);
+    const denyFileMatchers = buildPatternMatchers(denyFilenames);
+    const extensions = new Set(
+      codeExtensions.map((e) => String(e || "").trim().replace(/^\./, "").toLowerCase()).filter(Boolean),
+    );
+    const maxBytes = Math.max(1, Number(maxFileSizeKb) || DEFAULT_MAX_FILE_SIZE_KB) * 1024;
 
     async function walk(handle, pathParts) {
       const dirPath = pathParts.join("/") || "(root)";
@@ -661,7 +705,7 @@
           console.log("[ccb-scan] walk: got entry", { dirPath, name, kind: entry.kind, entryCount });
           const relPath = [...pathParts, name].join("/");
           if (entry.kind === "directory") {
-            if (DENY_DIRS.has(name) || matchesIgnoreMatchers(name, relPath, customMatchers)) {
+            if (matchesPatterns(name, relPath, denyDirMatchers) || matchesPatterns(name, relPath, customMatchers)) {
               console.log("[ccb-scan] walk: skip denied dir", name); counts.skippedDirs++; continue;
             }
             await walk(entry, [...pathParts, name]);
@@ -669,16 +713,16 @@
           }
 
           counts.total++;
-          if (matchesDenyFilename(name)) { console.log("[ccb-scan] walk: skip denied filename", name); counts.skippedConfig++; continue; }
-          if (matchesIgnoreMatchers(name, relPath, customMatchers)) { console.log("[ccb-scan] walk: skip custom-ignored", name); counts.skippedCustom++; continue; }
+          if (matchesPatterns(name, relPath, denyFileMatchers)) { console.log("[ccb-scan] walk: skip denied filename", name); counts.skippedConfig++; continue; }
+          if (matchesPatterns(name, relPath, customMatchers)) { console.log("[ccb-scan] walk: skip custom-ignored", name); counts.skippedCustom++; continue; }
           const ext = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
-          if (!CODE_EXTENSIONS.has(ext)) { console.log("[ccb-scan] walk: skip ext", { name, ext }); counts.skippedExt++; continue; }
+          if (!extensions.has(ext)) { console.log("[ccb-scan] walk: skip ext", { name, ext }); counts.skippedExt++; continue; }
 
           try {
             console.log("[ccb-scan] walk: reading file", name);
             const file = await entry.getFile();
             console.log("[ccb-scan] walk: got File object", { name, size: file.size });
-            if (file.size > MAX_CODE_FILE_SIZE) { console.log("[ccb-scan] walk: skip large file", { name, size: file.size }); counts.skippedLarge++; continue; }
+            if (file.size > maxBytes) { console.log("[ccb-scan] walk: skip large file", { name, size: file.size }); counts.skippedLarge++; continue; }
             const content = await file.text();
             console.log("[ccb-scan] walk: read text OK", { name, chars: content.length });
             included.push({
@@ -844,6 +888,7 @@
     getFileType,
     isLikelyTextFile,
     scanCodeProject,
+    getDefaultScanSettings,
     buildStructureMarkdown,
     syncCodeProjectDocuments,
     removeCodeContent: codeContentRemove,

@@ -84,9 +84,9 @@ What killed it — four consequences, the first being decisive:
 | `__ccbCSS`           | `ui-styles.js`     | CSS string                                                                                                    |
 | `__ccbTpl`           | `ui-template.js`   | `{ IC, PANEL_HTML }`                                                                                          |
 | `__ccbCtxMeter`      | `ctx-meter.js`     | `init`, `update`, `watchConversation`, `watchFileInputs`, `openFilesDropdown`, `cleanup`, `getUploadedFiles`, `queueFilesForInjection`  |
-| `__ccbModals`        | `ui-modals.js`     | `init`, `show*`, `openSettings/closeSettings`, `openPromptsEditor/...`                                        |
+| `__ccbModals`        | `ui-modals.js`     | `init`, `show*`, `openSettings/closeSettings`, `openScanSettings/closeScanSettings/saveScanSettings/resetScanSettingsToDefaults`, `openPromptsEditor/...` |
 | `__ccbFsHandles`     | `fs-handles.js`    | `put(id, dirHandle)`, `get(id)`, `remove(id)`, `verifyPermission(dirHandle, mode?)`                            |
-| `__ccbDocHandler`    | `document-handler.js` | `init`, `addDocument`, `removeDocument`, `toggleDocument`, `getDocumentContent`, `getOrExtractContent`, `getEnabledDocuments`, `injectFilesToChat`, `estimateTokens`, `estimateFileTokens`, `getFileType`, `isLikelyTextFile`, `scanCodeProject`, `buildStructureMarkdown`, `syncCodeProjectDocuments`, `removeCodeContent` |
+| `__ccbDocHandler`    | `document-handler.js` | `init`, `addDocument`, `removeDocument`, `toggleDocument`, `getDocumentContent`, `getOrExtractContent`, `getEnabledDocuments`, `injectFilesToChat`, `estimateTokens`, `estimateFileTokens`, `getFileType`, `isLikelyTextFile`, `scanCodeProject`, `getDefaultScanSettings`, `buildStructureMarkdown`, `syncCodeProjectDocuments`, `removeCodeContent` |
 | `__ccbDepGraph`      | `dep-graph.js`     | `buildGraph(included)`, `getTransitiveClosure(graph, path)`, `getDirectDependents(graph, path)`, `getFullContext(graph, path)` |
 | `__ccbCodeTree`      | `code-tree.js`     | `init`, `renderInline(project, mount)`                                                                         |
 | `__ccbHistoryView`   | `history-view.js`  | `init`, `render*` (incl. `renderProjectContext`, `renderProjectInstructionsCard`), `loadActiveProjectId`/`setActiveProjectId`, `open*/close*`/`toggleProjectSelectDropdown`, `get*`, `build*`, `sync*`, `addProject`, `openProjectDropdown`, `renderProjectSelect`, `renderProjectViewDocuments`, `openAddDocumentDialog`, `createCodeProjectBookmark`, `rescanCodeProject`, `enableFilesForProject`, `setAllCodeDocsEnabled`, `injectProjectDocuments`, `openIgnorePatternsDialog` |
@@ -232,6 +232,7 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | `chrome.storage.local.blocks`      | content.js     | `{ [id]: block }` — see Storage shape below           |
 | `chrome.storage.local.ccb_prompts` | prompts.js     | `{ manualIntro, manualOutro, gmIntro, ... }`           |
 | `chrome.storage.local.ctxWindow`   | content.js     | `number` (tokens, used by the meter)                   |
+| `chrome.storage.local.ccb_scanSettings` | content.js | `{ denyDirs, denyFilenames, codeExtensions, maxFileSizeKb }` — the GLOBAL code-project scan rules (see below) |
 
 ## content.js — function index
 
@@ -241,6 +242,7 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | ------------------------------------- | ------------------------------------------------------------ |
 | `loadBlocks()` / `saveBlocks()`       | Loads/persists `state.blocks` from `chrome.storage`         |
 | `loadCtxWindow()` / `setCtxWindow(k)` | Loads/persists the context-window size (the meter)          |
+| `loadScanSettings()` / `saveScanSettings(next)` | Loads/persists the global code-project scan rules (`ccb_scanSettings`). `loadScanSettings` is idempotent (guarded by `state.scanSettingsLoaded`) and **seeds + writes back** `docHandler.getDefaultScanSettings()` on first ever load, so the settings dialog always shows exactly what the scanner uses. Both validate each field individually against the defaults |
 
 ### Mount + UI lifecycle
 
@@ -300,6 +302,9 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | `showPrompt({title,defaultValue})`             | Text-input dialog → `Promise<string\|null>`                            |
 | `showProjectPicker({title,currentId,allowClear})` | Project assignment picker (uses `_deps.getProjects()`, wired in `content.js` to `historyView.getAllProjects()` — regular + code — so code projects are selectable here too). Rows reuse `.project-select-item` (icon + title + hover/active highlight), the same styling as the global project-selector dropdown, inside a bordered `.project-picker` scroll container (`max-height:280px; overflow-y:auto`) so a long project list scrolls instead of growing the dialog indefinitely |
 | `openSettings()` / `closeSettings()`           | Show/hide and position the advanced options popover                    |
+| `openScanSettings()` / `closeScanSettings()`   | Show/hide `#scanSettingsOverlay` — the global code-project scan rules (folders/files to exclude, extensions to scan, max file size). Copies the live settings into a module-scoped `_scanDraft` on open (arrays deep-copied so editing can't mutate live state before Save); clears it on close |
+| `saveScanSettings()`                           | Validates (size > 0, at least one extension) then persists `_scanDraft` via `_deps.saveScanSettings`. Does **not** auto-rescan projects — a permission-prompt storm; changes apply on each project's next scan |
+| `resetScanSettingsToDefaults()`                | Refills `_scanDraft` from `_deps.getDefaultScanSettings()` — in-memory only, still requires Save to persist |
 | `openPromptsEditor()` / `closePromptsEditor()` | Show/hide the prompts editor overlay                                   |
 | `savePromptsEditor()`                          | Persists edits via `__ccbPromptsAPI.save`                              |
 | `resetPromptsEditor(key)`                      | Resets a section via `__ccbPromptsAPI.reset` and refreshes textareas   |
@@ -411,7 +416,8 @@ Code projects share `openProjectDropdown` (see "Project actions" above) — its 
 | `estimateTokens` / `estimateFileTokens`                       | Char-count and file-type-based token estimation (extends the `ctx-meter.js` heuristics)          |
 | `getFileType(file)` / `isLikelyTextFile(file)`                | File-type classification used by estimation + extraction                                        |
 | `extractOfficeText` (docx/odt/rtf)                            | Extracts plain text from Office formats — DOCX/ODT via manual ZIP central-directory read + `DecompressionStream('deflate-raw')`, RTF via control-word stripping. Legacy binary `.doc` is not supported |
-| `scanCodeProject(dirHandle, ignorePatterns = [])`             | Recursively walks a directory handle, skipping `DENY_DIRS`/`DENY_FILENAMES`/non-code extensions/oversized files (>200 KB) plus any user-defined `ignorePatterns` (from `project.ignorePatterns`, edited via `history-view.js#openIgnorePatternsDialog`) — matched case-insensitively against either the bare name or the full relative path, with `*` as a wildcard. Reads matching files immediately (no lazy loading) |
+| `scanCodeProject(dirHandle, scanSettings = {})`               | Recursively walks a directory handle. `scanSettings` bundles **two layers**: the project's own `ignorePatterns` (from `project.ignorePatterns`, edited via `history-view.js#openIgnorePatternsDialog`) plus the **global, user-editable** `denyDirs`/`denyFilenames`/`codeExtensions`/`maxFileSizeKb` (from `chrome.storage.local["ccb_scanSettings"]`, edited via `ui-modals.js#openScanSettings`). Every field falls back to its `DEFAULT_*` individually, so a partial settings object can't silently disable a filter. All pattern lists are matched case-insensitively against either the bare name or the full relative path, with `*` as a wildcard. Reads matching files immediately (no lazy loading) |
+| `getDefaultScanSettings()`                                    | Fresh copies of the built-in `DEFAULT_DENY_DIRS`/`DEFAULT_DENY_FILENAMES`/`DEFAULT_CODE_EXTENSIONS`/`DEFAULT_MAX_FILE_SIZE_KB`. Used by `content.js#loadScanSettings` for first-load seeding and by the settings dialog's "reset to defaults". Returns copies (not the module's own arrays) so callers storing the result can't mutate the defaults |
 | `buildStructureMarkdown(included, rootName)`                  | Renders the scanned file list as a markdown folder tree                                         |
 | `syncCodeProjectDocuments(project, included, rootName)`       | Upserts the structure doc + one doc per scanned file into `project.documents`, preserving `enabled` on files that already existed; file text is written to its own `codeContent_<id>` storage key, never inlined on the doc, so `saveBlocks()` stays cheap regardless of project size |
 | `removeCodeContent(docId)`                                    | Deletes a code file's stored content (used when a bookmark/file is removed)                     |
