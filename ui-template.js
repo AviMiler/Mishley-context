@@ -36,8 +36,8 @@ window.__ccbTpl = (() => {
           <button id="settingsBtn" title="אפשרויות מתקדמות" aria-label="אפשרויות מתקדמות">${IC.settings}</button>
         </div>
         <div class="tabs" role="tablist">
-          <div class="tab" data-tab="history" role="tab" aria-selected="false">${IC.clock} שיחות אחרונות</div>
           <div class="tab active" data-tab="context" role="tab" aria-selected="true">${IC.context} Context</div>
+          <div class="tab" data-tab="history" role="tab" aria-selected="false">${IC.clock} שיחות אחרונות</div>
           <div class="tab-indicator" id="tabIndicator"></div>
         </div>
       </div>

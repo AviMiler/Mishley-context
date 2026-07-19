@@ -2,6 +2,9 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-19 — Context tab moved to the right
+- Changed: Swapped the DOM order of the two tab buttons in `ui-template.js` (`.tabs`) so Context is first and History second. In the panel's RTL layout the first flex child renders at the right edge, so Context now sits on the right, History on the left (previously the reverse). Pure DOM reorder — `moveTabIndicator` and the tab-click wiring both read live DOM state (`offsetLeft`, `querySelectorAll(".tab").forEach`), so no JS changes were needed.
+
 ### 2026-07-19 — Removed conversation-continue + project-instructions checkbox; load-selected no longer auto-sends
 - Removed: **"המשך שיחה"** (resuming a saved conversation in a fresh chat) — `#cvContinueBtn`, `content.js`'s `pendingContinue`/`executeContinue()`/`proceedWithContinue()`/`waitForInput()`, `state.continuationBase`, `state.suppressNextUrlReset`, and the `is-active-label` CSS variant. Not hidden — deleted, including simplifying `installNewChatBtnWatcher`'s click handler (always calls `tryAutoInject()` now, no `pendingContinue` branch) and the `ccb:urlchange` handler (no more `suppressNextUrlReset` early-return). `chat-features.js#persistConversation` no longer prepends a `continuationBase` snapshot — it never has anything to prepend once nothing sets it.
 - Removed: **the "כלול הנחיות פרויקט" checkbox** — `#cvProjectBar`/`#cvIncludeProject`, `history-view.js#buildProjectSectionText()`, and `buildConversationInjectionText`'s `includeProjectInstructions` option. The function's signature simplified to `(messages)` — its only remaining caller (`cvLoadBtn`) never had a reason to pass a project option once the checkbox is gone.
