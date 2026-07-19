@@ -1422,6 +1422,7 @@
     if (r.ok) {
       // Deliberately not auto-sending — the user reviews/edits the loaded
       // text (possibly adding their own question) and sends it themselves.
+      await _deps.docHandler.injectFilesToChat(project.id);
       _deps.setStatus("מסמכים נטענו — ניתן לערוך ולשלוח ✓");
     } else {
       _deps.setStatus(r.error || "נכשל", true);

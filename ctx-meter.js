@@ -20,6 +20,7 @@
   let _deps = null;
 
   let uploadedFiles = [];
+  let queuedInjectFiles = [];
   const trackedFileInputs = new Map();
   const watchedFileInputs = new WeakSet();
   let fileInputObserver = null;
@@ -219,6 +220,19 @@
     syncUploadedFiles();
   }
 
+  // Applies any files queued via queueFilesForInjection() to a freshly
+  // discovered file input, merging with whatever the input already holds.
+  function flushQueuedFiles(input) {
+    if (!queuedInjectFiles.length) return;
+    const dt = new DataTransfer();
+    if (input.files?.length) Array.from(input.files).forEach((f) => dt.items.add(f));
+    queuedInjectFiles.forEach((f) => dt.items.add(f));
+    input.files = dt.files;
+    queuedInjectFiles = [];
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
   function attachFileInput(input) {
     if (!input || watchedFileInputs.has(input)) {
       if (input && !trackedFileInputs.has(input))
@@ -231,7 +245,19 @@
     input.addEventListener("change", () => {
       void syncFileInput(input);
     });
+    if (queuedInjectFiles.length) flushQueuedFiles(input);
     if (input.files?.length) void syncFileInput(input);
+  }
+
+  // Stores files to be attached to the chat's file input the moment one
+  // appears in the DOM (watchFileInputs' MutationObserver picks it up via
+  // attachFileInput -> flushQueuedFiles). Used when injectFilesToChat runs
+  // before the page has mounted its upload input yet.
+  function queueFilesForInjection(files) {
+    if (!files?.length) return;
+    queuedInjectFiles = queuedInjectFiles.concat(files);
+    const existing = document.querySelector('input[type="file"]');
+    if (existing) flushQueuedFiles(existing);
   }
 
   function detachFileInput(input) {
@@ -451,6 +477,7 @@
     fileInputObservedRoot = null;
     trackedFileInputs.clear();
     uploadedFiles = [];
+    queuedInjectFiles = [];
   }
 
   // ============================================================
@@ -475,5 +502,6 @@
     renderFilesDropdown,
     cleanup,
     getUploadedFiles: () => uploadedFiles,
+    queueFilesForInjection,
   };
 })();

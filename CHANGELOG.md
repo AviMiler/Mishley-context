@@ -2,6 +2,10 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-19 — Blob-only documents now actually attach to the chat's file input
+- Fixed: `history-view.js#injectProjectDocuments()` now calls `docHandler.injectFilesToChat(project.id)` right after the text injection succeeds. Previously, enabled documents with `hasBlob: true` and no extracted text were only *mentioned* in the injected text ("[קבצים ללא תוכן טקסט: ...]") — the actual file was never attached, so the AI never received it. This closes the gap noted in the 2026-07-19 "File loading no longer auto-sends" entry below.
+- Fixed: `document-handler.js#injectFilesToChat`'s DOM-not-ready fallback (`window.__ccbCtxMeter?.queueFilesForInjection?.(files)`) was calling a method that didn't exist on `ctx-meter.js`'s public API — a silent no-op. Added `queueFilesForInjection(files)` to `ctx-meter.js`: it stashes the files, and `attachFileInput()` (already run by `watchFileInputs()`'s `MutationObserver` whenever a new `<input type="file">` appears) now flushes the queue onto that input via `DataTransfer`, merging with whatever files the input already holds. Also cleared on `cleanup()` so a queued file can't leak into a later page/session.
+
 ### 2026-07-19 — Context tab moved to the right
 - Changed: Swapped the DOM order of the two tab buttons in `ui-template.js` (`.tabs`) so Context is first and History second. In the panel's RTL layout the first flex child renders at the right edge, so Context now sits on the right, History on the left (previously the reverse). Pure DOM reorder — `moveTabIndicator` and the tab-click wiring both read live DOM state (`offsetLeft`, `querySelectorAll(".tab").forEach`), so no JS changes were needed.
 
