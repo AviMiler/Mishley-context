@@ -32,7 +32,6 @@
   const DIR_CONCURRENCY = 8;
   const FILE_READ_CONCURRENCY = 12;
   const CONTENT_WRITE_BATCH = 50; // files per chrome.storage.local.set call
-  const PROGRESS_EVERY = 25; // files between onProgress callbacks
 
   // Runs `worker` over `items` with at most `limit` in flight at a time.
   async function runWithConcurrency(items, limit, worker) {
@@ -254,17 +253,20 @@
   // Writes an already-keyed { codeContent_<id>: text } map in fixed-size
   // batches. Batched rather than one giant set() so a single failure can't
   // lose the whole scan and peak serialization memory stays bounded.
-  async function codeContentPutMany(keyedContent) {
+  async function codeContentPutMany(keyedContent, onProgress = null) {
     const keys = Object.keys(keyedContent);
     for (let i = 0; i < keys.length; i += CONTENT_WRITE_BATCH) {
       const batch = {};
       for (const key of keys.slice(i, i + CONTENT_WRITE_BATCH)) batch[key] = keyedContent[key];
+      if (onProgress) onProgress({ phase: "save", done: i, total: keys.length });
       await new Promise((resolve, reject) =>
         chrome.storage.local.set(batch, () =>
           chrome.runtime.lastError ? reject(chrome.runtime.lastError) : resolve()
         )
       );
     }
+    // Final tick so the bar lands on 100% rather than on the last batch start.
+    if (onProgress && keys.length) onProgress({ phase: "save", done: keys.length, total: keys.length });
   }
 
   // ============================================================
@@ -803,14 +805,32 @@
         if (!extensions.has(ext)) { counts.skippedExt++; continue; }
         candidates.push({ entry, relPath, name });
       }
+      // Reported per directory rather than per file: during discovery there's
+      // no total yet, so the useful signal is "still finding things, currently
+      // in this folder".
+      if (onProgress) {
+        onProgress({ phase: "discover", done: candidates.length, total: 0, current: pathParts.join("/") });
+      }
       return subdirs;
     });
 
     // Phase 2 — read the surviving files, again with a bounded number of
     // reads in flight. The cap keeps memory and the browser's file-IO queue
     // from being flooded on very large projects.
+    // `completed` counts attempts, not successes, so the bar still reaches its
+    // total when some files are skipped as oversized or fail to read.
+    //
+    // Progress is reported both when a file STARTS (so `current` names what is
+    // being read right now) and when it FINISHES (so `done` counts completions).
+    // Reporting only at the start would make the count stall short of the
+    // total by however many reads are in flight — with a cap of 12, the bar
+    // would freeze near the end of every scan.
+    let completed = 0;
     await runWithConcurrency(candidates, FILE_READ_CONCURRENCY, async ({ entry, relPath, name }) => {
       try {
+        if (onProgress) {
+          onProgress({ phase: "read", done: completed, total: candidates.length, current: relPath });
+        }
         const file = await entry.getFile();
         if (file.size > maxBytes) { counts.skippedLarge++; return; }
         const content = await file.text();
@@ -821,11 +841,13 @@
           tokens: estimateTokensForContent(content),
         });
         counts.included++;
-        if (onProgress && counts.included % PROGRESS_EVERY === 0) {
-          onProgress(counts.included, candidates.length);
-        }
       } catch (e) {
         console.warn("[document-handler] scanCodeProject: failed to read file", name, e);
+      } finally {
+        completed++;
+        if (onProgress) {
+          onProgress({ phase: "read", done: completed, total: candidates.length, current: relPath });
+        }
       }
     });
 
@@ -878,7 +900,7 @@
   // Upserts the structure doc + one doc per scanned file into project.documents,
   // preserving `enabled` on files that already existed, and dropping documents
   // for files that disappeared from disk since the last scan.
-  async function syncCodeProjectDocuments(project, included, rootName) {
+  async function syncCodeProjectDocuments(project, included, rootName, onProgress = null) {
     if (!_deps) return;
     if (!project.documents) project.documents = [];
 
@@ -948,7 +970,7 @@
       (d) => d.id === structureId || d.type !== "code" || includedPaths.has(d.name),
     );
 
-    await codeContentPutMany(pendingContent);
+    await codeContentPutMany(pendingContent, onProgress);
     if (removedDocs.length) {
       await codeContentRemoveMany(removedDocs.map((d) => d.id));
     }

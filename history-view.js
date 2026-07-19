@@ -577,17 +577,22 @@
       const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle, {
         ..._deps.getScanSettings(),
         ignorePatterns: _deps.state.blocks[id].ignorePatterns,
-        onProgress: (done) => _deps.setStatus(`סורק פרויקט... ${done} קבצים`),
+        onProgress: _deps.setProgress,
       });
       // Built while `included` still holds full file content in memory — the
       // graph itself is just path strings, so it stays cheap to persist.
-      _deps.setStatus("בונה מפת תלויות...");
+      _deps.setProgress({ phase: "graph", done: included.length, total: included.length });
       _deps.state.blocks[id].depGraph = await window.__ccbDepGraph.buildGraph(included);
-      _deps.setStatus("שומר קבצים...");
-      await _deps.docHandler.syncCodeProjectDocuments(_deps.state.blocks[id], included, dirHandle.name);
+      await _deps.docHandler.syncCodeProjectDocuments(
+        _deps.state.blocks[id], included, dirHandle.name, _deps.setProgress,
+      );
+      _deps.setProgress({ label: `נסרקו ${counts.included} קבצים`, done: counts.included, total: counts.included, state: "done" });
+      _deps.clearProgress(2500);
       _deps.setStatus(`נסרקו ${counts.included} קבצים ✓`);
     } catch (e) {
       console.error("[history-view] Failed to scan code project", e);
+      _deps.setProgress({ label: "שגיאה בסריקת הפרויקט", state: "error" });
+      _deps.clearProgress(4000);
       _deps.setStatus("שגיאה בסריקת הפרויקט", true);
     }
     _deps.render();
@@ -633,21 +638,24 @@
       const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle, {
         ..._deps.getScanSettings(),
         ignorePatterns: proj.ignorePatterns,
-        onProgress: (done) => _deps.setStatus(`סורק פרויקט... ${done} קבצים`),
+        onProgress: _deps.setProgress,
       });
-      _deps.setStatus("בונה מפת תלויות...");
+      _deps.setProgress({ phase: "graph", done: included.length, total: included.length });
       proj.depGraph = await window.__ccbDepGraph.buildGraph(included);
-      _deps.setStatus("שומר קבצים...");
-      await _deps.docHandler.syncCodeProjectDocuments(proj, included, dirHandle.name);
+      await _deps.docHandler.syncCodeProjectDocuments(proj, included, dirHandle.name, _deps.setProgress);
       // Do NOT touch proj.title here — it's already set (folder name as the
       // default at creation, or whatever the user renamed it to via
       // renameProject). Rescanning is about files/structure, not the
       // project's display name; overwriting it here used to silently revert
       // a user's rename back to the folder name on every rescan.
       await _deps.saveBlocks();
+      _deps.setProgress({ label: `נסרקו ${counts.included} קבצים`, done: counts.included, total: counts.included, state: "done" });
+      _deps.clearProgress(2500);
       _deps.setStatus(`נסרקו ${counts.included} קבצים ✓`);
     } catch (e) {
       console.error("[history-view] Failed to rescan code project", e);
+      _deps.setProgress({ label: "שגיאה בסריקה מחדש", state: "error" });
+      _deps.clearProgress(4000);
       _deps.setStatus("שגיאה בסריקה מחדש", true);
       return;
     }
@@ -1379,7 +1387,21 @@
 
   }
 
+  // Thin wrapper so a throw anywhere in the load can't leave the persistent
+  // progress indicator stuck on screen — unlike the old status toast, it has
+  // no auto-hide of its own.
   async function injectProjectDocuments() {
+    try {
+      await runProjectDocumentsInjection();
+    } catch (e) {
+      console.error("[history-view] injectProjectDocuments failed", e);
+      _deps.setProgress({ label: "טעינת הקבצים נכשלה", state: "error" });
+      _deps.clearProgress(4000);
+      _deps.setStatus("טעינת הקבצים נכשלה", true);
+    }
+  }
+
+  async function runProjectDocumentsInjection() {
     const project = getProjectById(_deps.state.currentProjectId);
     if (!project) return;
 
@@ -1404,7 +1426,9 @@
       ? await _deps.docHandler.getCodeContents(codeDocs.map((d) => d.id))
       : new Map();
 
+    let loaded = 0;
     for (const doc of enabledDocs) {
+      _deps.setProgress({ phase: "load", done: loaded, total: enabledDocs.length, current: doc.name });
       if (doc.content) {
         contents.set(doc.id, doc.content);
       } else if (doc.type === "code") {
@@ -1416,12 +1440,14 @@
         const text = await _deps.docHandler.getOrExtractContent(project.id, doc.id);
         if (text) contents.set(doc.id, text);
       }
+      loaded++;
     }
 
     const textDocs   = enabledDocs.filter(d => contents.has(d.id));
     const binaryDocs = enabledDocs.filter(d => !contents.has(d.id));
 
     if (!textDocs.length && binaryDocs.length) {
+      _deps.clearProgress();
       _deps.setStatus("הקבצים המסומנים אינם ניתנים לקריאה כטקסט", true);
       return;
     }
@@ -1452,8 +1478,12 @@
       // Deliberately not auto-sending — the user reviews/edits the loaded
       // text (possibly adding their own question) and sends it themselves.
       await _deps.docHandler.injectFilesToChat(project.id);
+      _deps.setProgress({ label: `${textDocs.length} קבצים נטענו`, done: enabledDocs.length, total: enabledDocs.length, state: "done" });
+      _deps.clearProgress(2500);
       _deps.setStatus("קבצים נטענו — ניתן לערוך ולשלוח ✓");
     } else {
+      _deps.setProgress({ label: r.error || "טעינת הקבצים נכשלה", state: "error" });
+      _deps.clearProgress(4000);
       _deps.setStatus(r.error || "נכשל", true);
     }
   }

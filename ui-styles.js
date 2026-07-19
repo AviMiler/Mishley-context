@@ -274,6 +274,73 @@ window.__ccbCSS = (() => {
     }
     .global-project-bar .project-select-wrap { flex: 1; min-width: 0; position: relative; }
 
+    /* ── Persistent scan/load progress indicator (below the project bar,
+          so it stays visible from either tab for the whole operation) ── */
+    .scan-progress {
+      padding: 8px 18px 10px;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-app);
+      flex-shrink: 0;
+    }
+    .scan-progress-top {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      margin-bottom: 6px;
+    }
+    .scan-progress-phase {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-strong);
+      white-space: nowrap;
+    }
+    .scan-progress-count {
+      font-size: 10px;
+      color: var(--text-ghost);
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .scan-progress-track {
+      height: 6px;
+      border-radius: 3px;
+      background: var(--border-subtle);
+      overflow: hidden;
+      direction: ltr;
+    }
+    .scan-progress-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 3px;
+      background: linear-gradient(90deg, #3b82f6, #60a5fa);
+      transition: width 0.2s linear;
+    }
+    /* Discovery phase has no known total yet — an indeterminate sweep instead
+       of a fill that would otherwise sit at 0% and look stuck. */
+    .scan-progress-fill.indeterminate {
+      width: 35%;
+      transition: none;
+      animation: scan-sweep 1.1s ease-in-out infinite;
+    }
+    @keyframes scan-sweep {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(340%); }
+    }
+    .scan-progress-fill.done { background: linear-gradient(90deg, #22c55e, #4ade80); }
+    .scan-progress-fill.error { background: linear-gradient(90deg, #ef4444, #f87171); }
+    /* dir="ltr" (set on the element) keeps path separators in reading order
+       inside this otherwise-RTL panel. Long paths are shortened in JS to their
+       last segments rather than via text-overflow, so the file name — the
+       informative end — is what survives, not the repo root. */
+    .scan-progress-current {
+      margin-top: 5px;
+      font-size: 10px;
+      color: var(--text-ghost);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-align: left;
+      min-height: 12px;
+    }
+
     /* ── History: project filter row (shown when a project is active) ── */
     .history-project-filter-row {
       display: flex; align-items: center; justify-content: space-between; gap: 8px;

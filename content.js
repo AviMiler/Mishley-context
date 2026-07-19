@@ -302,6 +302,8 @@
       saveBlocks,
       render,
       setStatus,
+      setProgress,
+      clearProgress,
       inject: ccbInject,
       openEdit,
       updateInjectBtn,
@@ -966,6 +968,103 @@
     toastTimer = setTimeout(() => {
       t.className = "";
     }, 2500);
+  }
+
+  // ============================================================
+  // Persistent progress indicator (#scanProgress)
+  //
+  // Unlike setStatus (a toast that auto-hides after 2.5s), this stays on
+  // screen for the whole operation and reports both how many files are done
+  // and which one is being handled right now. Long operations — scanning a
+  // code project, saving its files, loading them into the chat — are exactly
+  // the case where a vanished toast leaves the user unsure anything is
+  // happening.
+  //
+  // DOM writes are throttled to one animation frame: the scan calls this once
+  // per file with up to 12 reads in flight, and repainting a progress bar
+  // thousands of times a second would eat the very latency budget the
+  // concurrent scan exists to reclaim.
+  // ============================================================
+  const PROGRESS_THROTTLE_MS = 80;
+  const PROGRESS_PHASE_LABELS = {
+    discover: "מאתר קבצים",
+    read: "קורא קבצים",
+    graph: "בונה מפת תלויות",
+    save: "שומר קבצים",
+    load: "טוען קבצים לצ'אט",
+  };
+
+  let progressPending = null;
+  let progressTimer = 0;
+  // Bumped on every update so a held "done"/"error" hide scheduled by an
+  // earlier operation can't hide the indicator of one that started since.
+  let progressSeq = 0;
+
+  // Long paths are shortened from the LEFT — the file name matters more than
+  // the repo root it sits under.
+  function shortenPath(p, maxLen = 46) {
+    const text = String(p || "");
+    if (text.length <= maxLen) return text;
+    const parts = text.split("/");
+    let tail = parts.pop() || text;
+    while (parts.length && tail.length + parts[parts.length - 1].length + 1 < maxLen) {
+      tail = parts.pop() + "/" + tail;
+    }
+    return "…/" + tail;
+  }
+
+  function flushProgress() {
+    progressTimer = 0;
+    const p = progressPending;
+    progressPending = null;
+    if (!p || !shadow) return;
+
+    const box = $el("scanProgress");
+    if (!box) return;
+    box.style.display = "block";
+
+    const total = Number(p.total) || 0;
+    const done = Number(p.done) || 0;
+    $el("scanProgressPhase").textContent = p.label || PROGRESS_PHASE_LABELS[p.phase] || "";
+    $el("scanProgressCount").textContent = total ? `${done} / ${total}` : done ? String(done) : "";
+    $el("scanProgressCurrent").textContent = p.current ? shortenPath(p.current) : "";
+
+    const fill = $el("scanProgressFill");
+    fill.className = "scan-progress-fill" + (p.state === "done" ? " done" : p.state === "error" ? " error" : "");
+    if (total > 0) {
+      fill.style.width = Math.min(100, Math.round((done / total) * 100)) + "%";
+    } else if (p.state === "done" || p.state === "error") {
+      fill.style.width = "100%";
+    } else {
+      // No total known yet (still discovering) — sweep instead of sitting at 0%.
+      fill.className += " indeterminate";
+    }
+  }
+
+  // Throttled with setTimeout rather than requestAnimationFrame: rAF is
+  // suspended while the tab is backgrounded, and a scan the user left running
+  // in another tab would then show a frozen indicator when they came back.
+  function setProgress(payload) {
+    progressPending = payload;
+    progressSeq++;
+    if (progressTimer) return;
+    progressTimer = setTimeout(flushProgress, PROGRESS_THROTTLE_MS);
+  }
+
+  // `holdMs` keeps a final "done"/"error" state visible briefly so the user
+  // sees the outcome instead of the indicator just vanishing.
+  function clearProgress(holdMs = 0) {
+    const seq = progressSeq;
+    const hide = () => {
+      // A newer operation started during the hold — leave its indicator alone.
+      if (progressSeq !== seq) return;
+      if (progressTimer) { clearTimeout(progressTimer); progressTimer = 0; }
+      progressPending = null;
+      const box = $el("scanProgress");
+      if (box) box.style.display = "none";
+    };
+    if (holdMs > 0) setTimeout(hide, holdMs);
+    else hide();
   }
 
   // ============================================================

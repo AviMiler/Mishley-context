@@ -57,6 +57,17 @@ window.__ccbTpl = (() => {
         <button id="projectEditBtn" type="button" aria-label="ניהול פרויקט" title="ניהול פרויקט" style="display:none">${IC.menuDots}</button>
       </div>
 
+      <div class="scan-progress" id="scanProgress" style="display:none" role="status" aria-live="polite">
+        <div class="scan-progress-top">
+          <span class="scan-progress-phase" id="scanProgressPhase"></span>
+          <span class="scan-progress-count" id="scanProgressCount"></span>
+        </div>
+        <div class="scan-progress-track">
+          <div class="scan-progress-fill" id="scanProgressFill"></div>
+        </div>
+        <div class="scan-progress-current" id="scanProgressCurrent" dir="ltr"></div>
+      </div>
+
       <div class="tab-pane active" id="pane-context">
         <div class="tab-scroll">
         <div class="ctx-meter" id="ccb-ctx-meter">
