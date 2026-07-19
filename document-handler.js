@@ -625,40 +625,57 @@
   // descends into them) and DENY_FILENAMES / non-code extensions / oversized
   // files. Reads matching files immediately (no lazy loading — see spec).
   async function scanCodeProject(dirHandle) {
+    console.log("[ccb-scan] scanCodeProject: start", { name: dirHandle && dirHandle.name });
     const included = [];
     const counts = { total: 0, included: 0, skippedDirs: 0, skippedConfig: 0, skippedExt: 0, skippedLarge: 0 };
 
     async function walk(handle, pathParts) {
-      for await (const [name, entry] of handle.entries()) {
-        if (entry.kind === "directory") {
-          if (DENY_DIRS.has(name)) { counts.skippedDirs++; continue; }
-          await walk(entry, [...pathParts, name]);
-          continue;
-        }
+      const dirPath = pathParts.join("/") || "(root)";
+      console.log("[ccb-scan] walk: entering directory", dirPath);
+      console.log("[ccb-scan] walk: calling handle.entries()", dirPath);
+      let entryCount = 0;
+      try {
+        for await (const [name, entry] of handle.entries()) {
+          entryCount++;
+          console.log("[ccb-scan] walk: got entry", { dirPath, name, kind: entry.kind, entryCount });
+          if (entry.kind === "directory") {
+            if (DENY_DIRS.has(name)) { console.log("[ccb-scan] walk: skip denied dir", name); counts.skippedDirs++; continue; }
+            await walk(entry, [...pathParts, name]);
+            continue;
+          }
 
-        counts.total++;
-        if (matchesDenyFilename(name)) { counts.skippedConfig++; continue; }
-        const ext = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
-        if (!CODE_EXTENSIONS.has(ext)) { counts.skippedExt++; continue; }
+          counts.total++;
+          if (matchesDenyFilename(name)) { console.log("[ccb-scan] walk: skip denied filename", name); counts.skippedConfig++; continue; }
+          const ext = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
+          if (!CODE_EXTENSIONS.has(ext)) { console.log("[ccb-scan] walk: skip ext", { name, ext }); counts.skippedExt++; continue; }
 
-        try {
-          const file = await entry.getFile();
-          if (file.size > MAX_CODE_FILE_SIZE) { counts.skippedLarge++; continue; }
-          const content = await file.text();
-          included.push({
-            relativePath: [...pathParts, name].join("/"),
-            content,
-            size: file.size,
-            tokens: estimateTokensForContent(content),
-          });
-          counts.included++;
-        } catch (e) {
-          console.warn("[document-handler] scanCodeProject: failed to read file", name, e);
+          try {
+            console.log("[ccb-scan] walk: reading file", name);
+            const file = await entry.getFile();
+            console.log("[ccb-scan] walk: got File object", { name, size: file.size });
+            if (file.size > MAX_CODE_FILE_SIZE) { console.log("[ccb-scan] walk: skip large file", { name, size: file.size }); counts.skippedLarge++; continue; }
+            const content = await file.text();
+            console.log("[ccb-scan] walk: read text OK", { name, chars: content.length });
+            included.push({
+              relativePath: [...pathParts, name].join("/"),
+              content,
+              size: file.size,
+              tokens: estimateTokensForContent(content),
+            });
+            counts.included++;
+          } catch (e) {
+            console.warn("[document-handler] scanCodeProject: failed to read file", name, e);
+          }
         }
+      } catch (e) {
+        console.error("[ccb-scan] walk: entries() iteration failed", dirPath, e);
+        throw e;
       }
+      console.log("[ccb-scan] walk: finished directory", { dirPath, entryCount });
     }
 
     await walk(dirHandle, []);
+    console.log("[ccb-scan] scanCodeProject: done", counts);
     return { included, counts };
   }
 
@@ -704,6 +721,7 @@
   // preserving `enabled` on files that already existed, and dropping documents
   // for files that disappeared from disk since the last scan.
   async function syncCodeProjectDocuments(project, included, rootName) {
+    console.log("[ccb-scan] syncCodeProjectDocuments: start", { projectId: project.id, fileCount: included.length });
     if (!_deps) return;
     if (!project.documents) project.documents = [];
 
@@ -771,12 +789,15 @@
       (d) => d.id === structureId || d.type !== "code" || includedPaths.has(d.name),
     );
 
+    console.log("[ccb-scan] syncCodeProjectDocuments: writing content", { writes: contentWrites.length });
     await Promise.all(contentWrites);
+    console.log("[ccb-scan] syncCodeProjectDocuments: content writes done");
     await Promise.all(removedDocs.map((d) => codeContentRemove(d.id).catch(() => {})));
 
     project.lastScanned = Date.now();
     project.updated = Date.now();
     await _deps.saveBlocks();
+    console.log("[ccb-scan] syncCodeProjectDocuments: done");
   }
 
   // ============================================================

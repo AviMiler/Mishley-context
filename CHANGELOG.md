@@ -2,6 +2,9 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-19 — Debug logging for code-project scan hang
+- Added: temporary diagnostic `console.log`/`console.warn` calls (all prefixed `[ccb-scan]`) throughout the code-project scan pipeline — `history-view.js#createCodeProjectBookmark`/`rescanCodeProject` (picker → `fsHandles.put`/`get` → `scanCodeProject` → `syncCodeProjectDocuments`), `document-handler.js#scanCodeProject`'s recursive `walk()` (per-directory entry into `handle.entries()`, per-entry kind, per-file read) and `#syncCodeProjectDocuments` (content-write batch), and `fs-handles.js#put`/`get`/`verifyPermission` (IndexedDB transaction + permission query/request results). Purpose: isolate where a second machine's scan silently stalls with no thrown error and no UI feedback beyond "סורק פרויקט..." — even on a very small folder, so the hang is not size-related. Intended to be removed (or reduced) once the root cause is found.
+
 ### 2026-07-19 — Project instructions auto-load
 - Added: **The active project's instructions now auto-load at conversation start**, alongside the General Memory. Being the active project is itself the on/off switch — there is no separate per-project toggle. Implemented in `chat-features.js`: new `_getActiveProjectInstructions()` + `_autoInjectPayload()`; `tryAutoInject`/`_doInject` no longer treat GM as the only trigger, and either source alone will fire.
 - Added: `#projectInstructionsAutoBadge` ("נטען אוטומטית") on the Context tab's project-instructions card (`ui-template.js`), toggled by `history-view.js#renderProjectContext` when the active project has instructions — the visual counterpart of the GM card's badge.

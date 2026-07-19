@@ -412,20 +412,29 @@
 
   // Opens the OS folder picker, bookmarks the handle, and runs an initial scan.
   async function createCodeProjectBookmark() {
+    console.log("[ccb-scan][history-view] createCodeProjectBookmark: start");
     if (!window.showDirectoryPicker) {
+      console.warn("[ccb-scan][history-view] showDirectoryPicker not supported");
       _deps.setStatus("הדפדפן לא תומך בבחירת תיקיות", true);
       return;
     }
     let dirHandle;
     try {
+      console.log("[ccb-scan][history-view] opening showDirectoryPicker()");
       dirHandle = await window.showDirectoryPicker();
+      console.log("[ccb-scan][history-view] picker returned", { name: dirHandle && dirHandle.name });
     } catch (e) {
+      console.warn("[ccb-scan][history-view] picker cancelled/failed", e);
       return; // user cancelled the picker
     }
 
+    console.log("[ccb-scan][history-view] loadBlocks() start");
     await _deps.loadBlocks();
+    console.log("[ccb-scan][history-view] loadBlocks() done");
     const id = "codeproj_" + Date.now();
+    console.log("[ccb-scan][history-view] fsHandles.put() start", { id });
     await window.__ccbFsHandles.put(id, dirHandle);
+    console.log("[ccb-scan][history-view] fsHandles.put() done", { id });
 
     _deps.state.blocks[id] = {
       id,
@@ -438,17 +447,23 @@
       documents: [],
       updated: Date.now(),
     };
+    console.log("[ccb-scan][history-view] saveBlocks() start");
     await _deps.saveBlocks();
+    console.log("[ccb-scan][history-view] saveBlocks() done");
     await setActiveProjectId(id);
     _deps.render();
 
     _deps.setStatus("סורק פרויקט...");
     try {
+      console.log("[ccb-scan][history-view] calling docHandler.scanCodeProject()");
       const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle);
+      console.log("[ccb-scan][history-view] scanCodeProject() returned", counts);
       // Built while `included` still holds full file content in memory — the
       // graph itself is just path strings, so it stays cheap to persist.
       _deps.state.blocks[id].depGraph = window.__ccbDepGraph.buildGraph(included);
+      console.log("[ccb-scan][history-view] buildGraph() done, calling syncCodeProjectDocuments()");
       await _deps.docHandler.syncCodeProjectDocuments(_deps.state.blocks[id], included, dirHandle.name);
+      console.log("[ccb-scan][history-view] syncCodeProjectDocuments() done");
       _deps.setStatus(`נסרקו ${counts.included} קבצים ✓`);
     } catch (e) {
       console.error("[history-view] Failed to scan code project", e);
@@ -460,14 +475,18 @@
   // Re-verifies (or re-requests) folder permission, then rescans and re-syncs
   // project.documents — preserving `enabled` on files that already existed.
   async function rescanCodeProject(projectId) {
+    console.log("[ccb-scan][history-view] rescanCodeProject: start", { projectId });
     const project = getProjectById(projectId);
     if (!project || !project.isCodeProject) return;
     await _deps.loadBlocks();
     const proj = _deps.state.blocks[projectId];
     if (!proj) return;
 
+    console.log("[ccb-scan][history-view] fsHandles.get() start", { dirHandleId: proj.dirHandleId });
     let dirHandle = await window.__ccbFsHandles.get(proj.dirHandleId);
+    console.log("[ccb-scan][history-view] fsHandles.get() done", { found: !!dirHandle, name: dirHandle && dirHandle.name });
     let ok = dirHandle && (await window.__ccbFsHandles.verifyPermission(dirHandle, "read"));
+    console.log("[ccb-scan][history-view] verifyPermission result", { ok });
 
     if (!ok) {
       const proceed = await _deps.modals.showConfirm({
@@ -490,9 +509,12 @@
 
     _deps.setStatus("סורק פרויקט...");
     try {
+      console.log("[ccb-scan][history-view] calling docHandler.scanCodeProject() (rescan)");
       const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle);
+      console.log("[ccb-scan][history-view] scanCodeProject() returned (rescan)", counts);
       proj.depGraph = window.__ccbDepGraph.buildGraph(included);
       await _deps.docHandler.syncCodeProjectDocuments(proj, included, dirHandle.name);
+      console.log("[ccb-scan][history-view] syncCodeProjectDocuments() done (rescan)");
       proj.title = dirHandle.name;
       await _deps.saveBlocks();
       _deps.setStatus(`נסרקו ${counts.included} קבצים ✓`);
