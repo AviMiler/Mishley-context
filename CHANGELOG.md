@@ -2,6 +2,11 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-19 — Explicit auto-load toggle for project instructions
+- Changed: **Project instructions auto-load is now an explicit per-project toggle** (`project.autoLoad`), not implied by simply having an active project. New `#projectInstructionsAutoToggle` in the instructions card header (`ui-template.js`, same `.toggle` markup as GM's), wired in `content.js#wireEvents` — flips `project.autoLoad` and saves. **Missing `autoLoad` defaults to ON**, so every existing project keeps its current auto-load behavior with no migration step; new projects also default ON.
+- Changed: `#projectInstructionsAutoBadge` ("נטען אוטומטית") now reflects the **toggle state**, not whether instructions have content — it shows even when the instructions are empty, signaling "this will auto-load once you write something" (`history-view.js#renderProjectContext`).
+- Changed: `chat-features.js#_getActiveProjectInstructions` now also gates on `project.autoLoad !== false` before returning the instructions text, so switching the toggle off actually suppresses the injection.
+
 ### 2026-07-19 — Debug logging for code-project scan hang
 - Added: temporary diagnostic `console.log`/`console.warn` calls (all prefixed `[ccb-scan]`) throughout the code-project scan pipeline — `history-view.js#createCodeProjectBookmark`/`rescanCodeProject` (picker → `fsHandles.put`/`get` → `scanCodeProject` → `syncCodeProjectDocuments`), `document-handler.js#scanCodeProject`'s recursive `walk()` (per-directory entry into `handle.entries()`, per-entry kind, per-file read) and `#syncCodeProjectDocuments` (content-write batch), and `fs-handles.js#put`/`get`/`verifyPermission` (IndexedDB transaction + permission query/request results). Purpose: isolate where a second machine's scan silently stalls with no thrown error and no UI feedback beyond "סורק פרויקט..." — even on a very small folder, so the hang is not size-related. Intended to be removed (or reduced) once the root cause is found.
 

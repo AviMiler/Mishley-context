@@ -119,15 +119,17 @@
   let _autoInjectObserver = null;
 
   // Active project (global selection) whose INSTRUCTIONS auto-load at
-  // conversation start alongside GM — being the active project IS the
-  // on/off switch here, mirroring GM's autoLoad toggle.
+  // conversation start alongside GM — gated by project.autoLoad, mirroring
+  // GM's own toggle. Missing autoLoad (older/new projects) defaults to ON,
+  // matching the toggle's default checked state (history-view.js#renderProjectContext).
   // Deliberately instructions-only (project.content), NOT
   // buildProjectSectionText: that also inlines every enabled document,
   // which for a code project is tens of thousands of tokens. Documents
   // stay behind the explicit footer "מסמכים" button (#injectDocsBtn).
   function _getActiveProjectInstructions() {
     const project = _deps.historyView?.getProjectById?.(_deps.state.currentProjectId);
-    const content = (project?.content || "").trim();
+    if (!project || project.autoLoad === false) return null;
+    const content = (project.content || "").trim();
     if (!content) return null;
     return "## " + project.title + "\n" + content;
   }

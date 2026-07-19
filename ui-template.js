@@ -75,6 +75,10 @@ window.__ccbTpl = (() => {
           <div class="gm-header project-instructions-header">
             <div class="project-instructions-head">
               <button id="projectInstructionsToggle" type="button" class="collapse-btn collapsed" aria-label="פתח או סגור עריכת הנחיות" title="פתח או סגור עריכת הנחיות">${IC.chevronRight}</button>
+              <label class="toggle" title="טעינה אוטומטית של הנחיות הפרויקט בתחילת שיחה">
+                <input type="checkbox" id="projectInstructionsAutoToggle" />
+                <span class="toggle-track"></span>
+              </label>
               <span class="gm-title">הנחיות הפרויקט</span>
               <span id="projectInstructionsAutoBadge" class="auto-badge" style="display:none">נטען אוטומטית</span>
             </div>

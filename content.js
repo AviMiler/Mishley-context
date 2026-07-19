@@ -485,6 +485,15 @@
       historyView.syncProjectInstructionsSection();
       if (state.projectInstructionsOpen) $el("projectViewInstructions")?.focus();
     });
+    $el("projectInstructionsAutoToggle").addEventListener("change", async (e) => {
+      const project = historyView.getProjectById(state.currentProjectId);
+      if (!project) return;
+      await loadBlocks();
+      state.blocks[project.id].autoLoad = e.target.checked;
+      state.blocks[project.id].updated = Date.now();
+      await saveBlocks();
+      historyView.renderProjectContext();
+    });
 
     const ctxExpand = $el("ccb-ctx-expand");
     if (ctxExpand) {
