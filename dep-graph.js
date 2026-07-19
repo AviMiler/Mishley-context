@@ -7,6 +7,15 @@
 // JS resolution also handles `@/`/`~/` alias imports (tried against `src/`
 // first, then project root) and is case-insensitive as a fallback, since
 // real filesystems the extension runs on (Windows/macOS) are.
+// Razor (.cshtml/.razor) reuses the C# symbol table: any known class/
+// interface/etc. name referenced in the markup (@model, @inject, tag
+// helpers, code blocks — anything, since Razor mixes C# into HTML) becomes
+// an edge to that type's file, filtered by @using directives the same way
+// C# `using`s filter candidates. Razor Pages/Components code-behind pairs
+// (`Foo.cshtml`<->`Foo.cshtml.cs`, `Foo.razor`<->`Foo.razor.cs`) get a
+// guaranteed bidirectional edge on top of that, since they're really one
+// unit split across two files and neither necessarily name-references the
+// other's types.
 // Exposes: window.__ccbDepGraph
 //
 // Public API:
@@ -71,6 +80,23 @@
         i = Math.min(i + 2, n);
         comments.push([s, i]);
         continue;
+      }
+
+      if (lang === "razor" && mode === "code") {
+        if (c === "@" && c2 === "*") {
+          const s = i; i += 2;
+          while (i < n && !(text[i] === "*" && text[i + 1] === "@")) i++;
+          i = Math.min(i + 2, n);
+          comments.push([s, i]);
+          continue;
+        }
+        if (c === "<" && text.slice(i, i + 4) === "<!--") {
+          const s = i;
+          const end = text.indexOf("-->", i + 4);
+          i = end === -1 ? n : end + 3;
+          comments.push([s, i]);
+          continue;
+        }
       }
 
       if (lang === "js") {
@@ -334,6 +360,46 @@
   }
 
   // ============================================================
+  // Razor (.cshtml/.razor) — consumes the C# symbol table; declares no
+  // types of its own, just references them via @model/@inject/tag helpers/
+  // embedded C# blocks. Filtered by @using directives, same idea as C#.
+  // ============================================================
+  const RAZOR_EXTENSIONS = new Set(["cshtml", "razor"]);
+  const RAZOR_USING_RE = /@using\s+(?:static\s+)?([A-Za-z_][\w.]*)\s*;?/g;
+
+  function extractRazorUsings(cleaned) {
+    RAZOR_USING_RE.lastIndex = 0;
+    const usings = [];
+    let m;
+    while ((m = RAZOR_USING_RE.exec(cleaned))) usings.push(m[1]);
+    return usings;
+  }
+
+  function analyzeRazorFile(file, symbolTable) {
+    const names = Object.keys(symbolTable.bySimpleName);
+    if (!names.length) return [];
+
+    const cleaned = stripComments(file.content, "razor");
+    const usings = extractRazorUsings(cleaned);
+
+    const combined = new RegExp(`\\b(${names.map(escapeRegex).join("|")})\\b`, "g");
+    const matched = new Set();
+    let m;
+    while ((m = combined.exec(cleaned))) matched.add(m[1]);
+
+    const deps = new Set();
+    for (const name of matched) {
+      const candidates = symbolTable.bySimpleName[name] || [];
+      const preferred = usings.length ? candidates.filter((cand) => usings.includes(cand.namespace)) : [];
+      const chosen = preferred.length ? preferred : candidates; // ambiguous → include all
+      for (const cand of chosen) {
+        if (cand.file !== file.relativePath) deps.add(cand.file);
+      }
+    }
+    return Array.from(deps);
+  }
+
+  // ============================================================
   // Public API
   // ============================================================
   function buildGraph(included) {
@@ -352,11 +418,29 @@
     }
 
     const csFiles = included.filter((f) => ext(f.relativePath) === "cs");
-    if (csFiles.length) {
+    const razorFiles = included.filter((f) => RAZOR_EXTENSIONS.has(ext(f.relativePath)));
+    if (csFiles.length || razorFiles.length) {
       const symbolTable = buildCsharpSymbolTable(csFiles);
       for (const file of csFiles) {
         graph[file.relativePath] = analyzeCsharpFile(file, symbolTable);
       }
+      for (const file of razorFiles) {
+        graph[file.relativePath] = analyzeRazorFile(file, symbolTable);
+      }
+    }
+
+    // Code-behind pairing: Foo.cshtml<->Foo.cshtml.cs / Foo.razor<->Foo.razor.cs
+    // are one logical unit split across two files — link them regardless of
+    // whether either side textually references the other's types.
+    for (const file of razorFiles) {
+      const codeBehind = file.relativePath + ".cs";
+      if (!pathIndex.has(codeBehind)) continue;
+      const viewDeps = new Set(graph[file.relativePath] || []);
+      viewDeps.add(codeBehind);
+      graph[file.relativePath] = Array.from(viewDeps);
+      const codeBehindDeps = new Set(graph[codeBehind] || []);
+      codeBehindDeps.add(file.relativePath);
+      graph[codeBehind] = Array.from(codeBehindDeps);
     }
 
     for (const file of included) {

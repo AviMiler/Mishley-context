@@ -59,6 +59,7 @@
     "js", "jsx", "mjs", "cjs", "ts", "tsx", "vue", "svelte", "py", "rb", "java", "kt", "kts", "go",
     "rs", "php", "c", "h", "cc", "cpp", "hpp", "cs", "swift", "m", "mm", "scala", "sh", "bash", "zsh",
     "ps1", "sql", "html", "htm", "css", "scss", "sass", "less", "graphql", "gql", "proto",
+    "cshtml", "razor", "json",
   ]);
 
   // ============================================================
