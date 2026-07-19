@@ -9,7 +9,7 @@
 //   toggleDocument(projectId, docId, enabled) — toggle document inclusion
 //   getDocumentContent(projectId, docId)    — retrieve full content for injection
 //   estimateTokens(content, type)      — estimate tokens for content
-//   scanCodeProject(dirHandle)         — recursively scan a code project folder
+//   scanCodeProject(dirHandle, ignorePatterns?) — recursively scan a code project folder, skipping user-defined ignore patterns
 //   buildStructureMarkdown(included, rootName) — render a folder tree as markdown
 //   syncCodeProjectDocuments(project, included, rootName) — upsert scanned files into project.documents
 //   removeCodeContent(docId)           — delete a code file's stored content (e.g. on bookmark removal)
@@ -53,6 +53,22 @@
   function matchesDenyFilename(name) {
     if (DENY_FILENAMES_EXACT.has(name)) return true;
     return DENY_FILENAMES_GLOB.some((re) => re.test(name));
+  }
+
+  // User-defined ignore patterns (project.ignorePatterns) — plain names or
+  // globs (`*`), matched case-insensitively against either the bare
+  // file/dir name or its full relative path from the project root, so a
+  // pattern like "src/legacy" or "*.spec.js" both work.
+  function buildIgnoreMatchers(patterns) {
+    return (patterns || [])
+      .map((p) => String(p || "").trim())
+      .filter(Boolean)
+      .map((p) => new RegExp("^" + p.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$", "i"));
+  }
+
+  function matchesIgnoreMatchers(name, relativePath, matchers) {
+    if (!matchers.length) return false;
+    return matchers.some((re) => re.test(name) || re.test(relativePath));
   }
 
   const CODE_EXTENSIONS = new Set([
@@ -624,11 +640,15 @@
   // ============================================================
   // Recursively walks a directory handle, skipping DENY_DIRS entirely (never
   // descends into them) and DENY_FILENAMES / non-code extensions / oversized
-  // files. Reads matching files immediately (no lazy loading — see spec).
-  async function scanCodeProject(dirHandle) {
-    console.log("[ccb-scan] scanCodeProject: start", { name: dirHandle && dirHandle.name });
+  // files. `ignorePatterns` (from project.ignorePatterns, user-editable via
+  // the documents header's ignore-list dialog) adds user-defined names/globs
+  // to skip on top of the built-in deny lists. Reads matching files
+  // immediately (no lazy loading — see spec).
+  async function scanCodeProject(dirHandle, ignorePatterns = []) {
+    console.log("[ccb-scan] scanCodeProject: start", { name: dirHandle && dirHandle.name, ignorePatterns });
     const included = [];
-    const counts = { total: 0, included: 0, skippedDirs: 0, skippedConfig: 0, skippedExt: 0, skippedLarge: 0 };
+    const counts = { total: 0, included: 0, skippedDirs: 0, skippedConfig: 0, skippedExt: 0, skippedLarge: 0, skippedCustom: 0 };
+    const customMatchers = buildIgnoreMatchers(ignorePatterns);
 
     async function walk(handle, pathParts) {
       const dirPath = pathParts.join("/") || "(root)";
@@ -639,14 +659,18 @@
         for await (const [name, entry] of handle.entries()) {
           entryCount++;
           console.log("[ccb-scan] walk: got entry", { dirPath, name, kind: entry.kind, entryCount });
+          const relPath = [...pathParts, name].join("/");
           if (entry.kind === "directory") {
-            if (DENY_DIRS.has(name)) { console.log("[ccb-scan] walk: skip denied dir", name); counts.skippedDirs++; continue; }
+            if (DENY_DIRS.has(name) || matchesIgnoreMatchers(name, relPath, customMatchers)) {
+              console.log("[ccb-scan] walk: skip denied dir", name); counts.skippedDirs++; continue;
+            }
             await walk(entry, [...pathParts, name]);
             continue;
           }
 
           counts.total++;
           if (matchesDenyFilename(name)) { console.log("[ccb-scan] walk: skip denied filename", name); counts.skippedConfig++; continue; }
+          if (matchesIgnoreMatchers(name, relPath, customMatchers)) { console.log("[ccb-scan] walk: skip custom-ignored", name); counts.skippedCustom++; continue; }
           const ext = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
           if (!CODE_EXTENSIONS.has(ext)) { console.log("[ccb-scan] walk: skip ext", { name, ext }); counts.skippedExt++; continue; }
 

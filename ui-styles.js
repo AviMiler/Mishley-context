@@ -373,7 +373,7 @@ window.__ccbCSS = (() => {
     }
     .collapse-btn.collapsed svg { transform: rotate(0deg); }
     .collapse-btn:not(.collapsed) svg { transform: rotate(-90deg); }
-    #addProjectBtn, #addCodeProjectBtn, #projectRenameBtn, #projectDeleteBtn, #addBtn {
+    #addProjectBtn, #addCodeProjectBtn, #projectEditBtn, #addBtn {
       width: 22px;
       height: 22px;
       border: 1px solid var(--border-input);
@@ -387,11 +387,7 @@ window.__ccbCSS = (() => {
       padding: 0;
       flex-shrink: 0;
     }
-    #addProjectBtn:hover, #addCodeProjectBtn:hover, #projectRenameBtn:hover, #addBtn:hover { background: var(--bg-tag); }
-    /* Delete is destructive — hover reads red like other danger actions
-       (.doc-item-delete, .dialog-confirm.danger) instead of the neutral
-       hover the other small icon buttons here get. */
-    #projectDeleteBtn:hover { background: #fdecec; border-color: #e8b4b4; color: #c53030; }
+    #addProjectBtn:hover, #addCodeProjectBtn:hover, #projectEditBtn:hover, #addBtn:hover { background: var(--bg-tag); }
     #historySection {
       flex: 0;
       min-height: 0;
@@ -1693,6 +1689,28 @@ window.__ccbCSS = (() => {
     }
     .doc-url-input:focus { border-color: var(--text-faint); }
     .doc-url-input:last-child { margin-bottom: 0; }
+
+    /* Ignore-patterns dialog (project.ignorePatterns) — files/folders excluded
+       from scanCodeProject(), edited via #codeProjectIgnoreBtn next to the
+       documents header's refresh button. */
+    .ignore-patterns-hint { font-size: 11px; color: var(--text-faint); margin-bottom: 10px; }
+    .ignore-patterns-add-row { display: flex; gap: 8px; margin-bottom: 12px; }
+    .ignore-patterns-add-row .doc-url-input { margin-bottom: 0; }
+    .ignore-patterns-add-row .gm-edit-btn { flex-shrink: 0; }
+    .ignore-patterns-list { max-height: 220px; overflow-y: auto; margin-bottom: 4px; }
+    .ignore-patterns-empty { font-size: 12px; color: var(--text-faint); padding: 8px 2px; }
+    .ignore-pattern-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 6px 8px; background: var(--bg-app); border-radius: 4px; margin-bottom: 6px;
+      border: 1px solid var(--border-light);
+    }
+    .ignore-pattern-name { font-size: 12px; color: var(--text-body); word-break: break-all; }
+    .ignore-pattern-remove {
+      width: 20px; height: 20px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+      color: #c53030; opacity: 0.6; cursor: pointer; background: transparent; border: none; padding: 0;
+      transition: opacity var(--t-fast);
+    }
+    .ignore-pattern-remove:hover { opacity: 1; }
 
     /* Code project file tree — rendered inline inside the open project's
        documents section (#projectDocumentsList), owned by code-tree.js. */

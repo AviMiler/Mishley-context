@@ -13,6 +13,7 @@
 //   renderConversationMessages(b, query)
 //   updateNavMatch() / updateCvFooter()
 //   openHiDropdown(b, menuBtn) / closeHiDropdown()
+//   openProjectDropdown(project, menuBtn) — rename / delete
 //   syncCollapsibleSections() / syncProjectDocumentsSection()
 //   getProjects() / getAllProjects() / getProjectById(id) / getConversationProject(b)
 //   buildHistoryMessages(b) / buildConversationInjectionText(messages)
@@ -20,8 +21,8 @@
 //   addProject()
 //   getCodeProjects()
 //   createCodeProjectBookmark() / rescanCodeProject(id)
-//   renameProject(project) / deleteProject(project)
 //   enableFilesForProject(projectId, relativePaths, enabled = true) / setAllCodeDocsEnabled(projectId, enabled)
+//   openIgnorePatternsDialog(project) — editor for project.ignorePatterns (files/folders excluded from scanning)
 
 (() => {
   if (window.__ccbHistoryViewInstalled) return;
@@ -562,6 +563,7 @@
       lastScanned: null,
       content: "",
       documents: [],
+      ignorePatterns: [],
       updated: Date.now(),
     };
     console.log("[ccb-scan][history-view] saveBlocks() start");
@@ -573,7 +575,7 @@
     _deps.setStatus("סורק פרויקט...");
     try {
       console.log("[ccb-scan][history-view] calling docHandler.scanCodeProject()");
-      const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle);
+      const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle, _deps.state.blocks[id].ignorePatterns);
       console.log("[ccb-scan][history-view] scanCodeProject() returned", counts);
       // Built while `included` still holds full file content in memory — the
       // graph itself is just path strings, so it stays cheap to persist.
@@ -627,7 +629,7 @@
     _deps.setStatus("סורק פרויקט...");
     try {
       console.log("[ccb-scan][history-view] calling docHandler.scanCodeProject() (rescan)");
-      const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle);
+      const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle, proj.ignorePatterns);
       console.log("[ccb-scan][history-view] scanCodeProject() returned (rescan)", counts);
       proj.depGraph = window.__ccbDepGraph.buildGraph(included);
       await _deps.docHandler.syncCodeProjectDocuments(proj, included, dirHandle.name);
@@ -730,9 +732,9 @@
 
   async function deleteCodeProject(project) {
     const ok = await _deps.modals.showConfirm({
-      title: "הסרת סימניה",
-      msg: `להסיר את הסימניה "${project.title}"? הקבצים בדיסק לא יימחקו.`,
-      confirmLabel: "הסר",
+      title: "מחיקת פרויקט",
+      msg: `למחוק את הפרויקט "${project.title}"? הקבצים בדיסק לא יימחקו, רק הקישור אליהם בתוסף.`,
+      confirmLabel: "מחק",
       danger: true,
     });
     if (!ok) return;
@@ -760,6 +762,53 @@
   }
 
   // ============================================================
+  // Project management dropdown (rename / delete) — behind #projectEditBtn,
+  // the leftmost button in #globalProjectBar. One menu for both regular and
+  // code projects; rename/delete are the same shared actions above.
+  // ============================================================
+  function openProjectDropdown(project, menuBtn) {
+    closeHiDropdown();
+    const dd = $el("hiDropdown");
+    const IC = window.__ccbTpl.IC;
+
+    const renameItem = document.createElement("div");
+    renameItem.className = "hd-item";
+    renameItem.innerHTML = `${IC.pencil} שנה שם`;
+    renameItem.addEventListener("click", () => {
+      closeHiDropdown();
+      renameProject(project);
+    });
+
+    const sep = document.createElement("div");
+    sep.className = "hd-sep";
+
+    const delItem = document.createElement("div");
+    delItem.className = "hd-item danger";
+    delItem.innerHTML = `${IC.trash} מחק`;
+    delItem.addEventListener("click", () => {
+      closeHiDropdown();
+      deleteProject(project);
+    });
+
+    dd.innerHTML = "";
+    dd.appendChild(renameItem);
+    dd.appendChild(sep);
+    dd.appendChild(delItem);
+
+    const rect = menuBtn.getBoundingClientRect();
+    dd.style.top = rect.top + "px";
+    dd.style.left = rect.right + 6 + "px";
+    dd.classList.add("open");
+
+    const onOutside = (e) => {
+      if (!dd.contains(e.target) && e.target !== menuBtn) closeHiDropdown();
+    };
+    document.addEventListener("click", onOutside, { capture: true, once: false });
+    _deps.state.hiDropdownCleanup = () =>
+      document.removeEventListener("click", onOutside, { capture: true });
+  }
+
+  // ============================================================
   // Project context — instructions card + documents section for whichever
   // project is currently active (global selection). Both are hidden when no
   // project is selected; there's no separate "view" to open/close anymore —
@@ -768,10 +817,8 @@
   function renderProjectContext() {
     const project = getProjectById(_deps.state.currentProjectId);
 
-    const renameBtn = $el("projectRenameBtn");
-    if (renameBtn) renameBtn.style.display = project ? "flex" : "none";
-    const deleteBtn = $el("projectDeleteBtn");
-    if (deleteBtn) deleteBtn.style.display = project ? "flex" : "none";
+    const editBtn = $el("projectEditBtn");
+    if (editBtn) editBtn.style.display = project ? "flex" : "none";
 
     // A project's instructions card can be ticked for injection, so a project
     // id may sit in state.selected. Only the ACTIVE project's card is rendered,
@@ -803,6 +850,13 @@
           ? `רענן (נסרק לאחרונה: ${formatAge(project.lastScanned)})`
           : "רענן (טרם נסרק)";
         refreshBtn.onclick = () => rescanCodeProject(project.id);
+      }
+      const ignoreBtn = $el("codeProjectIgnoreBtn");
+      if (ignoreBtn) {
+        ignoreBtn.style.display = project.isCodeProject ? "flex" : "none";
+        const ignoreCount = (project.ignorePatterns || []).length;
+        ignoreBtn.title = ignoreCount ? `קבצים/תיקיות להתעלמות (${ignoreCount})` : "קבצים/תיקיות להתעלמות";
+        ignoreBtn.onclick = () => openIgnorePatternsDialog(project);
       }
       syncProjectDocumentsSection();
     } else {
@@ -1606,6 +1660,99 @@
   }
 
   // ============================================================
+  // Code project ignore list — file/folder names or globs to exclude from
+  // scanCodeProject(), edited via the dialog opened by #codeProjectIgnoreBtn
+  // next to the refresh button. Stored on project.ignorePatterns and applied
+  // by document-handler.js on every scan/rescan.
+  // ============================================================
+  function renderIgnorePatternsList(patterns) {
+    const list = $el("ignorePatternsList");
+    if (!list) return;
+    list.innerHTML = "";
+    if (!patterns.length) {
+      const empty = document.createElement("div");
+      empty.className = "ignore-patterns-empty";
+      empty.textContent = "אין קבצים או תיקיות בהתעלמות";
+      list.appendChild(empty);
+      return;
+    }
+    patterns.forEach((pattern, idx) => {
+      const row = document.createElement("div");
+      row.className = "ignore-pattern-row";
+      const name = document.createElement("span");
+      name.className = "ignore-pattern-name";
+      name.textContent = pattern;
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "ignore-pattern-remove";
+      removeBtn.innerHTML = window.__ccbTpl.IC.x;
+      removeBtn.setAttribute("aria-label", "הסר");
+      removeBtn.onclick = () => {
+        patterns.splice(idx, 1);
+        renderIgnorePatternsList(patterns);
+      };
+      row.appendChild(name);
+      row.appendChild(removeBtn);
+      list.appendChild(row);
+    });
+  }
+
+  function openIgnorePatternsDialog(project) {
+    const overlay = $el("ignorePatternsOverlay");
+    if (!overlay) return;
+
+    const patterns = [...(project.ignorePatterns || [])];
+    renderIgnorePatternsList(patterns);
+    overlay.classList.add("show");
+
+    function addFromInput(inputEl) {
+      const raw = inputEl.value.trim();
+      if (!raw) return;
+      raw.split(",").map((s) => s.trim()).filter(Boolean).forEach((p) => {
+        if (!patterns.includes(p)) patterns.push(p);
+      });
+      inputEl.value = "";
+      renderIgnorePatternsList(patterns);
+      inputEl.focus();
+    }
+
+    function closeDialog() {
+      overlay.classList.remove("show");
+    }
+
+    // Clone every interactive element to strip stale listeners from prior opens.
+    const input = $el("ignorePatternInput").cloneNode(true);
+    $el("ignorePatternInput").replaceWith(input);
+    input.value = "";
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); addFromInput(input); }
+    });
+
+    const addBtn = $el("ignorePatternAddBtn").cloneNode(true);
+    $el("ignorePatternAddBtn").replaceWith(addBtn);
+    addBtn.addEventListener("click", () => addFromInput(input));
+
+    const saveBtn = $el("ignorePatternsSaveBtn").cloneNode(true);
+    $el("ignorePatternsSaveBtn").replaceWith(saveBtn);
+    saveBtn.addEventListener("click", async () => {
+      await _deps.loadBlocks();
+      const proj = _deps.state.blocks[project.id];
+      if (proj) {
+        proj.ignorePatterns = patterns;
+        proj.updated = Date.now();
+        await _deps.saveBlocks();
+      }
+      closeDialog();
+      _deps.render();
+      await rescanCodeProject(project.id);
+    });
+
+    const closeBtn = $el("ignorePatternsCloseBtn").cloneNode(true);
+    $el("ignorePatternsCloseBtn").replaceWith(closeBtn);
+    closeBtn.addEventListener("click", closeDialog);
+  }
+
+  // ============================================================
   // Public API
   // ============================================================
   window.__ccbHistoryView = {
@@ -1638,8 +1785,7 @@
     updateCvFooter,
     openHiDropdown,
     closeHiDropdown,
-    renameProject,
-    deleteProject,
+    openProjectDropdown,
     syncCollapsibleSections,
     syncProjectDocumentsSection,
     getProjects,
@@ -1662,5 +1808,6 @@
     rescanCodeProject,
     enableFilesForProject,
     setAllCodeDocsEnabled,
+    openIgnorePatternsDialog,
   };
 })();

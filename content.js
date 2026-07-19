@@ -233,6 +233,7 @@
       getShadow,
       historyView,
       setStatus,
+      render,
     });
 
     historyView.init({
@@ -475,15 +476,10 @@
       });
     }
 
-    $el("projectRenameBtn").addEventListener("click", (e) => {
+    $el("projectEditBtn").addEventListener("click", (e) => {
       e.stopPropagation();
       const project = historyView.getProjectById(state.currentProjectId);
-      if (project) historyView.renameProject(project);
-    });
-    $el("projectDeleteBtn").addEventListener("click", (e) => {
-      e.stopPropagation();
-      const project = historyView.getProjectById(state.currentProjectId);
-      if (project) historyView.deleteProject(project);
+      if (project) historyView.openProjectDropdown(project, $el("projectEditBtn"));
     });
 
     // Conversation View
@@ -793,8 +789,9 @@
     $el("editTags").value = b ? (b.tags || []).join(", ") : prefill?.tags || "";
     $el("editContent").value = b ? b.content : prefill?.content || "";
     // Project blocks have their own delete flow (historyView.deleteProject,
-    // via #projectDeleteBtn) that also cleans up child blocks/conversation
-    // links — this generic delete doesn't, so it stays hidden for kind:"project".
+    // behind #projectEditBtn's dropdown) that also cleans up child blocks/
+    // conversation links — this generic delete doesn't, so it stays hidden
+    // for kind:"project".
     $el("deleteBtn").style.display = id && b?.kind !== "project" ? "block" : "none";
 
     // Show which project this block belongs to: an existing block's own

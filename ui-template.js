@@ -21,6 +21,7 @@ window.__ccbTpl = (() => {
     folder: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>`,
     refresh: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>`,
     link: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
+    ban: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`,
   };
 
   const PANEL_HTML = `
@@ -51,10 +52,9 @@ window.__ccbTpl = (() => {
           </button>
           <div id="projectSelectDropdown" class="project-select-dropdown" role="listbox" aria-hidden="true"></div>
         </div>
-        <button id="projectRenameBtn" type="button" aria-label="שנה שם פרויקט" title="שנה שם פרויקט" style="display:none">${IC.pencil}</button>
-        <button id="projectDeleteBtn" type="button" aria-label="מחק פרויקט" title="מחק פרויקט" style="display:none">${IC.trash}</button>
         <button id="addProjectBtn" type="button" aria-label="פרויקט חדש" title="פרויקט חדש">${IC.plus}</button>
         <button id="addCodeProjectBtn" type="button" aria-label="פרויקט קוד חדש" title="פרויקט קוד חדש">${IC.folder}</button>
+        <button id="projectEditBtn" type="button" aria-label="ניהול פרויקט" title="ניהול פרויקט" style="display:none">${IC.menuDots}</button>
       </div>
 
       <div class="tab-pane active" id="pane-context">
@@ -105,6 +105,7 @@ window.__ccbTpl = (() => {
               <span class="section-label">קבצים</span>
             </div>
             <div class="section-head-right">
+              <button id="codeProjectIgnoreBtn" type="button" class="doc-refresh-btn" aria-label="קבצים/תיקיות להתעלמות" title="קבצים/תיקיות להתעלמות" style="display:none">${IC.ban}</button>
               <button id="codeProjectRefreshBtn" type="button" class="doc-refresh-btn" aria-label="רענן" title="רענן" style="display:none">${IC.refresh}</button>
               <button id="projectAddDocumentBtn" type="button" class="gm-edit-btn">${IC.plus} הוסף</button>
             </div>
@@ -202,6 +203,22 @@ window.__ccbTpl = (() => {
         </div>
       </div>
 
+      <div class="dialog-overlay" id="ignorePatternsOverlay">
+        <div class="dialog-box doc-dialog">
+          <div class="dialog-title">קבצים ותיקיות להתעלמות</div>
+          <div class="ignore-patterns-hint">הקלד שם קובץ או תיקייה (אפשר * ככלל-חלק, ואפשר כמה מופרדים בפסיק) ולחץ הוסף.</div>
+          <div class="ignore-patterns-add-row">
+            <input type="text" id="ignorePatternInput" class="doc-url-input" placeholder="לדוגמה: legacy, *.spec.js" />
+            <button id="ignorePatternAddBtn" type="button" class="gm-edit-btn">${IC.plus} הוסף</button>
+          </div>
+          <div id="ignorePatternsList" class="ignore-patterns-list"></div>
+          <div class="dialog-btns">
+            <button class="dialog-confirm" id="ignorePatternsSaveBtn">שמור וסרוק מחדש</button>
+            <button class="dialog-cancel" id="ignorePatternsCloseBtn">סגור</button>
+          </div>
+        </div>
+      </div>
+
       <div class="settings-overlay" id="settingsOverlay">
         <div class="settings-box" id="settingsBox">
           <div class="settings-head">
@@ -262,10 +279,10 @@ window.__ccbTpl = (() => {
                   <div class="prompts-subtitle">1) טעינה ידנית</div>
                   <button id="resetFramingManualBtn" type="button" class="prompts-reset">איפוס</button>
                 </div>
-                <div class="prompts-sublabel">הוראות לפני הקונטקסט</div>
+                <div class="prompts-sublabel">הוראות לפני הפרומפטים השמורים</div>
                 <textarea id="promptFramingManualIntro" spellcheck="false"></textarea>
                 <div class="prompts-locked prompts-locked-tag">&lt;context&gt; … &lt;/context&gt;</div>
-                <div class="prompts-sublabel">הוראות אחרי הקונטקסט</div>
+                <div class="prompts-sublabel">הוראות אחרי הפרומפטים השמורים</div>
                 <textarea id="promptFramingManualOutro" spellcheck="false"></textarea>
               </div>
 

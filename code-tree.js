@@ -6,7 +6,7 @@
 // Exposes: window.__ccbCodeTree
 //
 // Public API:
-//   init(deps)                  — { docHandler, getShadow, historyView, setStatus }
+//   init(deps)                  — { docHandler, getShadow, historyView, setStatus, render }
 //   renderInline(project, mount) — (re)build the file tree inside `mount`
 //                                  (an element inside #projectDocumentsList)
 
@@ -136,7 +136,12 @@
         checkbox.checked = !!child.doc.enabled;
         checkbox.addEventListener("change", () => {
           _deps.docHandler.toggleDocument(_project.id, child.doc.id, checkbox.checked);
-          updateTokenCount();
+          // A full top-level render (not just updateTokenCount()) — same
+          // pattern as the regular-project flat document list's own
+          // checkbox (history-view.js) — so the footer inject button's
+          // enabled state (content.js#syncInjectDocsBtn) picks up single-file
+          // toggles too, not just folder-level/select-all bulk changes.
+          _deps.render();
         });
         row.appendChild(checkbox);
 

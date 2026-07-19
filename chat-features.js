@@ -263,12 +263,10 @@
       : f.manualPre + blocksBody + "\n\n---\n\n" + f.manualPost;
     const r = _deps.inject.injectIntoInput(text, "prepend");
     if (r.ok) {
-      _deps.setStatus("הוזרק ✓");
-      setTimeout(() => {
-        const btn = document.querySelector(_deps.config.SEND_BUTTON_SELECTOR);
-        if (btn) btn.click();
-        else _deps.setStatus("לא נמצא כפתור שליחה", true);
-      }, 100);
+      // Deliberately not auto-sending — same convention as
+      // injectProjectDocuments()/cvLoadBtn: the user reviews/edits/sends
+      // themselves.
+      _deps.setStatus("הוזרק — ניתן לערוך ולשלוח ✓");
     } else {
       _deps.setStatus(r.error || "נכשל", true);
     }

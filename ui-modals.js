@@ -297,7 +297,7 @@
     const docsOutro    = ($el("promptFramingDocsOutro")?.value    || "").trim();
 
     if (!manualIntro || !gmIntro) {
-      _deps.setStatus("הוראות לפני הקונטקסט לא יכולות להיות ריקות", true);
+      _deps.setStatus("הוראות לפני הפרומפטים השמורים ולפני הזיכרון לא יכולות להיות ריקות", true);
       return;
     }
 
