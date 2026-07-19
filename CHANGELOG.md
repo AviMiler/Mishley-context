@@ -2,6 +2,9 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-19 — Project selector: text tag instead of folder emoji
+- Changed: The project selector's code-project indicator changed from a `📁` emoji prefix to a plain `[קוד]` text tag. Considered forcing a monochrome emoji via the `U+FE0E` text-presentation variation selector first, but that mechanism only affects a fixed set of legacy dual-presentation characters (☺, ✈, ⚡, etc.) — `📁` (U+1F4C1) isn't one of them and has no monochrome fallback glyph in any common font, so it would have kept rendering in full color regardless. A native `<option>` can't hold an SVG icon either (no HTML/markup allowed inside `<option>`), so plain text is the only actually-flat option here.
+
 ### 2026-07-19 — File loading no longer auto-sends
 - Changed: `history-view.js#injectProjectDocuments()` (the footer "מסמכים" button) no longer clicks the send button after loading the documents' text into the chat input. The user can now review, edit, or add their own question before sending manually — every other injection path (GM, manual, conversation, continuation) still auto-sends, this one deliberately doesn't.
 - Removed: the now-unused `sendButtonSel` dependency passed from `content.js` into `history-view.js#init` — it had no other callers left after this change.

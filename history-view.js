@@ -94,8 +94,8 @@
   }
 
   // Unified Context-tab "פרויקטים" list — regular + code projects together,
-  // most-recently-updated first (a 📁 prefix distinguishes code projects in
-  // the selector; see renderProjectSelect).
+  // most-recently-updated first (a "[קוד]" text tag distinguishes code
+  // projects in the selector; see renderProjectSelect).
   function getAllProjects() {
     return Object.values(_deps.state.blocks)
       .filter((b) => b.kind === "project")
@@ -440,7 +440,11 @@
     for (const project of projects) {
       const opt = document.createElement("option");
       opt.value = project.id;
-      opt.textContent = project.isCodeProject ? `📁 ${project.title}` : project.title;
+      // Native <option> can't render an SVG icon, and the folder emoji has no
+      // monochrome fallback glyph (U+FE0E only affects legacy dual-presentation
+      // characters, not this one) — a plain text tag is the only way to mark
+      // code projects here that's actually flat/monochrome, not just requested to be.
+      opt.textContent = project.isCodeProject ? `[קוד] ${project.title}` : project.title;
       sel.appendChild(opt);
     }
 
