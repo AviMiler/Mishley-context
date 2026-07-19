@@ -340,6 +340,12 @@ window.__ccbCSS = (() => {
       gap: 6px;
       min-width: 0;
     }
+    .section-head-right {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
     .section-label {
       font-size: 11px;
       font-weight: 600;
@@ -414,20 +420,12 @@ window.__ccbCSS = (() => {
     }
     .project-select:hover { background: var(--bg-tag); }
     .project-select:focus { outline: none; border-color: var(--text-faint); }
-    .code-project-info-row {
-      display: flex; align-items: center; gap: 8px;
-      padding: 8px 10px; margin: 0 18px 10px;
-      background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: var(--r-input);
-      font-size: 11px; color: var(--text-ghost);
-    }
-    .code-project-info-icon { color: var(--text-faint); display: flex; flex-shrink: 0; }
-    .code-project-info-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .code-project-info-refresh {
+    .doc-refresh-btn {
       width: 22px; height: 22px; flex-shrink: 0; border: none; background: none;
       color: var(--text-faint); cursor: pointer; border-radius: 5px;
       display: flex; align-items: center; justify-content: center;
     }
-    .code-project-info-refresh:hover { background: var(--bg-tag); color: var(--text-strong); }
+    .doc-refresh-btn:hover { background: var(--bg-tag); color: var(--text-strong); }
     .hi-search-toggle {
       display: flex; gap: 4px;
       background: var(--bg-clear); border-radius: var(--r-input);
@@ -1645,10 +1643,7 @@ window.__ccbCSS = (() => {
     .edit-status { font-size: 12px; text-align: center; min-height: 18px; margin-top: 8px; }
 
     /* Document management */
-    .project-documents-card { margin-top: 8px; }
-    .project-documents-header { padding: 12px; border-bottom: 1px solid var(--border-light); display: flex; justify-content: space-between; align-items: center; }
-    .project-documents-head { display: flex; align-items: center; gap: 8px; flex: 1; }
-    .project-documents-list { padding: 8px; }
+    .project-documents-list { padding: 8px 18px 14px; }
     .doc-item {
       display: flex; align-items: center; gap: 8px; padding: 8px;
       background: var(--bg-app); border-radius: 4px; margin-bottom: 6px;

@@ -700,23 +700,6 @@
     if (instrCard) instrCard.style.display = project ? "block" : "none";
     if (project) renderProjectInstructionsCard(project);
 
-    const infoRow = $el("codeProjectInfoRow");
-    if (infoRow) {
-      if (project?.isCodeProject) {
-        infoRow.style.display = "flex";
-        const text = $el("codeProjectInfoText");
-        if (text) {
-          text.textContent = project.lastScanned
-            ? `${project.title} · נסרק לאחרונה: ${formatAge(project.lastScanned)}`
-            : `${project.title} · טרם נסרק`;
-        }
-        const refreshBtn = $el("codeProjectInfoRefreshBtn");
-        if (refreshBtn) refreshBtn.onclick = () => rescanCodeProject(project.id);
-      } else {
-        infoRow.style.display = "none";
-      }
-    }
-
     const docsCard = $el("projectDocumentsCard");
     if (docsCard) docsCard.style.display = project ? "block" : "none";
     if (project) {
@@ -724,6 +707,16 @@
       wireProjectViewDocumentEvents();
       const addDocBtn = $el("projectAddDocumentBtn");
       if (addDocBtn) addDocBtn.style.display = project.isCodeProject ? "none" : "";
+      // Refresh (rescan) lives in the documents header itself now — no more
+      // separate info box above it. Only shown for code projects.
+      const refreshBtn = $el("codeProjectRefreshBtn");
+      if (refreshBtn) {
+        refreshBtn.style.display = project.isCodeProject ? "flex" : "none";
+        refreshBtn.title = project.lastScanned
+          ? `רענן (נסרק לאחרונה: ${formatAge(project.lastScanned)})`
+          : "רענן (טרם נסרק)";
+        refreshBtn.onclick = () => rescanCodeProject(project.id);
+      }
       syncProjectDocumentsSection();
     } else {
       const docsList = $el("projectDocumentsList");

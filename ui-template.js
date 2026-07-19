@@ -90,18 +90,16 @@ window.__ccbTpl = (() => {
           </div>
         </div>
 
-        <div id="codeProjectInfoRow" class="code-project-info-row" style="display:none">
-          <span class="code-project-info-icon">${IC.folder}</span>
-          <span id="codeProjectInfoText" class="code-project-info-text"></span>
-          <button id="codeProjectInfoRefreshBtn" type="button" class="code-project-info-refresh" aria-label="רענן" title="רענן">${IC.refresh}</button>
-        </div>
-        <div id="projectDocumentsCard" class="gm-card project-documents-card" style="display:none">
-          <div class="gm-header project-documents-header">
-            <div class="project-documents-head">
+        <div id="projectDocumentsCard" style="display:none">
+          <div class="section-header">
+            <div class="section-head-left">
               <button id="projectDocumentsToggle" type="button" class="collapse-btn" aria-label="סגור או פתח מסמכים" title="סגור או פתח מסמכים">${IC.chevronRight}</button>
-              <span class="gm-title">מסמכים</span>
+              <span class="section-label">מסמכים</span>
             </div>
-            <button id="projectAddDocumentBtn" type="button" class="gm-edit-btn">${IC.plus} הוסף</button>
+            <div class="section-head-right">
+              <button id="codeProjectRefreshBtn" type="button" class="doc-refresh-btn" aria-label="רענן" title="רענן" style="display:none">${IC.refresh}</button>
+              <button id="projectAddDocumentBtn" type="button" class="gm-edit-btn">${IC.plus} הוסף</button>
+            </div>
           </div>
           <div id="projectDocumentsList" class="project-documents-list"></div>
         </div>

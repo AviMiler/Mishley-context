@@ -2,6 +2,12 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-19 — Documents header matches the prompts-section header; refresh folded in
+- Changed: The documents section's header (`#projectDocumentsCard`) now uses the exact same `.section-header`/`.section-head-left`/`.section-label` markup as `#blocksSection`'s "פרומפטים להזרקה" header, instead of its own `.gm-header`/`.project-documents-header` styling — dropped the card background/border wrapper to match (was `class="gm-card project-documents-card"`, now a bare div).
+- Removed: The standalone `#codeProjectInfoRow` box (folder icon + "<project> · נסרק לאחרונה: …" + refresh button) above the documents card. The refresh button moved into the documents header itself (`#codeProjectRefreshBtn`, shown only for code projects, alongside `#projectAddDocumentBtn` which shows only for regular ones) — the last-scanned age is now the button's `title` tooltip instead of always-visible text.
+- Changed: `.project-documents-list` padding adjusted (`8px` → `8px 18px 14px`) to match `#list`'s horizontal inset now that it's no longer nested inside a padded card.
+- Removed now-dead CSS: `.code-project-info-row`, `.code-project-info-icon`, `.code-project-info-text`, `.project-documents-card`, `.project-documents-header`, `.project-documents-head`. Renamed `.code-project-info-refresh` → `.doc-refresh-btn` (kept, still used by the relocated button). Added `.section-head-right` (mirrors `.section-head-left`) for the header's right-side action group.
+
 ### 2026-07-19 — Project instructions editing matches General Memory exactly
 - Changed: **Project instructions now use the exact same edit UX as General Memory.** Removed the inline accordion (`#projectInstructionsPanel`, `#projectViewInstructions` textarea, `#projectViewSaveBtn`, `#projectInstructionsToggle` chevron, `#projectInstructionsEditBtn`). `history-view.js` gained `renderProjectInstructionsCard(project)`, a near 1:1 port of `chat-features.js#renderGeneralMemory` — same `.gm-card`/`.auto-badge`-below-header structure, same `autoLoad` toggle pattern.
 - Changed: **Neither GM nor the project-instructions card has a dedicated edit button anymore.** Clicking anywhere on either card opens the shared block-edit form (`content.js#openEdit`), same as clicking a row in the manual-prompts list (`#list`). The toggle (and GM's select-for-inject checkbox) call `stopPropagation()` so interacting with them doesn't also pop the form open.
