@@ -314,6 +314,7 @@ window.__ccbCSS = (() => {
     }
     #pane-context .context-toolbar {
       flex-shrink: 0;
+      justify-content: flex-end;
     }
     .search-wrap { flex: 1; position: relative; }
     #search, #searchHistory, .code-tree-search-input {
@@ -502,14 +503,15 @@ window.__ccbCSS = (() => {
       display: flex; align-items: center;
     }
     #addBtn {
-      width: 36px; height: 36px; flex-shrink: 0;
-      border: 1px solid var(--border-input); background: var(--text-strong);
-      border-radius: var(--r-input); cursor: pointer;
+      width: 28px; height: 28px; flex-shrink: 0;
+      border: none; background: var(--text-strong);
+      border-radius: 50%; cursor: pointer;
       display: flex; align-items: center; justify-content: center;
-      color: var(--bg-app); font-size: 18px; font-family: var(--font-he);
-      transition: background var(--t-fast);
+      color: var(--bg-app); font-family: var(--font-he);
+      box-shadow: 0 1px 3px rgba(0,0,0,.15);
+      transition: background var(--t-fast), transform var(--t-fast);
     }
-    #addBtn:hover { background: #2a2622; }
+    #addBtn:hover { background: #2a2622; transform: scale(1.06); }
 
     /* ── Block list ── */
     #list, #historyList {

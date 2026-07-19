@@ -2,6 +2,9 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-19 — "+ new block" button restyled and moved left
+- Changed: `#addBtn` (the "+" that opens a new block in the Context tab) shrunk from 36×36 to 28×28 and changed from a rounded-square filled button to a circular one with a subtle shadow and a small hover scale-up. Added `justify-content: flex-end` to `#pane-context .context-toolbar` — in this RTL layout, `flex-end` is the visual left, so the button moved from the row's default right-aligned position to the left. Scoped to `#pane-context` only — `#historyToolbar` in the History tab is untouched.
+
 ### 2026-07-19 — Blob-only documents now actually attach to the chat's file input
 - Fixed: `history-view.js#injectProjectDocuments()` now calls `docHandler.injectFilesToChat(project.id)` right after the text injection succeeds. Previously, enabled documents with `hasBlob: true` and no extracted text were only *mentioned* in the injected text ("[קבצים ללא תוכן טקסט: ...]") — the actual file was never attached, so the AI never received it. This closes the gap noted in the 2026-07-19 "File loading no longer auto-sends" entry below.
 - Fixed: `document-handler.js#injectFilesToChat`'s DOM-not-ready fallback (`window.__ccbCtxMeter?.queueFilesForInjection?.(files)`) was calling a method that didn't exist on `ctx-meter.js`'s public API — a silent no-op. Added `queueFilesForInjection(files)` to `ctx-meter.js`: it stashes the files, and `attachFileInput()` (already run by `watchFileInputs()`'s `MutationObserver` whenever a new `<input type="file">` appears) now flushes the queue onto that input via `DataTransfer`, merging with whatever files the input already holds. Also cleared on `cleanup()` so a queued file can't leak into a later page/session.
