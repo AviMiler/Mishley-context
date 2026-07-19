@@ -435,8 +435,9 @@
     $el("addBtn").addEventListener("click", () => openEdit(null));
     $el("injectBtn").addEventListener("click", () => chat.injectSelected());
     $el("injectDocsBtn").addEventListener("click", () => historyView.injectProjectDocuments());
-    $el("injectInstructionsBtn").addEventListener("click", () => historyView.injectProjectInstructions());
-    $el("summarizeBtnHistory").addEventListener("click", () => void chat.saveChat());
+    // No manual "save chat" button anymore — auto-save (chat-features.js#
+    // scheduleAutoSave) covers it. chat.saveChat() is still exported and still
+    // does the full scroll-to-top capture; it just has no UI trigger today.
     $el("saveBtn").addEventListener("click", saveEdit);
     $el("cancelBtn").addEventListener("click", closeEdit);
     $el("deleteBtn").addEventListener("click", deleteEdit);
@@ -620,6 +621,9 @@
     syncBlocksSection();
     syncInjectDocsBtn();
     window.__ccbHistoryView.render();
+    // After renderProjectContext() has pruned any non-active project's id from
+    // state.selected, refresh the footer count so it matches what's ticked.
+    updateInjectBtn();
     window.__ccbCtxMeter.watchConversation();
     window.__ccbCtxMeter.update();
   }
@@ -683,15 +687,8 @@
       head.appendChild(tag);
     }
 
-    const tagCount = (b.tags || []).length;
-    if (tagCount) {
-      const meta = document.createElement("span");
-      meta.className = "block-meta";
-      meta.textContent = tagCount + " תגים";
-      head.appendChild(meta);
-    }
     main.appendChild(head);
-    if (tagCount) {
+    if ((b.tags || []).length) {
       const tagsRow = document.createElement("div");
       tagsRow.className = "block-tags";
       for (const t of b.tags || []) {
@@ -863,9 +860,9 @@
     btn.disabled = n === 0;
     if (n > 0) {
       btn.innerHTML =
-        IC.upload + ' טען נבחרים <span class="count-pill">' + n + "</span>";
+        IC.upload + ' טען פרומפטים <span class="count-pill">' + n + "</span>";
     } else {
-      btn.innerHTML = IC.upload + " טען נבחרים";
+      btn.innerHTML = IC.upload + " טען פרומפטים";
     }
   }
 

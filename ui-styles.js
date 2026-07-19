@@ -373,7 +373,7 @@ window.__ccbCSS = (() => {
     }
     .collapse-btn.collapsed svg { transform: rotate(0deg); }
     .collapse-btn:not(.collapsed) svg { transform: rotate(-90deg); }
-    #addProjectBtn, #addCodeProjectBtn, #projectEditBtn, #addBtn, #injectInstructionsBtn {
+    #addProjectBtn, #addCodeProjectBtn, #projectEditBtn, #addBtn {
       width: 22px;
       height: 22px;
       border: 1px solid var(--border-input);
@@ -387,7 +387,7 @@ window.__ccbCSS = (() => {
       padding: 0;
       flex-shrink: 0;
     }
-    #addProjectBtn:hover, #addCodeProjectBtn:hover, #projectEditBtn:hover, #addBtn:hover, #injectInstructionsBtn:hover { background: var(--bg-tag); }
+    #addProjectBtn:hover, #addCodeProjectBtn:hover, #projectEditBtn:hover, #addBtn:hover { background: var(--bg-tag); }
     #historySection {
       flex: 0;
       min-height: 0;
@@ -514,7 +514,10 @@ window.__ccbCSS = (() => {
     }
 
     /* ── Block card ── */
+    /* Checkbox and title share one line (the checkbox is a direct flex child
+       next to .block-main, same layout as .card-top). */
     .block {
+      display: flex; align-items: flex-start; gap: 10px;
       background: var(--bg-card);
       border: 1px solid var(--border-subtle);
       border-radius: var(--r-card);
@@ -554,13 +557,11 @@ window.__ccbCSS = (() => {
       display: flex; align-items: baseline; justify-content: space-between;
       gap: 8px; margin-bottom: 8px;
     }
+    /* No tags row below → no trailing gap. */
+    .block-head:last-child { margin-bottom: 0; }
     .block-title {
       font-size: 14px; font-weight: 600; color: var(--text-strong);
       letter-spacing: -0.005em; word-break: break-word;
-    }
-    .block-meta {
-      font-size: 11px; color: var(--text-ghost); white-space: nowrap;
-      font-variant-numeric: tabular-nums; flex-shrink: 0;
     }
     .block-tags { display: flex; flex-wrap: wrap; gap: 4px; }
     .tag {
@@ -894,17 +895,10 @@ window.__ccbCSS = (() => {
     }
     #toast.show { opacity: 1; }
     #toast.error { background: #c53030; }
-    #summarizeBtnHistory {
-      flex: 1; height: 38px; border: none;
-      background: var(--text-strong); color: var(--bg-app);
-      border-radius: var(--r-input);
-      font-size: 13px; font-weight: 600; font-family: var(--font-he);
-      cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;
-      transition: background var(--t-fast);
-    }
-    #summarizeBtnHistory:hover { background: #2a2622; }
+    /* Both footer actions are the same size — they're peer actions ("load
+       prompts" / "load documents"), so neither gets visual priority. */
     #injectBtn {
-      flex: 1.4; height: 38px; border: none;
+      flex: 1; height: 38px; border: none;
       background: var(--text-strong); color: var(--bg-app);
       border-radius: var(--r-input);
       font-size: 13px; font-weight: 600; font-family: var(--font-he);
@@ -914,11 +908,12 @@ window.__ccbCSS = (() => {
     #injectBtn:hover:not(:disabled) { background: #2a2622; }
     #injectBtn:disabled { background: var(--bg-clear); color: var(--text-ghost); cursor: not-allowed; }
     #injectDocsBtn {
-      height: 38px; padding: 0 12px; border: 1.5px solid var(--border-strong);
+      flex: 1; height: 38px; padding: 0 12px; border: 1.5px solid var(--border-strong);
       background: var(--bg-card); color: var(--text-body);
       border-radius: var(--r-input);
       font-size: 13px; font-weight: 600; font-family: var(--font-he);
-      cursor: pointer; display: flex; align-items: center; gap: 6px; white-space: nowrap;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      gap: 6px; white-space: nowrap;
       transition: background var(--t-fast);
     }
     #injectDocsBtn:hover { background: var(--bg-hover); }

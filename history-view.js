@@ -200,13 +200,17 @@
   }
 
   // Renders the project-instructions card exactly like chat-features.js#renderGeneralMemory:
-  // a toggle (autoLoad) + title header, an "auto-badge" below when on, and the
-  // WHOLE card clickable to open the shared block-edit form (openEdit) — no
-  // dedicated edit button, no inline accordion/textarea.
+  // a select-for-inject checkbox + autoLoad toggle + title header, an
+  // "auto-badge" below when on, and the WHOLE card clickable to open the shared
+  // block-edit form (openEdit) — no dedicated edit button, no inline
+  // accordion/textarea, and (since 2026-07-19) no separate "load instructions"
+  // button in the section header: ticking the checkbox and pressing the footer
+  // "טען פרומפטים" is the manual-load path, same as for GM.
   function renderProjectInstructionsCard(project) {
     const card = $el("projectInstructionsCard");
     if (!card) return;
     const on = project.autoLoad !== false; // missing autoLoad defaults to ON
+    const selectedForInject = _deps.state.selected.has(project.id);
 
     card.innerHTML = "";
     const wrap = document.createElement("div");
@@ -215,6 +219,26 @@
 
     const header = document.createElement("div");
     header.className = "gm-header";
+
+    const selectLabel = document.createElement("label");
+    selectLabel.className = "cb-wrap gm-select";
+    selectLabel.title = "סמן כדי לטעון את ההנחיות עם 'טען פרומפטים'";
+    selectLabel.addEventListener("click", (e) => e.stopPropagation());
+    const selectInput = document.createElement("input");
+    selectInput.type = "checkbox";
+    selectInput.checked = selectedForInject;
+    selectInput.setAttribute("aria-label", "הוסף את הנחיות הפרויקט להזרקה");
+    selectInput.addEventListener("change", () => {
+      if (selectInput.checked) _deps.state.selected.add(project.id);
+      else _deps.state.selected.delete(project.id);
+      _deps.updateInjectBtn();
+    });
+    const selectBox = document.createElement("span");
+    selectBox.className = "cb-box";
+    selectBox.innerHTML =
+      '<svg class="cb-check" width="10" height="8" viewBox="0 0 10 8" fill="none"><polyline points="1,4 4,7 9,1" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    selectLabel.appendChild(selectInput);
+    selectLabel.appendChild(selectBox);
 
     const toggleLabel = document.createElement("label");
     toggleLabel.className = "toggle";
@@ -244,6 +268,7 @@
     badge.textContent = "נטען אוטומטית";
     if (!on) badge.style.display = "none";
 
+    header.appendChild(selectLabel);
     header.appendChild(toggleLabel);
     header.appendChild(title);
     wrap.appendChild(header);
@@ -754,14 +779,19 @@
     const editBtn = $el("projectEditBtn");
     if (editBtn) editBtn.style.display = project ? "flex" : "none";
 
+    // A project's instructions card can be ticked for injection, so a project
+    // id may sit in state.selected. Only the ACTIVE project's card is rendered,
+    // so drop any other project's id — otherwise it would silently keep
+    // inflating the footer button's count and get injected invisibly.
+    for (const id of [..._deps.state.selected]) {
+      const b = _deps.state.blocks[id];
+      if (b?.kind === "project" && id !== _deps.state.currentProjectId)
+        _deps.state.selected.delete(id);
+    }
+
     const instrCard = $el("projectInstructionsCard");
     if (instrCard) instrCard.style.display = project ? "block" : "none";
     if (project) renderProjectInstructionsCard(project);
-
-    const injectInstrBtn = $el("injectInstructionsBtn");
-    if (injectInstrBtn) {
-      injectInstrBtn.style.display = project && (project.content || "").trim() ? "flex" : "none";
-    }
 
     const docsCard = $el("projectDocumentsCard");
     if (docsCard) docsCard.style.display = project ? "block" : "none";
@@ -1368,29 +1398,6 @@
 
   }
 
-  // Manual load of the active project's instructions — distinct from the
-  // passive autoLoad toggle (conversation-start only). Same "don't auto-send"
-  // convention as injectProjectDocuments/cvLoadBtn: loads the text, the user
-  // reviews/edits/sends themselves.
-  function injectProjectInstructions() {
-    const project = getProjectById(_deps.state.currentProjectId);
-    const content = (project?.content || "").trim();
-    if (!content) {
-      _deps.setStatus("אין הנחיות לפרויקט הזה", true);
-      return;
-    }
-    const f = _deps.framing;
-    const INJECTED_PREFIX = "[[CCB:INJECTED]]\n";
-    const body = "## " + project.title + "\n" + content;
-    const text = (f.projPre || INJECTED_PREFIX) + body + (f.projPost || "\n\n");
-    const r = _deps.inject.injectIntoInput(text, "prepend");
-    if (r.ok) {
-      _deps.setStatus("הנחיות נטענו — ניתן לערוך ולשלוח ✓");
-    } else {
-      _deps.setStatus(r.error || "נכשל", true);
-    }
-  }
-
   async function injectProjectDocuments() {
     const project = getProjectById(_deps.state.currentProjectId);
     if (!project) return;
@@ -1730,7 +1737,6 @@
     renderProjectViewDocuments,
     openAddDocumentDialog,
     injectProjectDocuments,
-    injectProjectInstructions,
     getDocumentIcon,
     getCodeProjects,
     createCodeProjectBookmark,

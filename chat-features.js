@@ -251,28 +251,11 @@
     const blocksBody = ordered
       .map((b) => {
         const title = b.title || (b.id === GM_ID ? "זיכרון כללי" : "");
-        let body = "## " + title + "\n" + (b.content || "");
-        if (b.kind === "project" && _deps.docHandler) {
-          const enabledDocs = _deps.docHandler.getEnabledDocuments(b.id);
-          const textDocs = enabledDocs.filter(d => d.content);
-          const fileDocs = enabledDocs.filter(d => !d.content && d.hasBlob);
-          if (textDocs.length > 0) {
-            body += "\n\n<documents>\n";
-            for (const doc of textDocs) {
-              body += `\n**${doc.name}** (${doc.estimatedTokens} tokens)\n---\n`;
-              const maxChars = 10000;
-              body += doc.content.length > maxChars
-                ? doc.content.slice(0, maxChars) + "\n... [truncated]"
-                : doc.content;
-              body += "\n";
-            }
-            body += "</documents>";
-          }
-          if (fileDocs.length > 0) {
-            body += `\n\n[קבצים מצורפים: ${fileDocs.map(d => d.name).join(", ")}]`;
-          }
-        }
-        return body;
+        // A kind:"project" block reaches here when its instructions card is
+        // ticked — instructions (b.content) ONLY, never its enabled documents.
+        // Documents keep their own explicit footer button ("טען מסמכים"),
+        // since a code project's files run to tens of thousands of tokens.
+        return "## " + title + "\n" + (b.content || "");
       })
       .join("\n\n");
     const text = isGmOnly

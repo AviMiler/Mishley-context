@@ -85,7 +85,6 @@ window.__ccbTpl = (() => {
               <span class="section-label">פרומפטים להזרקה</span>
             </div>
             <div class="section-head-right">
-              <button id="injectInstructionsBtn" type="button" aria-label="טען הנחיות פרויקט" title="טען הנחיות פרויקט" style="display:none">${IC.upload}</button>
               <button id="addBtn" type="button" title="בלוק חדש" aria-label="הוסף בלוק חדש">${IC.plus}</button>
             </div>
           </div>
@@ -114,8 +113,8 @@ window.__ccbTpl = (() => {
 
         </div><!-- /tab-scroll -->
         <footer id="footerContext">
-          <button id="injectBtn" disabled style="flex:1">${IC.upload} טען נבחרים</button>
-          <button id="injectDocsBtn" style="display:none">${IC.inject} מסמכים</button>
+          <button id="injectBtn" disabled>${IC.upload} טען פרומפטים</button>
+          <button id="injectDocsBtn" style="display:none">${IC.inject} טען מסמכים</button>
         </footer>
       </div>
 
@@ -150,9 +149,6 @@ window.__ccbTpl = (() => {
           <div id="historyList"></div>
         </div>
         </div><!-- /tab-scroll -->
-        <footer id="footerHistory">
-          <button id="summarizeBtnHistory" style="flex:1">${IC.msg} שמור שיחה</button>
-        </footer>
       </div>
 
       <div id="hiDropdown"></div>
