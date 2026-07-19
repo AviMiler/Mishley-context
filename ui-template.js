@@ -226,7 +226,7 @@ window.__ccbTpl = (() => {
               </span>
             </button>
             <button class="settings-item" id="editPromptsBtn" type="button">
-              <span class="settings-item-icon">✏️</span>
+              <span class="settings-item-icon">${IC.pencil}</span>
               <span class="settings-item-text">
                 <span class="settings-item-title">עריכת פרומפטים</span>
                 <span class="settings-item-sub">מסגרות הזרקה (FRAMING)</span>
@@ -301,6 +301,19 @@ window.__ccbTpl = (() => {
                 <div class="prompts-locked prompts-locked-tag">&lt;project&gt; … &lt;/project&gt;</div>
                 <div class="prompts-sublabel">הוראות אחרי ההנחיות</div>
                 <textarea id="promptFramingProjOutro" spellcheck="false"></textarea>
+              </div>
+
+              <!-- 5) File-injection wrapper -->
+              <div class="prompts-subsection">
+                <div class="prompts-subhead">
+                  <div class="prompts-subtitle">5) מעטפת הזרקת קבצים</div>
+                  <button id="resetFramingDocsBtn" type="button" class="prompts-reset">איפוס</button>
+                </div>
+                <div class="prompts-sublabel">הוראות לפני הקבצים</div>
+                <textarea id="promptFramingDocsIntro" spellcheck="false"></textarea>
+                <div class="prompts-locked prompts-locked-tag">&lt;documents&gt; … &lt;/documents&gt;</div>
+                <div class="prompts-sublabel">הוראות אחרי הקבצים</div>
+                <textarea id="promptFramingDocsOutro" spellcheck="false"></textarea>
               </div>
             </div>
           </div>

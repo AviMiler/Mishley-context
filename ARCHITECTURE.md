@@ -159,6 +159,7 @@ The manual save button still exists in the History tab; it scrolls the chat to t
 framing: {
   manualPre, manualPost, gmPre, gmPost,
   convPre, convPost, projPre, projPost,
+  docsPre, docsPost,
   summaryPrompt,
 }
 ```
@@ -168,23 +169,23 @@ framing: {
 Keeps technical markers locked:
 
 - INJECTED marker (locked prefix): `[[CCB:INJECTED]]\n`
-- Opening/closing tags (locked): `<context>…</context>`, `<memory>…</memory>`, `<transcript>…</transcript>`, `<project>…</project>`
+- Opening/closing tags (locked): `<context>…</context>`, `<memory>…</memory>`, `<transcript>…</transcript>`, `<project>…</project>`, `<documents>…</documents>`
 - SUMMARY_PROMPT trailing template (locked last 2 lines): the `[[CCB:TITLE:...]]` / `[[CCB:SAVE]]` lines
 
 Editable state shape (`__ccbPromptsAPI.getEditable()`):
 ```
-{ manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro, summaryBody }
+{ manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro, docsIntro, docsOutro, summaryBody }
 ```
 
 Storage key: `chrome.storage.local["ccb_prompts"]`.
 Backward-compat: old `framingBodies.{manual,gm}` and old `framingBody` are read on startup.
 
 `reset(key)` accepts:
-- `"framingAll"` — resets all 4 framing pairs (manual/gm/conv/proj)
-- `"framingManual"`, `"framingGm"`, `"framingConv"`, `"framingProj"` — one section
+- `"framingAll"` — resets all 5 framing pairs (manual/gm/conv/proj/docs)
+- `"framingManual"`, `"framingGm"`, `"framingConv"`, `"framingProj"`, `"framingDocs"` — one section
 - `"summary"` — summary body only
 
-Note: the prompts editor UI exposes the 4 FRAMING sections only; SUMMARY_PROMPT editing is intentionally hidden for now.
+Note: the prompts editor UI exposes the 5 FRAMING sections only; SUMMARY_PROMPT editing is intentionally hidden for now.
 
 ## Runtime config keys patched by prompts.js
 
@@ -198,8 +199,12 @@ Note: the prompts editor UI exposes the 4 FRAMING sections only; SUMMARY_PROMPT 
 | `FRAMING_CONV_POST`    | Closes conversation: `</transcript>` + outro                         |
 | `FRAMING_PROJ_PRE`     | Opens project: `[[CCB:INJECTED]]` + intro + `<project>`              |
 | `FRAMING_PROJ_POST`    | Closes project: `</project>` + outro                                 |
+| `FRAMING_DOCS_PRE`     | Opens file injection: `[[CCB:INJECTED]]` + intro + `<documents>`     |
+| `FRAMING_DOCS_POST`    | Closes file injection: `</documents>` + outro                        |
 
 (Legacy flat keys `FRAMING`, `FRAMING_MANUAL`, `FRAMING_GM` are also patched for backward compatibility but no code reads them directly anymore — the `framing` getters in `content.js` fall back to these only if PRE is undefined.)
+
+`FRAMING_DOCS_*` is consumed by exactly one call site: `history-view.js#injectProjectDocuments()` (the footer "מסמכים" button — the dedicated top-level file-injection action). Two other places build a literal `<documents>...</documents>` block but are deliberately **not** wired to this pair, since they're nested inside a different outer wrapper already: `chat-features.js#injectSelected()` (docs of a manually-selected project block, nested inside FRAMING_MANUAL/FRAMING_GM) and `history-view.js#buildProjectSectionText()` (docs of the conversation-continue flow's project section, nested inside FRAMING_PROJ). The canned reply `"Files loaded."` is in `INJECTION_AUTORESPONSES` (both `chat-features.js` and `history-view.js`) alongside `"Context loaded."`/`"Transcript loaded."`/`"Project guidelines loaded."`.
 
 ## config.js — site switching
 
@@ -381,7 +386,7 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | `renderProjectViewDocuments(project)`      | Renders the document list (icon, name, token estimate, enable checkbox, remove) |
 | `getDocumentIcon(type)`                    | Icon lookup by `doc.type` (`text`/`pdf`/`image`/`word`/...)                     |
 | `openAddDocumentDialog()`                  | Opens the file-picker / paste-text dialog and calls `docHandler.addDocument`   |
-| `injectProjectDocuments()`                 | Builds combined project text (instructions + enabled doc contents) and injects it; also calls `docHandler.injectFilesToChat` for enabled blob docs |
+| `injectProjectDocuments()`                 | Builds enabled doc contents and injects them wrapped in `FRAMING_DOCS_PRE`/`_POST` (its own editable framing pair — see prompts.js section below); also calls `docHandler.injectFilesToChat` for enabled blob docs |
 
 ### Code projects (folder-backed, `isCodeProject: true`)
 

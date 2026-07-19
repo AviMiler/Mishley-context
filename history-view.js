@@ -154,6 +154,8 @@
     "Transcript loaded",
     "Project guidelines loaded.",
     "Project guidelines loaded",
+    "Files loaded.",
+    "Files loaded",
   ]);
 
   function buildHistoryMessages(b) {
@@ -1366,7 +1368,7 @@
       return;
     }
 
-    let body = "<documents>\n";
+    let body = "";
     for (const doc of textDocs) {
       const content = contents.get(doc.id);
       // Code files are never truncated — the whole point of "load with
@@ -1384,10 +1386,9 @@
     if (binaryDocs.length) {
       body += `\n[קבצים ללא תוכן טקסט: ${binaryDocs.map(d => d.name).join(", ")}]\n`;
     }
-    body += "</documents>";
 
     const f = _deps.framing;
-    const text = f.manualPre + body + "\n\n---\n\n" + f.manualPost;
+    const text = f.docsPre + body + f.docsPost;
     const r = _deps.inject.injectIntoInput(text, "prepend");
     if (r.ok) {
       _deps.setStatus("מסמכים הוזרקו ✓");

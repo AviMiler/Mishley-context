@@ -17,6 +17,8 @@
   const CONV_CLOSE = "\n</transcript>\n\n";
   const PROJ_OPEN = "<project>\n";
   const PROJ_CLOSE = "\n</project>\n\n";
+  const DOCS_OPEN = "<documents>\n";
+  const DOCS_CLOSE = "\n</documents>\n\n";
 
   const raw = window.__ccbRawConfig;
   if (!raw) return;
@@ -80,6 +82,14 @@
     ? extractOutro(raw.FRAMING_PROJ_POST, PROJ_CLOSE)
     : "";
 
+  const docsIntroDefault = raw.FRAMING_DOCS_PRE
+    ? extractIntro(raw.FRAMING_DOCS_PRE, DOCS_OPEN)
+    : "";
+
+  const docsOutroDefault = raw.FRAMING_DOCS_POST
+    ? extractOutro(raw.FRAMING_DOCS_POST, DOCS_CLOSE)
+    : "";
+
   const { body: summaryBodyDefault, suffix: SUMMARY_SUFFIX } =
     splitSummaryPrompt(norm(raw.SUMMARY_PROMPT));
 
@@ -94,6 +104,8 @@
     convOutro: convOutroDefault,
     projIntro: projIntroDefault,
     projOutro: projOutroDefault,
+    docsIntro: docsIntroDefault,
+    docsOutro: docsOutroDefault,
     summaryBody: summaryBodyDefault,
   };
 
@@ -112,6 +124,9 @@
 
     raw.FRAMING_PROJ_PRE = INJECTED_MARKER + state.projIntro + PROJ_OPEN;
     raw.FRAMING_PROJ_POST = PROJ_CLOSE + state.projOutro;
+
+    raw.FRAMING_DOCS_PRE = INJECTED_MARKER + state.docsIntro + DOCS_OPEN;
+    raw.FRAMING_DOCS_POST = DOCS_CLOSE + state.docsOutro;
 
     raw.FRAMING_MANUAL = INJECTED_MARKER + state.manualIntro;
     raw.FRAMING_GM = INJECTED_MARKER + state.gmIntro;
@@ -138,6 +153,8 @@
     if (typeof stored.convOutro === "string")      state.convOutro     = stored.convOutro;
     if (typeof stored.projIntro === "string")      state.projIntro     = stored.projIntro;
     if (typeof stored.projOutro === "string")      state.projOutro     = stored.projOutro;
+    if (typeof stored.docsIntro === "string")      state.docsIntro     = stored.docsIntro;
+    if (typeof stored.docsOutro === "string")      state.docsOutro     = stored.docsOutro;
     if (typeof stored.summaryBody === "string")   state.summaryBody  = stored.summaryBody;
 
     // Backward-compat: old schema had framingBodies: { manual, gm }
@@ -171,6 +188,8 @@
         convOutro:      state.convOutro,
         projIntro:      state.projIntro,
         projOutro:      state.projOutro,
+        docsIntro:      state.docsIntro,
+        docsOutro:      state.docsOutro,
         summaryBody:   state.summaryBody,
       };
     },
@@ -186,11 +205,13 @@
         convClose:       CONV_CLOSE.trim(),
         projOpen:        PROJ_OPEN.trim(),
         projClose:       PROJ_CLOSE.trim(),
+        docsOpen:        DOCS_OPEN.trim(),
+        docsClose:       DOCS_CLOSE.trim(),
         summarySuffix:   SUMMARY_SUFFIX,
       };
     },
 
-    async save({ manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro, summaryBody }) {
+    async save({ manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro, docsIntro, docsOutro, summaryBody }) {
       if (typeof manualIntro   === "string") state.manualIntro   = manualIntro;
       if (typeof manualOutro   === "string") state.manualOutro   = manualOutro;
       if (typeof gmIntro       === "string") state.gmIntro       = gmIntro;
@@ -199,6 +220,8 @@
       if (typeof convOutro     === "string") state.convOutro     = convOutro;
       if (typeof projIntro     === "string") state.projIntro     = projIntro;
       if (typeof projOutro     === "string") state.projOutro     = projOutro;
+      if (typeof docsIntro     === "string") state.docsIntro     = docsIntro;
+      if (typeof docsOutro     === "string") state.docsOutro     = docsOutro;
       if (typeof summaryBody   === "string") state.summaryBody   = summaryBody;
       applyToRawConfig();
       await new Promise((resolve) =>
@@ -212,6 +235,8 @@
             convOutro:     state.convOutro,
             projIntro:     state.projIntro,
             projOutro:     state.projOutro,
+            docsIntro:     state.docsIntro,
+            docsOutro:     state.docsOutro,
             summaryBody:   state.summaryBody,
           },
         }, resolve),
@@ -232,15 +257,18 @@
         convOutro:     convOutroDefault,
         projIntro:     projIntroDefault,
         projOutro:     projOutroDefault,
+        docsIntro:     docsIntroDefault,
+        docsOutro:     docsOutroDefault,
         summaryBody:   summaryBodyDefault,
       };
 
       const keysToReset = key === "framingAll"
-        ? ["manualIntro", "manualOutro", "gmIntro", "gmOutro", "convIntro", "convOutro", "projIntro", "projOutro"]
+        ? ["manualIntro", "manualOutro", "gmIntro", "gmOutro", "convIntro", "convOutro", "projIntro", "projOutro", "docsIntro", "docsOutro"]
         : key === "framingManual"  ? ["manualIntro",  "manualOutro"]
         : key === "framingGm"      ? ["gmIntro", "gmOutro"]
         : key === "framingConv"    ? ["convIntro", "convOutro"]
         : key === "framingProj"    ? ["projIntro", "projOutro"]
+        : key === "framingDocs"    ? ["docsIntro", "docsOutro"]
         : key === "summary"        ? ["summaryBody"]
         : resetMap[key] !== undefined ? [key]
         : [];

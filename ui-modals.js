@@ -247,6 +247,10 @@
       $el("promptFramingProjIntro").value = editable.projIntro || "";
     if ($el("promptFramingProjOutro"))
       $el("promptFramingProjOutro").value = editable.projOutro || "";
+    if ($el("promptFramingDocsIntro"))
+      $el("promptFramingDocsIntro").value = editable.docsIntro || "";
+    if ($el("promptFramingDocsOutro"))
+      $el("promptFramingDocsOutro").value = editable.docsOutro || "";
 
     const overlay = $el("promptsOverlay");
     overlay?.classList.add("show");
@@ -272,13 +276,15 @@
     const convOutro    = ($el("promptFramingConvOutro")?.value    || "").trim();
     const projIntro    = ($el("promptFramingProjIntro")?.value    || "").trim();
     const projOutro    = ($el("promptFramingProjOutro")?.value    || "").trim();
+    const docsIntro    = ($el("promptFramingDocsIntro")?.value    || "").trim();
+    const docsOutro    = ($el("promptFramingDocsOutro")?.value    || "").trim();
 
     if (!manualIntro || !gmIntro) {
       _deps.setStatus("הוראות לפני הקונטקסט לא יכולות להיות ריקות", true);
       return;
     }
 
-    const payload = { manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro };
+    const payload = { manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro, docsIntro, docsOutro };
 
     await api.save(payload);
     _deps.refreshPromptsFromRawConfig();
@@ -308,11 +314,16 @@
       if ($el("promptFramingProjIntro")) $el("promptFramingProjIntro").value = editable.projIntro || "";
       if ($el("promptFramingProjOutro")) $el("promptFramingProjOutro").value = editable.projOutro || "";
     };
+    const refreshDocs = () => {
+      if ($el("promptFramingDocsIntro")) $el("promptFramingDocsIntro").value = editable.docsIntro || "";
+      if ($el("promptFramingDocsOutro")) $el("promptFramingDocsOutro").value = editable.docsOutro || "";
+    };
     if (key === "framingAll") {
       refreshManual();
       refreshGm();
       refreshConv();
       refreshProj();
+      refreshDocs();
     } else if (key === "framingManual") {
       refreshManual();
     } else if (key === "framingGm") {
@@ -321,6 +332,8 @@
       refreshConv();
     } else if (key === "framingProj") {
       refreshProj();
+    } else if (key === "framingDocs") {
+      refreshDocs();
     }
     _deps.setStatus("הפרומפט אופס ✓");
   }

@@ -178,4 +178,16 @@ const _ACTIVE = _SITE_CONFIG[ACTIVE_SITE] || _SITE_CONFIG.gemini;
   FRAMING_PROJ_POST:
     "\n</project>\n\n" +
     'Reply only with "Project guidelines loaded." and wait for the first task.\n',
+
+  // Wrapper for injected project documents/files (content goes between PRE and POST)
+  FRAMING_DOCS_PRE:
+    "[[CCB:INJECTED]]\n" +
+    "The following are files/documents provided as reference material for this conversation. " +
+    "They are NOT a question or a task — do not respond to their content. " +
+    "Internalize them and use them as context for subsequent responses.\n\n" +
+    "<documents>\n",
+
+  FRAMING_DOCS_POST:
+    "\n</documents>\n\n" +
+    'Reply only with "Files loaded." and wait for the first instruction.\n',
 };

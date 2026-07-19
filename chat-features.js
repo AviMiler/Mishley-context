@@ -327,6 +327,8 @@
     "Transcript loaded",
     "Project guidelines loaded.",
     "Project guidelines loaded",
+    "Files loaded.",
+    "Files loaded",
   ]);
 
   function captureConversation() {

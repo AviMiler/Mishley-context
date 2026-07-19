@@ -105,6 +105,8 @@
     get convPost()     { return window.__ccbRawConfig.FRAMING_CONV_POST || ""; },
     get projPre()      { return window.__ccbRawConfig.FRAMING_PROJ_PRE || ""; },
     get projPost()     { return window.__ccbRawConfig.FRAMING_PROJ_POST || ""; },
+    get docsPre()      { return window.__ccbRawConfig.FRAMING_DOCS_PRE || ""; },
+    get docsPost()     { return window.__ccbRawConfig.FRAMING_DOCS_POST || ""; },
     get summaryPrompt() { return window.__ccbRawConfig.SUMMARY_PROMPT || ""; },
   };
 
@@ -402,6 +404,10 @@
     $el("resetFramingProjBtn")?.addEventListener(
       "click",
       () => void modals.resetPromptsEditor("framingProj"),
+    );
+    $el("resetFramingDocsBtn")?.addEventListener(
+      "click",
+      () => void modals.resetPromptsEditor("framingDocs"),
     );
     $el("ccb-files-row").addEventListener("click", (e) => {
       e.stopPropagation();
