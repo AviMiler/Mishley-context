@@ -8,9 +8,11 @@
 //   removeDocument(projectId, docId)   — remove a document
 //   toggleDocument(projectId, docId, enabled) — toggle document inclusion
 //   getDocumentContent(projectId, docId)    — retrieve full content for injection
+//   getCodeContents(docIds)            — batched read of many code files' text (Map<docId, text>)
 //   estimateTokens(content, type)      — estimate tokens for content
 //   scanCodeProject(dirHandle, scanSettings?) — recursively scan a code project folder
-//                                      ({ ignorePatterns, denyDirs, denyFilenames, codeExtensions, maxFileSizeKb })
+//                                      ({ ignorePatterns, denyDirs, denyFilenames, codeExtensions,
+//                                         maxFileSizeKb, onProgress(done, total) })
 //   getDefaultScanSettings()           — the built-in scan rules, for first-load seeding + "reset to defaults"
 //   buildStructureMarkdown(included, rootName) — render a folder tree as markdown
 //   syncCodeProjectDocuments(project, included, rootName) — upsert scanned files into project.documents
@@ -22,6 +24,54 @@
   let _deps = null;
   const CHARS_PT = 3.5;
   const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+
+  // Scan throughput tuning. Every directory listing, file read, and storage
+  // write is an IPC round-trip to the browser process, so the limiting factor
+  // on a large project is round-trip latency, not CPU. These caps keep enough
+  // work in flight to hide that latency without flooding the IO queue.
+  const DIR_CONCURRENCY = 8;
+  const FILE_READ_CONCURRENCY = 12;
+  const CONTENT_WRITE_BATCH = 50; // files per chrome.storage.local.set call
+  const PROGRESS_EVERY = 25; // files between onProgress callbacks
+
+  // Runs `worker` over `items` with at most `limit` in flight at a time.
+  async function runWithConcurrency(items, limit, worker) {
+    let next = 0;
+    const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) await worker(items[next++]);
+    });
+    await Promise.all(runners);
+  }
+
+  // Breadth-first directory traversal with a GLOBAL concurrency cap.
+  // `visit(handle, pathParts)` resolves to the subdirectories to enqueue.
+  // The queue is flat rather than recursive on purpose: recursing into a
+  // concurrency-limited helper per level would multiply the limit by itself
+  // once per directory depth, so a deep tree would end up with thousands of
+  // simultaneous reads instead of `limit`.
+  function walkDirectories(rootHandle, limit, visit) {
+    const queue = [[rootHandle, []]];
+    let cursor = 0;
+    let active = 0;
+    let failure = null;
+
+    return new Promise((resolve, reject) => {
+      const pump = () => {
+        while (!failure && active < limit && cursor < queue.length) {
+          const [handle, pathParts] = queue[cursor++];
+          active++;
+          visit(handle, pathParts)
+            .then((subdirs) => { for (const sub of subdirs) queue.push(sub); })
+            .catch((e) => { failure = failure || e; })
+            .finally(() => { active--; pump(); });
+        }
+        if (active === 0 && (failure || cursor >= queue.length)) {
+          failure ? reject(failure) : resolve();
+        }
+      };
+      pump();
+    });
+  }
 
   // ============================================================
   // Code project scanning — DEFAULT filters for scanCodeProject()
@@ -153,19 +203,32 @@
     return `codeContent_${docId}`;
   }
 
-  function codeContentPut(docId, content) {
-    return new Promise((resolve, reject) =>
-      chrome.storage.local.set({ [codeContentKey(docId)]: content }, () =>
-        chrome.runtime.lastError ? reject(chrome.runtime.lastError) : resolve()
-      )
-    );
-  }
-
   function codeContentGet(docId) {
     return new Promise((resolve, reject) =>
       chrome.storage.local.get([codeContentKey(docId)], (result) => {
         if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
         else resolve(result[codeContentKey(docId)] ?? null);
+      })
+    );
+  }
+
+  // Batched sibling of codeContentGet: one chrome.storage.local.get for every
+  // requested file instead of one per file. Each get is an IPC round-trip to
+  // the browser process, so injecting a few hundred selected code files used
+  // to cost a few hundred sequential round-trips.
+  // Returns Map<docId, content> — docIds with no stored content are absent.
+  function codeContentGetMany(docIds) {
+    const ids = Array.from(new Set(docIds || []));
+    if (!ids.length) return Promise.resolve(new Map());
+    return new Promise((resolve, reject) =>
+      chrome.storage.local.get(ids.map(codeContentKey), (result) => {
+        if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+        const out = new Map();
+        for (const id of ids) {
+          const value = result[codeContentKey(id)];
+          if (value != null) out.set(id, value);
+        }
+        resolve(out);
       })
     );
   }
@@ -176,6 +239,32 @@
         chrome.runtime.lastError ? reject(chrome.runtime.lastError) : resolve()
       )
     );
+  }
+
+  function codeContentRemoveMany(docIds) {
+    const keys = (docIds || []).map(codeContentKey);
+    if (!keys.length) return Promise.resolve();
+    return new Promise((resolve, reject) =>
+      chrome.storage.local.remove(keys, () =>
+        chrome.runtime.lastError ? reject(chrome.runtime.lastError) : resolve()
+      )
+    );
+  }
+
+  // Writes an already-keyed { codeContent_<id>: text } map in fixed-size
+  // batches. Batched rather than one giant set() so a single failure can't
+  // lose the whole scan and peak serialization memory stays bounded.
+  async function codeContentPutMany(keyedContent) {
+    const keys = Object.keys(keyedContent);
+    for (let i = 0; i < keys.length; i += CONTENT_WRITE_BATCH) {
+      const batch = {};
+      for (const key of keys.slice(i, i + CONTENT_WRITE_BATCH)) batch[key] = keyedContent[key];
+      await new Promise((resolve, reject) =>
+        chrome.storage.local.set(batch, () =>
+          chrome.runtime.lastError ? reject(chrome.runtime.lastError) : resolve()
+        )
+      );
+    }
   }
 
   // ============================================================
@@ -674,16 +763,10 @@
       denyFilenames = DEFAULT_DENY_FILENAMES,
       codeExtensions = DEFAULT_CODE_EXTENSIONS,
       maxFileSizeKb = DEFAULT_MAX_FILE_SIZE_KB,
+      onProgress = null,
     } = scanSettings || {};
 
-    console.log("[ccb-scan] scanCodeProject: start", {
-      name: dirHandle && dirHandle.name,
-      ignorePatterns,
-      denyDirs: denyDirs.length,
-      denyFilenames: denyFilenames.length,
-      codeExtensions: codeExtensions.length,
-      maxFileSizeKb,
-    });
+    const startedAt = Date.now();
     const included = [];
     const counts = { total: 0, included: 0, skippedDirs: 0, skippedConfig: 0, skippedExt: 0, skippedLarge: 0, skippedCustom: 0 };
     const customMatchers = buildPatternMatchers(ignorePatterns);
@@ -694,57 +777,63 @@
     );
     const maxBytes = Math.max(1, Number(maxFileSizeKb) || DEFAULT_MAX_FILE_SIZE_KB) * 1024;
 
-    async function walk(handle, pathParts) {
-      const dirPath = pathParts.join("/") || "(root)";
-      console.log("[ccb-scan] walk: entering directory", dirPath);
-      console.log("[ccb-scan] walk: calling handle.entries()", dirPath);
-      let entryCount = 0;
-      try {
-        for await (const [name, entry] of handle.entries()) {
-          entryCount++;
-          console.log("[ccb-scan] walk: got entry", { dirPath, name, kind: entry.kind, entryCount });
-          const relPath = [...pathParts, name].join("/");
-          if (entry.kind === "directory") {
-            if (matchesPatterns(name, relPath, denyDirMatchers) || matchesPatterns(name, relPath, customMatchers)) {
-              console.log("[ccb-scan] walk: skip denied dir", name); counts.skippedDirs++; continue;
-            }
-            await walk(entry, [...pathParts, name]);
+    // Phase 1 — traverse the tree and collect the file handles that pass the
+    // name/extension filters. Sibling directories are walked concurrently:
+    // each entries() step and each getFile() is an IPC round-trip, so a
+    // strictly sequential walk over a few thousand files spends nearly all of
+    // its wall time waiting rather than working.
+    const candidates = [];
+    await walkDirectories(dirHandle, DIR_CONCURRENCY, async (handle, pathParts) => {
+      const subdirs = [];
+      for await (const [name, entry] of handle.entries()) {
+        const relPath = [...pathParts, name].join("/");
+        if (entry.kind === "directory") {
+          if (matchesPatterns(name, relPath, denyDirMatchers) || matchesPatterns(name, relPath, customMatchers)) {
+            counts.skippedDirs++;
             continue;
           }
+          subdirs.push([entry, [...pathParts, name]]);
+          continue;
+        }
 
-          counts.total++;
-          if (matchesPatterns(name, relPath, denyFileMatchers)) { console.log("[ccb-scan] walk: skip denied filename", name); counts.skippedConfig++; continue; }
-          if (matchesPatterns(name, relPath, customMatchers)) { console.log("[ccb-scan] walk: skip custom-ignored", name); counts.skippedCustom++; continue; }
-          const ext = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
-          if (!extensions.has(ext)) { console.log("[ccb-scan] walk: skip ext", { name, ext }); counts.skippedExt++; continue; }
+        counts.total++;
+        if (matchesPatterns(name, relPath, denyFileMatchers)) { counts.skippedConfig++; continue; }
+        if (matchesPatterns(name, relPath, customMatchers)) { counts.skippedCustom++; continue; }
+        const ext = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
+        if (!extensions.has(ext)) { counts.skippedExt++; continue; }
+        candidates.push({ entry, relPath, name });
+      }
+      return subdirs;
+    });
 
-          try {
-            console.log("[ccb-scan] walk: reading file", name);
-            const file = await entry.getFile();
-            console.log("[ccb-scan] walk: got File object", { name, size: file.size });
-            if (file.size > maxBytes) { console.log("[ccb-scan] walk: skip large file", { name, size: file.size }); counts.skippedLarge++; continue; }
-            const content = await file.text();
-            console.log("[ccb-scan] walk: read text OK", { name, chars: content.length });
-            included.push({
-              relativePath: [...pathParts, name].join("/"),
-              content,
-              size: file.size,
-              tokens: estimateTokensForContent(content),
-            });
-            counts.included++;
-          } catch (e) {
-            console.warn("[document-handler] scanCodeProject: failed to read file", name, e);
-          }
+    // Phase 2 — read the surviving files, again with a bounded number of
+    // reads in flight. The cap keeps memory and the browser's file-IO queue
+    // from being flooded on very large projects.
+    await runWithConcurrency(candidates, FILE_READ_CONCURRENCY, async ({ entry, relPath, name }) => {
+      try {
+        const file = await entry.getFile();
+        if (file.size > maxBytes) { counts.skippedLarge++; return; }
+        const content = await file.text();
+        included.push({
+          relativePath: relPath,
+          content,
+          size: file.size,
+          tokens: estimateTokensForContent(content),
+        });
+        counts.included++;
+        if (onProgress && counts.included % PROGRESS_EVERY === 0) {
+          onProgress(counts.included, candidates.length);
         }
       } catch (e) {
-        console.error("[ccb-scan] walk: entries() iteration failed", dirPath, e);
-        throw e;
+        console.warn("[document-handler] scanCodeProject: failed to read file", name, e);
       }
-      console.log("[ccb-scan] walk: finished directory", { dirPath, entryCount });
-    }
+    });
 
-    await walk(dirHandle, []);
-    console.log("[ccb-scan] scanCodeProject: done", counts);
+    // Concurrent reads finish out of order — sort so the structure doc, the
+    // file tree, and the dep graph are stable across scans of the same folder.
+    included.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+
+    console.log("[document-handler] scanCodeProject done", { ...counts, ms: Date.now() - startedAt });
     return { included, counts };
   }
 
@@ -790,7 +879,6 @@
   // preserving `enabled` on files that already existed, and dropping documents
   // for files that disappeared from disk since the last scan.
   async function syncCodeProjectDocuments(project, included, rootName) {
-    console.log("[ccb-scan] syncCodeProjectDocuments: start", { projectId: project.id, fileCount: included.length });
     if (!_deps) return;
     if (!project.documents) project.documents = [];
 
@@ -820,10 +908,12 @@
       project.documents.filter((d) => d.type === "code").map((d) => [d.name, d]),
     );
 
-    // File text is written to its own storage key (codeContentPut), never
-    // inline on the doc — that's what keeps saveBlocks() cheap regardless of
-    // how many files/how large the project is.
-    const contentWrites = [];
+    // File text is written to its own storage key, never inline on the doc —
+    // that's what keeps saveBlocks() cheap regardless of how many files/how
+    // large the project is. Writes are collected here and flushed in batches
+    // below: chrome.storage.local.set accepts many keys per call, so one call
+    // per file would pay the IPC round-trip thousands of times over.
+    const pendingContent = {};
     for (const file of included) {
       let doc = existingByPath.get(file.relativePath);
       if (doc) {
@@ -847,7 +937,7 @@
         };
         project.documents.push(doc);
       }
-      contentWrites.push(codeContentPut(doc.id, file.content));
+      pendingContent[codeContentKey(doc.id)] = file.content;
     }
 
     const includedPaths = new Set(included.map((f) => f.relativePath));
@@ -858,15 +948,14 @@
       (d) => d.id === structureId || d.type !== "code" || includedPaths.has(d.name),
     );
 
-    console.log("[ccb-scan] syncCodeProjectDocuments: writing content", { writes: contentWrites.length });
-    await Promise.all(contentWrites);
-    console.log("[ccb-scan] syncCodeProjectDocuments: content writes done");
-    await Promise.all(removedDocs.map((d) => codeContentRemove(d.id).catch(() => {})));
+    await codeContentPutMany(pendingContent);
+    if (removedDocs.length) {
+      await codeContentRemoveMany(removedDocs.map((d) => d.id));
+    }
 
     project.lastScanned = Date.now();
     project.updated = Date.now();
     await _deps.saveBlocks();
-    console.log("[ccb-scan] syncCodeProjectDocuments: done");
   }
 
   // ============================================================
@@ -881,6 +970,7 @@
     toggleDocument,
     getDocumentContent,
     getOrExtractContent,
+    getCodeContents: codeContentGetMany,
     getEnabledDocuments,
     injectFilesToChat,
     estimateTokens: estimateTokensForContent,

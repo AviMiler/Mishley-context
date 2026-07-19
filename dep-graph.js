@@ -19,9 +19,12 @@
 // Exposes: window.__ccbDepGraph
 //
 // Public API:
-//   buildGraph(included) — included: [{relativePath, content, ...}] from
-//     scanCodeProject (called while file content is still in memory).
-//     Returns { [relativePath]: string[] } — file -> files it depends on.
+//   buildGraph(included) — ASYNC. included: [{relativePath, content, ...}]
+//     from scanCodeProject (called while file content is still in memory).
+//     Resolves to { [relativePath]: string[] } — file -> files it depends on.
+//     Async only so it can yield to the event loop periodically; on a large
+//     C#/Razor project the analysis is heavy enough to freeze the tab if run
+//     in one uninterrupted synchronous pass.
 //   getTransitiveClosure(graph, startPath) — BFS with cycle guard.
 //     Returns Set<string> including startPath itself.
 //   getDirectDependents(graph, startPath) — files that directly import/
@@ -211,13 +214,35 @@
     return chars.join("");
   }
 
-  function stripComments(text, lang) {
-    return blank(text, scanRegions(text, lang).comments);
+  // scanRegions is the single most expensive step per file (a char-by-char
+  // pass), and the same file used to be scanned up to three times: once to
+  // build the C# symbol table, then twice more when analyzing it. This caches
+  // one scan per file for the lifetime of a buildGraph() call and derives both
+  // stripped variants from it lazily.
+  function createRegionCache() {
+    const cache = new Map();
+    return function stripped(file, lang, mode) {
+      let entry = cache.get(file);
+      if (!entry) {
+        entry = { regions: scanRegions(file.content, lang), comments: null, both: null };
+        cache.set(file, entry);
+      }
+      if (mode === "comments") {
+        if (entry.comments === null) entry.comments = blank(file.content, entry.regions.comments);
+        return entry.comments;
+      }
+      if (entry.both === null) {
+        entry.both = blank(file.content, entry.regions.comments.concat(entry.regions.strings));
+      }
+      return entry.both;
+    };
   }
 
-  function stripCommentsAndStrings(text, lang) {
-    const { comments, strings } = scanRegions(text, lang);
-    return blank(text, comments.concat(strings));
+  // Graph building is pure CPU on the main thread; without these yields a
+  // large C#/Razor project freezes the tab for the whole run.
+  const YIELD_EVERY = 25;
+  function yieldToEventLoop() {
+    return new Promise((resolve) => setTimeout(resolve, 0));
   }
 
   // ============================================================
@@ -281,8 +306,8 @@
     return findCandidate(`src/${aliasRest}`, resolver) || findCandidate(aliasRest, resolver);
   }
 
-  function analyzeJsFile(file, resolver) {
-    const cleaned = stripComments(file.content, "js");
+  function analyzeJsFile(file, resolver, stripped) {
+    const cleaned = stripped(file, "js", "comments");
     const deps = new Set();
     for (const re of JS_IMPORT_PATTERNS) {
       re.lastIndex = 0;
@@ -315,10 +340,10 @@
     return usings;
   }
 
-  function buildCsharpSymbolTable(files) {
+  function buildCsharpSymbolTable(files, stripped) {
     const bySimpleName = {};
     for (const file of files) {
-      const cleaned = stripComments(file.content, "cs");
+      const cleaned = stripped(file, "cs", "comments");
       const namespace = extractCsNamespace(cleaned);
       CS_TYPE_RE.lastIndex = 0;
       let m;
@@ -331,16 +356,16 @@
     return { bySimpleName };
   }
 
-  function analyzeCsharpFile(file, symbolTable) {
+  function analyzeCsharpFile(file, symbolTable, stripped, combined) {
     const names = Object.keys(symbolTable.bySimpleName);
     if (!names.length) return [];
 
-    const cleaned = stripComments(file.content, "cs");
+    const cleaned = stripped(file, "cs", "comments");
     const ownNamespace = extractCsNamespace(cleaned);
     const usings = extractCsUsings(cleaned);
 
-    const cleanedNoStrings = stripCommentsAndStrings(file.content, "cs");
-    const combined = new RegExp(`\\b(${names.map(escapeRegex).join("|")})\\b`, "g");
+    const cleanedNoStrings = stripped(file, "cs", "both");
+    combined.lastIndex = 0;
     const matched = new Set();
     let m;
     while ((m = combined.exec(cleanedNoStrings))) matched.add(m[1]);
@@ -375,14 +400,14 @@
     return usings;
   }
 
-  function analyzeRazorFile(file, symbolTable) {
+  function analyzeRazorFile(file, symbolTable, stripped, combined) {
     const names = Object.keys(symbolTable.bySimpleName);
     if (!names.length) return [];
 
-    const cleaned = stripComments(file.content, "razor");
+    const cleaned = stripped(file, "razor", "comments");
     const usings = extractRazorUsings(cleaned);
 
-    const combined = new RegExp(`\\b(${names.map(escapeRegex).join("|")})\\b`, "g");
+    combined.lastIndex = 0;
     const matched = new Set();
     let m;
     while ((m = combined.exec(cleaned))) matched.add(m[1]);
@@ -402,7 +427,7 @@
   // ============================================================
   // Public API
   // ============================================================
-  function buildGraph(included) {
+  async function buildGraph(included) {
     const pathIndex = new Set(included.map((f) => f.relativePath));
     const lowerIndex = new Map();
     for (const p of pathIndex) {
@@ -411,21 +436,38 @@
     }
     const resolver = { pathIndex, lowerIndex };
     const graph = {};
+    const stripped = createRegionCache();
+    let sinceYield = 0;
+    const maybeYield = async () => {
+      if (++sinceYield < YIELD_EVERY) return;
+      sinceYield = 0;
+      await yieldToEventLoop();
+    };
 
     const jsFiles = included.filter((f) => JS_EXTENSIONS.has(ext(f.relativePath)));
     for (const file of jsFiles) {
-      graph[file.relativePath] = analyzeJsFile(file, resolver);
+      graph[file.relativePath] = analyzeJsFile(file, resolver, stripped);
+      await maybeYield();
     }
 
     const csFiles = included.filter((f) => ext(f.relativePath) === "cs");
     const razorFiles = included.filter((f) => RAZOR_EXTENSIONS.has(ext(f.relativePath)));
     if (csFiles.length || razorFiles.length) {
-      const symbolTable = buildCsharpSymbolTable(csFiles);
+      const symbolTable = buildCsharpSymbolTable(csFiles, stripped);
+      // One combined regex for the whole run — it only depends on the symbol
+      // table, so rebuilding it per file (as before) recompiled a pattern
+      // holding every type name in the project, once for every file.
+      const names = Object.keys(symbolTable.bySimpleName);
+      const combined = names.length
+        ? new RegExp(`\\b(${names.map(escapeRegex).join("|")})\\b`, "g")
+        : null;
       for (const file of csFiles) {
-        graph[file.relativePath] = analyzeCsharpFile(file, symbolTable);
+        graph[file.relativePath] = combined ? analyzeCsharpFile(file, symbolTable, stripped, combined) : [];
+        await maybeYield();
       }
       for (const file of razorFiles) {
-        graph[file.relativePath] = analyzeRazorFile(file, symbolTable);
+        graph[file.relativePath] = combined ? analyzeRazorFile(file, symbolTable, stripped, combined) : [];
+        await maybeYield();
       }
     }
 

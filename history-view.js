@@ -574,18 +574,17 @@
 
     _deps.setStatus("סורק פרויקט...");
     try {
-      console.log("[ccb-scan][history-view] calling docHandler.scanCodeProject()");
       const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle, {
         ..._deps.getScanSettings(),
         ignorePatterns: _deps.state.blocks[id].ignorePatterns,
+        onProgress: (done) => _deps.setStatus(`סורק פרויקט... ${done} קבצים`),
       });
-      console.log("[ccb-scan][history-view] scanCodeProject() returned", counts);
       // Built while `included` still holds full file content in memory — the
       // graph itself is just path strings, so it stays cheap to persist.
-      _deps.state.blocks[id].depGraph = window.__ccbDepGraph.buildGraph(included);
-      console.log("[ccb-scan][history-view] buildGraph() done, calling syncCodeProjectDocuments()");
+      _deps.setStatus("בונה מפת תלויות...");
+      _deps.state.blocks[id].depGraph = await window.__ccbDepGraph.buildGraph(included);
+      _deps.setStatus("שומר קבצים...");
       await _deps.docHandler.syncCodeProjectDocuments(_deps.state.blocks[id], included, dirHandle.name);
-      console.log("[ccb-scan][history-view] syncCodeProjectDocuments() done");
       _deps.setStatus(`נסרקו ${counts.included} קבצים ✓`);
     } catch (e) {
       console.error("[history-view] Failed to scan code project", e);
@@ -631,15 +630,15 @@
 
     _deps.setStatus("סורק פרויקט...");
     try {
-      console.log("[ccb-scan][history-view] calling docHandler.scanCodeProject() (rescan)");
       const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle, {
         ..._deps.getScanSettings(),
         ignorePatterns: proj.ignorePatterns,
+        onProgress: (done) => _deps.setStatus(`סורק פרויקט... ${done} קבצים`),
       });
-      console.log("[ccb-scan][history-view] scanCodeProject() returned (rescan)", counts);
-      proj.depGraph = window.__ccbDepGraph.buildGraph(included);
+      _deps.setStatus("בונה מפת תלויות...");
+      proj.depGraph = await window.__ccbDepGraph.buildGraph(included);
+      _deps.setStatus("שומר קבצים...");
       await _deps.docHandler.syncCodeProjectDocuments(proj, included, dirHandle.name);
-      console.log("[ccb-scan][history-view] syncCodeProjectDocuments() done (rescan)");
       // Do NOT touch proj.title here — it's already set (folder name as the
       // default at creation, or whatever the user renamed it to via
       // renameProject). Rescanning is about files/structure, not the
@@ -1396,11 +1395,24 @@
     // Code-project files (and legacy blob-only docs) keep their text out of
     // `blocks` entirely, precisely so lookups like this stay a read — writing
     // it back onto doc.content here would re-bloat every future saveBlocks().
+    // Code files are fetched in ONE batched storage read rather than a
+    // round-trip per file — with a few hundred files selected the per-file
+    // version was the slowest part of loading a large project.
     const contents = new Map();
+    const codeDocs = enabledDocs.filter((d) => !d.content && d.type === "code");
+    const codeContents = codeDocs.length
+      ? await _deps.docHandler.getCodeContents(codeDocs.map((d) => d.id))
+      : new Map();
+
     for (const doc of enabledDocs) {
       if (doc.content) {
         contents.set(doc.id, doc.content);
-      } else if (doc.type === "code" || doc.hasBlob) {
+      } else if (doc.type === "code") {
+        const text = codeContents.get(doc.id);
+        if (text) contents.set(doc.id, text);
+      } else if (doc.hasBlob) {
+        // Blob-backed docs still go one at a time — extraction (DOCX/ODT/RTF
+        // parsing) is per-file work, not a batchable lookup.
         const text = await _deps.docHandler.getOrExtractContent(project.id, doc.id);
         if (text) contents.set(doc.id, text);
       }
