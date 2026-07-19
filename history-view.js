@@ -634,7 +634,11 @@
       proj.depGraph = window.__ccbDepGraph.buildGraph(included);
       await _deps.docHandler.syncCodeProjectDocuments(proj, included, dirHandle.name);
       console.log("[ccb-scan][history-view] syncCodeProjectDocuments() done (rescan)");
-      proj.title = dirHandle.name;
+      // Do NOT touch proj.title here — it's already set (folder name as the
+      // default at creation, or whatever the user renamed it to via
+      // renameProject). Rescanning is about files/structure, not the
+      // project's display name; overwriting it here used to silently revert
+      // a user's rename back to the folder name on every rescan.
       await _deps.saveBlocks();
       _deps.setStatus(`נסרקו ${counts.included} קבצים ✓`);
     } catch (e) {

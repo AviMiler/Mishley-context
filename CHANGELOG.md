@@ -2,6 +2,10 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-19 — Fix: rescanning a code project reverted its custom name back to the folder name
+- Fixed: **`rescanCodeProject()` unconditionally set `proj.title = dirHandle.name` after every rescan**, silently undoing any rename the user had made via `renameProject` the next time they (or an auto-triggered rescan) refreshed the project's files. `createCodeProjectBookmark()` already correctly sets `title: dirHandle.name` once, as the default at creation time only — rescanning is about re-syncing files/structure, not the display name, so that line was simply removed. The folder name passed into `syncCodeProjectDocuments(proj, included, dirHandle.name)` for the generated `PROJECT_STRUCTURE.md` header is unaffected (a separate `rootName` parameter, not `project.title`).
+- See [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ### 2026-07-19 — Manual ignore-list for code project scanning
 - Added: **a manual ignore-list for code project folder scanning.** Next to `#codeProjectRefreshBtn` in the documents header, a new `#codeProjectIgnoreBtn` (circle-slash icon, same `.doc-refresh-btn` styling) opens `#ignorePatternsOverlay` — a dialog where the user types file/folder names or `*`-globs (comma-separated for several at once) to exclude from scanning, stored as `project.ignorePatterns` (`string[]`, defaults to `[]`). Each entry can be removed individually; "שמור וסרוק מחדש" persists the list and immediately reruns `rescanCodeProject`, so newly-ignored files drop out of `project.documents` right away via `syncCodeProjectDocuments`'s existing prune-on-rescan logic — no special-case removal needed.
 - Changed: **`document-handler.js#scanCodeProject(dirHandle, ignorePatterns = [])`** now accepts the extra `ignorePatterns` argument and skips any directory/file matching one of them (case-insensitive, matched against either the bare name or the full relative path from the project root) on top of the existing built-in `DENY_DIRS`/`DENY_FILENAMES` lists. Both call sites (`createCodeProjectBookmark`, `rescanCodeProject` in `history-view.js`) now pass the project's `ignorePatterns`.
