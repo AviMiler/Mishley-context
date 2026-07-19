@@ -350,7 +350,7 @@
      *   loadBlocks: () => Promise<void>,
      *   loadCtxWindow: () => Promise<void>,
      *   getCtxWindow: () => number,
-     *   getProjects: () => Array,
+     *   getProjects: () => Array, // ALL projects (regular + code) — showProjectPicker lists both
      * }} deps
      */
     init(deps) { _deps = deps; },

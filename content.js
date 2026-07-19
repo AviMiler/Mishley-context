@@ -219,7 +219,7 @@
       loadBlocks,
       loadCtxWindow,
       getCtxWindow: () => state.ctxWindow,
-      getProjects: () => historyView.getProjects(),
+      getProjects: () => historyView.getAllProjects(),
     });
 
     docHandler.init({
@@ -247,6 +247,7 @@
       setStatus,
       inject: ccbInject,
       openEdit,
+      updateInjectBtn,
     });
 
     chat.init({
