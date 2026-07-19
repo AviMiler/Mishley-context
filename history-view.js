@@ -1391,8 +1391,9 @@
     const text = f.docsPre + body + f.docsPost;
     const r = _deps.inject.injectIntoInput(text, "prepend");
     if (r.ok) {
-      _deps.setStatus("מסמכים הוזרקו ✓");
-      setTimeout(() => document.querySelector(_deps.sendButtonSel)?.click(), 100);
+      // Deliberately not auto-sending — the user reviews/edits the loaded
+      // text (possibly adding their own question) and sends it themselves.
+      _deps.setStatus("מסמכים נטענו — ניתן לערוך ולשלוח ✓");
     } else {
       _deps.setStatus(r.error || "נכשל", true);
     }

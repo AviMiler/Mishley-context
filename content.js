@@ -287,7 +287,6 @@
       render,
       setStatus,
       inject: ccbInject,
-      sendButtonSel: SEND_BUTTON_SELECTOR,
       openEdit,
     });
 

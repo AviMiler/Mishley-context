@@ -386,7 +386,7 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | `renderProjectViewDocuments(project)`      | Renders the document list (icon, name, token estimate, enable checkbox, remove) |
 | `getDocumentIcon(type)`                    | Icon lookup by `doc.type` (`text`/`pdf`/`image`/`word`/...)                     |
 | `openAddDocumentDialog()`                  | Opens the file-picker / paste-text dialog and calls `docHandler.addDocument`   |
-| `injectProjectDocuments()`                 | Builds enabled doc contents and injects them wrapped in `FRAMING_DOCS_PRE`/`_POST` (its own editable framing pair — see prompts.js section below); also calls `docHandler.injectFilesToChat` for enabled blob docs |
+| `injectProjectDocuments()`                 | Builds enabled doc contents and injects them wrapped in `FRAMING_DOCS_PRE`/`_POST` (its own editable framing pair — see prompts.js section below). Does **not** auto-send — the user reviews/edits the loaded text and sends it themselves, unlike most other injection paths. (Note: `docHandler.injectFilesToChat` exists for re-attaching blob docs to the page's file input but is not currently called from here or anywhere else — a pre-existing gap, not something this function does.) |
 
 ### Code projects (folder-backed, `isCodeProject: true`)
 

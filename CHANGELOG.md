@@ -2,6 +2,11 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-19 — File loading no longer auto-sends
+- Changed: `history-view.js#injectProjectDocuments()` (the footer "מסמכים" button) no longer clicks the send button after loading the documents' text into the chat input. The user can now review, edit, or add their own question before sending manually — every other injection path (GM, manual, conversation, continuation) still auto-sends, this one deliberately doesn't.
+- Removed: the now-unused `sendButtonSel` dependency passed from `content.js` into `history-view.js#init` — it had no other callers left after this change.
+- Docs fix (unrelated bug spotted in passing, not caused by this change): `CLAUDE.md`/`ARCHITECTURE.md` claimed `injectProjectDocuments()` calls `docHandler.injectFilesToChat` to re-attach blob docs to the page's file input. It doesn't — `injectFilesToChat` isn't called from anywhere in the codebase. Corrected the docs to say so; the actual gap (blob docs never get re-attached) is unfixed and now explicitly noted rather than silently wrong in the docs.
+
 ### 2026-07-19 — Flat extension icon; new file-injection framing section
 - Changed: **Replaced `icon.png`** (was a 601 KB, 4456×4069 non-icon raster) with a flat 128×128 icon matching the panel's own palette (`#1c1917` rounded-square background, `#fafaf9` clipboard glyph — the same glyph as the Context tab's `IC.context`). Added `icon-source.svg` as the editable vector source (rendered via `sharp`, not committed as a dependency — no build step added to the project).
 - Changed: The "עריכת פרומפטים" item in the Advanced Options (settings) menu used a raw `✏️` emoji for its icon while its siblings (`ייצוא גיבוי`/`ייבוא גיבוי`) used flat `IC.download`/`IC.upload` SVGs. Swapped it for the existing `IC.pencil` SVG, already defined in the icon set but unused until now.
