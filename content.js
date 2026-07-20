@@ -683,18 +683,35 @@
 
   // ============================================================
   // Render orchestrator
+  // Timing/operation log only — counts, never block/conversation content.
+  // Every scan/inject flow ends by calling this; before this it had zero
+  // timing, so a slow render here was indistinguishable from "stuck" in
+  // the console (see [ccb-timing] history-view.render for the breakdown
+  // of the historyViewMs slice below).
   // ============================================================
   function render() {
+    const startedAt = Date.now();
     window.__ccbChat.renderGeneralMemory();
+    const t1 = Date.now();
     renderUnifiedBlocksList();
+    const blocksListMs = Date.now() - t1;
     syncBlocksSection();
     syncInjectDocsBtn();
+    const t2 = Date.now();
     window.__ccbHistoryView.render();
+    const historyViewMs = Date.now() - t2;
     // After renderProjectContext() has pruned any non-active project's id from
     // state.selected, refresh the footer count so it matches what's ticked.
     updateInjectBtn();
+    const t3 = Date.now();
     window.__ccbCtxMeter.watchConversation();
     window.__ccbCtxMeter.update();
+    const ctxMeterMs = Date.now() - t3;
+    console.log("[ccb-timing] render", {
+      totalBlocks: Object.keys(state.blocks || {}).length,
+      blocksListMs, historyViewMs, ctxMeterMs,
+      totalMs: Date.now() - startedAt,
+    });
   }
 
   function syncBlocksSection() {

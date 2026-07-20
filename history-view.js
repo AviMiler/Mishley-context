@@ -1384,12 +1384,29 @@
 
   // ============================================================
   // Render orchestrator (history-side of full render)
+  // Timing/operation log only — counts, never conversation/file content.
+  // This is the step every scan/inject flow ends with (`_deps.render()`),
+  // and it previously had zero timing — a slow render here looked
+  // identical to "nothing happening" in the console.
   // ============================================================
   function render() {
+    const startedAt = Date.now();
     syncCollapsibleSections();
+    const t1 = Date.now();
     renderProjectSelect();
+    const projectSelectMs = Date.now() - t1;
+    const t2 = Date.now();
     renderHistoryList();
+    const historyListMs = Date.now() - t2;
+    const t3 = Date.now();
     renderProjectContext();
+    const projectContextMs = Date.now() - t3;
+    console.log("[ccb-timing] history-view.render", {
+      totalBlocks: Object.keys(_deps.state.blocks || {}).length,
+      conversations: Object.values(_deps.state.blocks || {}).filter((b) => b.kind === "conversation").length,
+      projectSelectMs, historyListMs, projectContextMs,
+      totalMs: Date.now() - startedAt,
+    });
   }
 
   // ============================================================

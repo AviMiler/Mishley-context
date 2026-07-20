@@ -2,6 +2,14 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-20 — Timing logs for the render pipeline (content.js#render / history-view.js#render)
+
+- Added: after shipping the [ccb-timing] logging below, a user reported the scan/sync steps all completed fast (per the new logs) but the panel still felt very slow afterward with **no log output at all** during that slowness. Root cause: every scan/inject flow ends by calling `_deps.render()`, and the render pipeline itself had zero timing — `content.js#render()` and `history-view.js#render()` re-render the whole panel (general memory, unified blocks list, the full history list, project context/file tree, context meter) on every call, and neither was instrumented, so a slow render was indistinguishable from "stuck" in the console.
+- `content.js#render()`: logs `blocksListMs` (`renderUnifiedBlocksList`), `historyViewMs` (the `history-view.js#render()` call), `ctxMeterMs` (`watchConversation`+`update`), `totalMs`, plus `totalBlocks` (`Object.keys(state.blocks).length`) — a direct read on how large the stored `blocks` object has grown from months of auto-saved conversations, which is a leading suspect for "slow regardless of the current project's file count."
+- `history-view.js#render()`: logs `projectSelectMs`, `historyListMs` (`renderHistoryList` — rebuilds a DOM row for every stored conversation, and in content-search mode scans every message of every conversation), `projectContextMs` (project instructions/documents/code-tree), `totalMs`, `totalBlocks`, `conversations` (count of `kind: "conversation"` blocks).
+- Same rule as the rest of this logging pass: counts and `ms` only, never block titles/conversation text/file names. `render()` is called on discrete user actions (open panel, toggle a block, switch project, save/scan) — not per-keystroke — so this stays a bounded number of log lines, not per-item spam.
+- See [ARCHITECTURE.md](ARCHITECTURE.md), [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md).
+
 ### 2026-07-20 — Timing-only logging for file scanning/loading, no project content
 
 - Changed: **every file-loading path now logs `[ccb-timing]` phase timings instead of the old debug/summary logs** — one `console.log` per phase per operation (never per-file), payload restricted to counts/milliseconds/booleans/short enums only. Requested by the user after reporting file loading is still slow and asking for detailed step-by-step timing without any project content appearing in the console.
