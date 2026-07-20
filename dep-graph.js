@@ -428,6 +428,7 @@
   // Public API
   // ============================================================
   async function buildGraph(included) {
+    const startedAt = Date.now();
     const pathIndex = new Set(included.map((f) => f.relativePath));
     const lowerIndex = new Map();
     for (const p of pathIndex) {
@@ -488,6 +489,8 @@
     for (const file of included) {
       if (!graph[file.relativePath]) graph[file.relativePath] = [];
     }
+    // Timing/operation log only — file count, never paths or content.
+    console.log("[ccb-timing] dep-graph.buildGraph", { files: included.length, ms: Date.now() - startedAt });
     return graph;
   }
 

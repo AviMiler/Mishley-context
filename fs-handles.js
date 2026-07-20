@@ -34,26 +34,26 @@
     return _dbPromise;
   }
 
+  // Timing/operation logs only — never the handle's folder name.
   async function put(id, dirHandle) {
-    console.log("[ccb-scan][fs-handles] put: opening DB", { id, handleName: dirHandle && dirHandle.name });
+    const startedAt = Date.now();
     const db = await openDb();
-    console.log("[ccb-scan][fs-handles] put: DB open, starting transaction", { id });
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, "readwrite");
       tx.objectStore(STORE_NAME).put(dirHandle, id);
-      tx.oncomplete = () => { console.log("[ccb-scan][fs-handles] put: tx complete", { id }); resolve(); };
-      tx.onerror = () => { console.error("[ccb-scan][fs-handles] put: tx error", { id }, tx.error); reject(tx.error); };
+      tx.oncomplete = () => { console.log("[ccb-timing] fs-handles.put", { ms: Date.now() - startedAt }); resolve(); };
+      tx.onerror = () => { console.error("[fs-handles] put failed", tx.error); reject(tx.error); };
     });
   }
 
   async function get(id) {
-    console.log("[ccb-scan][fs-handles] get: opening DB", { id });
+    const startedAt = Date.now();
     const db = await openDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, "readonly");
       const req = tx.objectStore(STORE_NAME).get(id);
-      req.onsuccess = () => { console.log("[ccb-scan][fs-handles] get: success", { id, found: !!req.result }); resolve(req.result || null); };
-      req.onerror = () => { console.error("[ccb-scan][fs-handles] get: error", { id }, req.error); reject(req.error); };
+      req.onsuccess = () => { console.log("[ccb-timing] fs-handles.get", { found: !!req.result, ms: Date.now() - startedAt }); resolve(req.result || null); };
+      req.onerror = () => { console.error("[fs-handles] get failed", req.error); reject(req.error); };
     });
   }
 
@@ -68,18 +68,20 @@
   }
 
   // Must be called from a user-gesture handler — requestPermission() requires one.
+  // Timing/operation logs only — never the handle's folder name.
   async function verifyPermission(dirHandle, mode = "read") {
-    console.log("[ccb-scan][fs-handles] verifyPermission: start", { handleName: dirHandle && dirHandle.name, mode });
-    if (!dirHandle) { console.warn("[ccb-scan][fs-handles] verifyPermission: no handle"); return false; }
+    const startedAt = Date.now();
+    if (!dirHandle) return false;
     const opts = { mode };
     try {
       const queryResult = await dirHandle.queryPermission(opts);
-      console.log("[ccb-scan][fs-handles] verifyPermission: queryPermission result", queryResult);
-      if (queryResult === "granted") return true;
+      if (queryResult === "granted") {
+        console.log("[ccb-timing] fs-handles.verifyPermission", { result: "granted", prompted: false, ms: Date.now() - startedAt });
+        return true;
+      }
       const requestResult = await dirHandle.requestPermission(opts);
-      console.log("[ccb-scan][fs-handles] verifyPermission: requestPermission result", requestResult);
-      if (requestResult === "granted") return true;
-      return false;
+      console.log("[ccb-timing] fs-handles.verifyPermission", { result: requestResult, prompted: true, ms: Date.now() - startedAt });
+      return requestResult === "granted";
     } catch (e) {
       console.error("[fs-handles] verifyPermission failed", e);
       return false;

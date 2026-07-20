@@ -464,11 +464,17 @@ Everything the scanner touches — `handle.entries()`, `getFile()`, `file.text()
 | Content writes | `codeContentPutMany` — `CONTENT_WRITE_BATCH = 50` keys per `chrome.storage.local.set`. Batched rather than one giant call so a single failure can't lose the whole scan and peak serialization memory stays bounded |
 | Content reads (injection) | `getCodeContents(docIds)` — one batched `get` for every selected code file |
 | Graph building | `buildGraph` yields every 25 files (see above) |
-| Logging | A single summary line per scan. Per-file/per-entry `console.log` was removed — on a large project it meant tens of thousands of calls, each expensive while DevTools is open, which is precisely when someone is watching a slow scan |
+| Logging | One `console.log("[ccb-timing] ...", {...})` summary per phase/call (discover, read, graph, save, etc.), never per-file/per-entry — on a large project that would mean tens of thousands of calls, each expensive while DevTools is open, which is precisely when someone is watching a slow scan. Every `[ccb-timing]` payload is counts + durations only (`filesIncluded`, `discoverMs`, `readMs`, ...) — no file/folder names or file content, so a scan of a private project can't leak what's in it via the console. See "Timing logs" below |
 
 Because reads complete out of order, `scanCodeProject` **sorts `included` by relative path** before returning, so the structure doc, the file tree, and the dep graph stay stable across scans of the same folder.
 
 Measured on a synthetic 1,452-file tree with simulated per-IO latency: **47.6s sequential → 4.1s (≈11.6×)**, with byte-identical scan output.
+
+### Timing logs
+
+Every file-loading path (code-project create/rescan, "טען קבצים" injection, regular document add, blob injection into chat, IndexedDB handle ops, dep-graph build) logs one `console.log("[ccb-timing] <operation>", { ...counts, ...phaseMs, totalMs })` line per call — a fixed, small number of calls per user action, not one per file. This is how a slow load gets diagnosed from a user's DevTools console: `discoverMs` vs `readMs` vs `writeMs`/`saveMs` (or `codeContentsMs`/`extractMs`/`buildMs`/`injectMs` for the "טען קבצים" flow) shows which phase is actually slow, without needing anything else.
+
+**Hard rule: `[ccb-timing]` payloads carry only numbers/booleans/short enums (counts, milliseconds, `found`/`ok`/`result`, a `mode` string) — never a file name, folder name, path, or file content.** File/folder names still flow through the UI (progress bar `current`, document list rows, dialogs) — that's the user looking at their own project, not a console log. When adding a new timing log, follow the same shape as the existing ones in `document-handler.js`/`history-view.js`/`fs-handles.js`/`dep-graph.js` rather than reusing whatever variable is closest at hand.
 
 ## code-tree.js — inline file-tree picker
 

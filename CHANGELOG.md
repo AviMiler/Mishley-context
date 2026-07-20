@@ -2,6 +2,20 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-20 — Timing-only logging for file scanning/loading, no project content
+
+- Changed: **every file-loading path now logs `[ccb-timing]` phase timings instead of the old debug/summary logs** — one `console.log` per phase per operation (never per-file), payload restricted to counts/milliseconds/booleans/short enums only. Requested by the user after reporting file loading is still slow and asking for detailed step-by-step timing without any project content appearing in the console.
+- `document-handler.js#scanCodeProject`: split into `discoverMs` (directory traversal) and `readMs` (file reads), plus `filesFound`/`filesIncluded`/per-category skip counts/`failedRead`/`totalMs`. The per-file `console.warn("...failed to read file", name, e)` on a failed read no longer logs the file name — failures are now only aggregated into `counts.failedRead`.
+- `document-handler.js#syncCodeProjectDocuments`: new `writeMs` (batched storage write) / `saveMs` (`saveBlocks`) / `totalMs` summary.
+- `document-handler.js#addDocument`: new `readMs` (content extraction) / `blobMs` (IndexedDB blob store) / `saveMs` / `totalMs` summary, plus `fileType`/`fileSizeBytes` (file category and byte count — not the file's name or content).
+- `document-handler.js#injectFilesToChat`: new `loadMs`/`totalMs` summary with a `mode: "direct" | "queued"` tag; per-blob failures are now aggregated into a `failed` count instead of logging `doc.id` per failure.
+- `history-view.js#createCodeProjectBookmark` / `#rescanCodeProject`: new summary line with `pickerMs`/`putMs`/`permMs`/`saveMs`/`graphMs`/`totalMs`. Removed the folder-name-leaking `console.log`s added 2026-07-19 (`{ name: dirHandle.name }`, `{ handleName }`) — the folder's name never reaches the console now.
+- `history-view.js#runProjectDocumentsInjection` (the footer "טען קבצים" flow, likely the exact path behind the user's slowness report): new summary line with `codeContentsMs` (batched code-file read), `extractMs` (cumulative blob/Office extraction time), `buildMs` (assembling the injection text), `injectMs` (writing into the chat input), and doc counts (`docsEnabled`/`docsLoadedAsText`/`docsBinary` — counts only, no names).
+- `fs-handles.js#put/get/verifyPermission`: removed all `dirHandle.name`/`handleName` logging; each now logs one `[ccb-timing]` line with `ms` (+ `found`/`result`/`prompted` where relevant).
+- `dep-graph.js#buildGraph`: new `[ccb-timing]` line with `files` count + `ms`.
+- Net effect: the leftover 2026-07-19 debug `[ccb-scan]` logging (added to chase a scan-hang report, never removed) is gone, replaced by permanent instrumentation that answers "which phase is slow" without ever printing a file/folder name or file content to the console.
+- See [ARCHITECTURE.md](ARCHITECTURE.md)'s new "Timing logs" subsection under "Scan performance", [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md).
+
 ### 2026-07-19 — Persistent progress indicator for scanning and loading files
 - Added: **`#scanProgress`, a persistent progress indicator** shown directly below the global project bar (so it stays visible from either tab, and doesn't overlay the content being worked on). It reports **how many files are done out of how many** and **which file is being handled right now**, plus a progress bar. Replaces the previous reliance on `setStatus`, whose toast auto-hides after 2.5s — on a long scan it vanished long before the operation finished, leaving no sign anything was still running.
 - Covers four phases, each with its own label: "מאתר קבצים" (directory discovery), "קורא קבצים" (file reads), "בונה מפת תלויות" (`buildGraph`), "שומר קבצים" (storage writes), plus "טוען קבצים לצ'אט" for the footer "טען קבצים" injection. During discovery there is no total yet, so the bar runs an **indeterminate sweep** rather than sitting at 0% looking stuck. On completion it holds a green "נסרקו N קבצים" for 2.5s (red + 4s on failure) before hiding, so the outcome is actually seen.

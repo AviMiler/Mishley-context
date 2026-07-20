@@ -529,30 +529,28 @@
   }
 
   // Opens the OS folder picker, bookmarks the handle, and runs an initial scan.
+  // Timing/operation logs only — never folder/file names or content, so what's
+  // in a private project can't leak via the console.
   async function createCodeProjectBookmark() {
-    console.log("[ccb-scan][history-view] createCodeProjectBookmark: start");
+    const startedAt = Date.now();
     if (!window.showDirectoryPicker) {
-      console.warn("[ccb-scan][history-view] showDirectoryPicker not supported");
       _deps.setStatus("הדפדפן לא תומך בבחירת תיקיות", true);
       return;
     }
     let dirHandle;
+    const pickerStartedAt = Date.now();
     try {
-      console.log("[ccb-scan][history-view] opening showDirectoryPicker()");
       dirHandle = await window.showDirectoryPicker();
-      console.log("[ccb-scan][history-view] picker returned", { name: dirHandle && dirHandle.name });
     } catch (e) {
-      console.warn("[ccb-scan][history-view] picker cancelled/failed", e);
       return; // user cancelled the picker
     }
+    const pickerMs = Date.now() - pickerStartedAt;
 
-    console.log("[ccb-scan][history-view] loadBlocks() start");
     await _deps.loadBlocks();
-    console.log("[ccb-scan][history-view] loadBlocks() done");
     const id = "codeproj_" + Date.now();
-    console.log("[ccb-scan][history-view] fsHandles.put() start", { id });
+    const putStartedAt = Date.now();
     await window.__ccbFsHandles.put(id, dirHandle);
-    console.log("[ccb-scan][history-view] fsHandles.put() done", { id });
+    const putMs = Date.now() - putStartedAt;
 
     _deps.state.blocks[id] = {
       id,
@@ -566,9 +564,9 @@
       ignorePatterns: [],
       updated: Date.now(),
     };
-    console.log("[ccb-scan][history-view] saveBlocks() start");
+    const saveStartedAt = Date.now();
     await _deps.saveBlocks();
-    console.log("[ccb-scan][history-view] saveBlocks() done");
+    const saveMs = Date.now() - saveStartedAt;
     await setActiveProjectId(id);
     _deps.render();
 
@@ -582,13 +580,20 @@
       // Built while `included` still holds full file content in memory — the
       // graph itself is just path strings, so it stays cheap to persist.
       _deps.setProgress({ phase: "graph", done: included.length, total: included.length });
+      const graphStartedAt = Date.now();
       _deps.state.blocks[id].depGraph = await window.__ccbDepGraph.buildGraph(included);
+      const graphMs = Date.now() - graphStartedAt;
       await _deps.docHandler.syncCodeProjectDocuments(
         _deps.state.blocks[id], included, dirHandle.name, _deps.setProgress,
       );
       _deps.setProgress({ label: `נסרקו ${counts.included} קבצים`, done: counts.included, total: counts.included, state: "done" });
       _deps.clearProgress(2500);
       _deps.setStatus(`נסרקו ${counts.included} קבצים ✓`);
+      console.log("[ccb-timing] createCodeProjectBookmark", {
+        filesIncluded: counts.included,
+        pickerMs, putMs, saveMs, graphMs,
+        totalMs: Date.now() - startedAt,
+      });
     } catch (e) {
       console.error("[history-view] Failed to scan code project", e);
       _deps.setProgress({ label: "שגיאה בסריקת הפרויקט", state: "error" });
@@ -600,19 +605,19 @@
 
   // Re-verifies (or re-requests) folder permission, then rescans and re-syncs
   // project.documents — preserving `enabled` on files that already existed.
+  // Timing/operation logs only — never folder/file names or content.
   async function rescanCodeProject(projectId) {
-    console.log("[ccb-scan][history-view] rescanCodeProject: start", { projectId });
+    const startedAt = Date.now();
     const project = getProjectById(projectId);
     if (!project || !project.isCodeProject) return;
     await _deps.loadBlocks();
     const proj = _deps.state.blocks[projectId];
     if (!proj) return;
 
-    console.log("[ccb-scan][history-view] fsHandles.get() start", { dirHandleId: proj.dirHandleId });
+    const permStartedAt = Date.now();
     let dirHandle = await window.__ccbFsHandles.get(proj.dirHandleId);
-    console.log("[ccb-scan][history-view] fsHandles.get() done", { found: !!dirHandle, name: dirHandle && dirHandle.name });
     let ok = dirHandle && (await window.__ccbFsHandles.verifyPermission(dirHandle, "read"));
-    console.log("[ccb-scan][history-view] verifyPermission result", { ok });
+    const permMs = Date.now() - permStartedAt;
 
     if (!ok) {
       const proceed = await _deps.modals.showConfirm({
@@ -641,17 +646,26 @@
         onProgress: _deps.setProgress,
       });
       _deps.setProgress({ phase: "graph", done: included.length, total: included.length });
+      const graphStartedAt = Date.now();
       proj.depGraph = await window.__ccbDepGraph.buildGraph(included);
+      const graphMs = Date.now() - graphStartedAt;
       await _deps.docHandler.syncCodeProjectDocuments(proj, included, dirHandle.name, _deps.setProgress);
       // Do NOT touch proj.title here — it's already set (folder name as the
       // default at creation, or whatever the user renamed it to via
       // renameProject). Rescanning is about files/structure, not the
       // project's display name; overwriting it here used to silently revert
       // a user's rename back to the folder name on every rescan.
+      const saveStartedAt = Date.now();
       await _deps.saveBlocks();
+      const saveMs = Date.now() - saveStartedAt;
       _deps.setProgress({ label: `נסרקו ${counts.included} קבצים`, done: counts.included, total: counts.included, state: "done" });
       _deps.clearProgress(2500);
       _deps.setStatus(`נסרקו ${counts.included} קבצים ✓`);
+      console.log("[ccb-timing] rescanCodeProject", {
+        filesIncluded: counts.included,
+        permMs, graphMs, saveMs,
+        totalMs: Date.now() - startedAt,
+      });
     } catch (e) {
       console.error("[history-view] Failed to rescan code project", e);
       _deps.setProgress({ label: "שגיאה בסריקה מחדש", state: "error" });
@@ -1401,7 +1415,9 @@
     }
   }
 
+  // Timing/operation logs only — never file names or content.
   async function runProjectDocumentsInjection() {
+    const startedAt = Date.now();
     const project = getProjectById(_deps.state.currentProjectId);
     if (!project) return;
 
@@ -1422,11 +1438,14 @@
     // version was the slowest part of loading a large project.
     const contents = new Map();
     const codeDocs = enabledDocs.filter((d) => !d.content && d.type === "code");
+    const codeContentsStartedAt = Date.now();
     const codeContents = codeDocs.length
       ? await _deps.docHandler.getCodeContents(codeDocs.map((d) => d.id))
       : new Map();
+    const codeContentsMs = Date.now() - codeContentsStartedAt;
 
     let loaded = 0;
+    let extractMs = 0;
     for (const doc of enabledDocs) {
       _deps.setProgress({ phase: "load", done: loaded, total: enabledDocs.length, current: doc.name });
       if (doc.content) {
@@ -1437,7 +1456,9 @@
       } else if (doc.hasBlob) {
         // Blob-backed docs still go one at a time — extraction (DOCX/ODT/RTF
         // parsing) is per-file work, not a batchable lookup.
+        const extractStartedAt = Date.now();
         const text = await _deps.docHandler.getOrExtractContent(project.id, doc.id);
+        extractMs += Date.now() - extractStartedAt;
         if (text) contents.set(doc.id, text);
       }
       loaded++;
@@ -1452,6 +1473,7 @@
       return;
     }
 
+    const buildStartedAt = Date.now();
     let body = "";
     for (const doc of textDocs) {
       const content = contents.get(doc.id);
@@ -1470,10 +1492,20 @@
     if (binaryDocs.length) {
       body += `\n[קבצים ללא תוכן טקסט: ${binaryDocs.map(d => d.name).join(", ")}]\n`;
     }
+    const buildMs = Date.now() - buildStartedAt;
 
     const f = _deps.framing;
     const text = f.docsPre + body + f.docsPost;
+    const injectStartedAt = Date.now();
     const r = _deps.inject.injectIntoInput(text, "prepend");
+    const injectMs = Date.now() - injectStartedAt;
+    console.log("[ccb-timing] runProjectDocumentsInjection", {
+      docsEnabled: enabledDocs.length,
+      docsLoadedAsText: textDocs.length,
+      docsBinary: binaryDocs.length,
+      codeContentsMs, extractMs, buildMs, injectMs,
+      totalMs: Date.now() - startedAt,
+    });
     if (r.ok) {
       // Deliberately not auto-sending — the user reviews/edits the loaded
       // text (possibly adding their own question) and sends it themselves.

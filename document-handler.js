@@ -518,6 +518,7 @@
   // ============================================================
   async function addDocument(file, projectId, contentOverride = null) {
     if (!_deps) return null;
+    const startedAt = Date.now();
 
     const isRealFile = file instanceof File || file instanceof Blob;
 
@@ -535,6 +536,7 @@
     const fileType = getFileType(file);
 
     // Read text content first — used for both token estimation and injection
+    const readStartedAt = Date.now();
     let content = null;
     let preview = "";
     try {
@@ -547,8 +549,9 @@
       }
       preview = content ? content.slice(0, 200).replace(/\n/g, " ") : "";
     } catch (e) {
-      console.error("[document-handler] Failed to read file", e);
+      console.error("[document-handler] addDocument: failed to read file content", e);
     }
+    const readMs = Date.now() - readStartedAt;
 
     let estimatedTokens = 0;
     if (content !== null) {
@@ -558,15 +561,17 @@
     }
 
     // Store blob in IndexedDB so we can inject it into the chat's file input later
+    const blobStartedAt = Date.now();
     let hasBlob = false;
     if (isRealFile) {
       try {
         await idbPut(docId, file, file.name, file.type || "application/octet-stream");
         hasBlob = true;
       } catch (e) {
-        console.error("[document-handler] Failed to store blob", e);
+        console.error("[document-handler] addDocument: failed to store blob", e);
       }
     }
+    const blobMs = Date.now() - blobStartedAt;
 
     const doc = {
       id: docId,
@@ -585,7 +590,18 @@
     project.documents.push(doc);
     project.updated = Date.now();
 
+    const saveStartedAt = Date.now();
     await _deps.saveBlocks();
+    const saveMs = Date.now() - saveStartedAt;
+
+    console.log("[ccb-timing] addDocument", {
+      fileType,
+      fileSizeBytes: doc.size,
+      readMs,
+      blobMs,
+      saveMs,
+      totalMs: Date.now() - startedAt,
+    });
     return doc;
   }
 
@@ -612,9 +628,11 @@
   // automatically the moment the user opens the attachment UI.
   // Returns the number of files loaded (not necessarily injected yet).
   async function injectFilesToChat(projectId) {
+    const startedAt = Date.now();
     const enabledDocs = getEnabledDocuments(projectId).filter(d => d.hasBlob);
     if (!enabledDocs.length) return 0;
 
+    let failed = 0;
     const files = [];
     for (const doc of enabledDocs) {
       try {
@@ -626,11 +644,15 @@
           }));
         }
       } catch (e) {
-        console.error("[document-handler] Failed to load blob", doc.id, e);
+        failed++;
       }
     }
+    const loadMs = Date.now() - startedAt;
 
-    if (!files.length) return 0;
+    if (!files.length) {
+      console.log("[ccb-timing] injectFilesToChat", { filesLoaded: 0, failed, loadMs, totalMs: Date.now() - startedAt });
+      return 0;
+    }
 
     // Try direct injection if file input is already in DOM
     const fileInput = document.querySelector('input[type="file"]');
@@ -641,12 +663,14 @@
       fileInput.files = dt.files;
       fileInput.dispatchEvent(new Event("input", { bubbles: true }));
       fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+      console.log("[ccb-timing] injectFilesToChat", { filesLoaded: files.length, failed, loadMs, mode: "direct", totalMs: Date.now() - startedAt });
       return files.length;
     }
 
     // File input not in DOM yet — queue via ctx-meter.
     // Files will be set automatically when the user opens the attachment UI.
     window.__ccbCtxMeter?.queueFilesForInjection?.(files);
+    console.log("[ccb-timing] injectFilesToChat", { filesLoaded: files.length, failed, loadMs, mode: "queued", totalMs: Date.now() - startedAt });
     return files.length;
   }
 
@@ -770,7 +794,7 @@
 
     const startedAt = Date.now();
     const included = [];
-    const counts = { total: 0, included: 0, skippedDirs: 0, skippedConfig: 0, skippedExt: 0, skippedLarge: 0, skippedCustom: 0 };
+    const counts = { total: 0, included: 0, skippedDirs: 0, skippedConfig: 0, skippedExt: 0, skippedLarge: 0, skippedCustom: 0, failedRead: 0 };
     const customMatchers = buildPatternMatchers(ignorePatterns);
     const denyDirMatchers = buildPatternMatchers(denyDirs);
     const denyFileMatchers = buildPatternMatchers(denyFilenames);
@@ -784,6 +808,7 @@
     // each entries() step and each getFile() is an IPC round-trip, so a
     // strictly sequential walk over a few thousand files spends nearly all of
     // its wall time waiting rather than working.
+    const discoverStartedAt = Date.now();
     const candidates = [];
     await walkDirectories(dirHandle, DIR_CONCURRENCY, async (handle, pathParts) => {
       const subdirs = [];
@@ -813,6 +838,7 @@
       }
       return subdirs;
     });
+    const discoverMs = Date.now() - discoverStartedAt;
 
     // Phase 2 — read the surviving files, again with a bounded number of
     // reads in flight. The cap keeps memory and the browser's file-IO queue
@@ -825,8 +851,9 @@
     // Reporting only at the start would make the count stall short of the
     // total by however many reads are in flight — with a cap of 12, the bar
     // would freeze near the end of every scan.
+    const readStartedAt = Date.now();
     let completed = 0;
-    await runWithConcurrency(candidates, FILE_READ_CONCURRENCY, async ({ entry, relPath, name }) => {
+    await runWithConcurrency(candidates, FILE_READ_CONCURRENCY, async ({ entry, relPath }) => {
       try {
         if (onProgress) {
           onProgress({ phase: "read", done: completed, total: candidates.length, current: relPath });
@@ -842,7 +869,9 @@
         });
         counts.included++;
       } catch (e) {
-        console.warn("[document-handler] scanCodeProject: failed to read file", name, e);
+        // No filename/path here on purpose — console logs must never carry
+        // project content or structure, only counts and timings.
+        counts.failedRead++;
       } finally {
         completed++;
         if (onProgress) {
@@ -850,12 +879,27 @@
         }
       }
     });
+    const readMs = Date.now() - readStartedAt;
 
     // Concurrent reads finish out of order — sort so the structure doc, the
     // file tree, and the dep graph are stable across scans of the same folder.
     included.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 
-    console.log("[document-handler] scanCodeProject done", { ...counts, ms: Date.now() - startedAt });
+    // Timing/operation logs only — never file names, paths, or file content,
+    // so a scan of a private project can't leak what's in it via the console.
+    console.log("[ccb-timing] scanCodeProject", {
+      filesFound: counts.total,
+      filesIncluded: counts.included,
+      skippedDirs: counts.skippedDirs,
+      skippedConfig: counts.skippedConfig,
+      skippedExt: counts.skippedExt,
+      skippedLarge: counts.skippedLarge,
+      skippedCustom: counts.skippedCustom,
+      failedRead: counts.failedRead,
+      discoverMs,
+      readMs,
+      totalMs: Date.now() - startedAt,
+    });
     return { included, counts };
   }
 
@@ -902,6 +946,7 @@
   // for files that disappeared from disk since the last scan.
   async function syncCodeProjectDocuments(project, included, rootName, onProgress = null) {
     if (!_deps) return;
+    const startedAt = Date.now();
     if (!project.documents) project.documents = [];
 
     const structureId = `structure_${project.id}`;
@@ -970,14 +1015,26 @@
       (d) => d.id === structureId || d.type !== "code" || includedPaths.has(d.name),
     );
 
+    const writeStartedAt = Date.now();
     await codeContentPutMany(pendingContent, onProgress);
     if (removedDocs.length) {
       await codeContentRemoveMany(removedDocs.map((d) => d.id));
     }
+    const writeMs = Date.now() - writeStartedAt;
 
     project.lastScanned = Date.now();
     project.updated = Date.now();
+    const saveStartedAt = Date.now();
     await _deps.saveBlocks();
+    const saveMs = Date.now() - saveStartedAt;
+
+    console.log("[ccb-timing] syncCodeProjectDocuments", {
+      filesWritten: Object.keys(pendingContent).length,
+      filesRemoved: removedDocs.length,
+      writeMs,
+      saveMs,
+      totalMs: Date.now() - startedAt,
+    });
   }
 
   // ============================================================
