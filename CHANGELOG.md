@@ -2,6 +2,18 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-21 — Fix: one click on "new chat" didn't auto-inject (internal site); two did
+
+- Fixed: on the internal chat site, clicking "new chat" **once** did not auto-inject General Memory / project instructions — only a second click did.
+- Root cause: both triggers that reset auto-inject state (`content.js#installNewChatBtnWatcher`'s delegated click listener and its `ccb:urlchange` handler) are registered with `capture: true`, so they run **before** the site's own handler starts tearing down the current conversation. `chat-features.js#tryAutoInject` then read `msgCount` **once**, at that instant — when the previous chat's message nodes are all still in the DOM. It therefore concluded "user is sitting in an existing conversation" and clicked the new-chat button itself; that programmatic click re-entered the very same capture listener, called `tryAutoInject()` again, saw the same stale DOM, and clicked again — recursing until the stack overflowed, with nothing injected. By the second (human) click the DOM had settled, `msgCount` was 0, and injection worked.
+- Notably, CLAUDE.md already **documented** the correct behavior — "polls until both input is present and `msgCount === 0` (or times out at 10s)" — but no such polling existed in the code. This change implements what was already written down.
+- Fix: replaced the one-shot check with `autoInjectTick()`, a 150ms poll with three distinct timings: waiting for the chat input to mount is **untimed** (login screens / slow SPAs can take minutes); once the input exists, `AUTO_INJECT_SETTLE_MS` (2.5s) gives an in-flight transition time to drop the old messages before a non-empty chat counts as "genuinely an existing conversation"; and `AUTO_INJECT_TIMEOUT_MS` (10s) caps that wait-for-empty phase so a chat that never empties stops polling instead of looping forever.
+- Fix (termination): the new-chat button is now clicked at most once per attempt (`_autoInjectClickedNewChat`), and a `tryAutoInject()` call that arrives while a poll is already in flight **resumes** that attempt (keeping its clock and clicked flag) rather than starting a fresh one. Together these are what stop the re-entrancy from recursing.
+- Removed: `_autoInjectObserver` — the `MutationObserver` fallback it held is fully replaced by the poll's untimed first phase, leaving the variable only ever assigned `null`.
+- Note: pending-timer guards compare against `null` rather than truthiness, since a `setTimeout` id of `0` is falsy.
+- Verified with a Node `vm` suite driving the real `chat-features.js` on a virtual clock, modelling the capture-phase ordering (14 assertions): a single new-chat click injects exactly once with no extra button click, including on a slow (2s) transition; a genuinely restored conversation is left alone through the grace period, then gets exactly one new-chat click followed by injection; an existing chat with no new-chat button is never polluted; a chat that never empties injects nothing; a late-mounting chat UI still injects (no premature timeout); and repeat `tryAutoInject()` calls never double-inject. The same suite run against the pre-fix module raises `RangeError: Maximum call stack size exceeded`, confirming the diagnosed recursion.
+- See [ARCHITECTURE.md](ARCHITECTURE.md)'s new "Why the 'empty chat' wait is a poll" subsection, [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md).
+
 ### 2026-07-21 — Per-document char cap is now a setting + fix for progressive tab slowdown
 
 Two user-reported items.

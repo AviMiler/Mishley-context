@@ -113,7 +113,6 @@
   // ============================================================
   // GM auto-inject at conversation start
   // ============================================================
-  let _autoInjectObserver = null;
 
   // Active project (global selection) whose INSTRUCTIONS auto-load at
   // conversation start alongside GM — gated by project.autoLoad, mirroring
@@ -159,74 +158,104 @@
     }, 100);
   }
 
-  async function tryAutoInject() {
+  // Once the input exists, we still have to wait for the chat to actually be
+  // EMPTY before injecting. Both entry points that reset auto-inject state —
+  // content.js's new-chat click delegation and its ccb:urlchange handler — run
+  // in the capture phase, i.e. BEFORE the site has begun tearing down the
+  // previous conversation, so the old chat's message nodes are still in the
+  // DOM at that instant. Judging "is this chat empty?" from that snapshot was
+  // the bug behind "one click on 'new chat' doesn't auto-inject, two clicks
+  // do": the first click saw stale messages, concluded it was sitting in an
+  // existing conversation, re-clicked new-chat (which changed nothing, since
+  // the app was already switching), and gave up — by the second click the DOM
+  // had settled and the same check passed.
+  const AUTO_INJECT_POLL_MS = 150;
+  // Grace period for an in-flight SPA transition to drop the old messages
+  // before we conclude the user is genuinely sitting in an existing chat.
+  const AUTO_INJECT_SETTLE_MS = 2500;
+  // Overall cap on the "waiting for an empty chat" phase only — waiting for
+  // the chat UI itself to mount stays untimed (slow/login-gated sites).
+  const AUTO_INJECT_TIMEOUT_MS = 10000;
+
+  let _autoInjectPollTimer = null;
+  let _autoInjectReadyAt = 0;
+  let _autoInjectClickedNewChat = false;
+
+  function stopAutoInjectPoll() {
+    // Explicit null check — a timer id of 0 is falsy.
+    if (_autoInjectPollTimer !== null) {
+      clearTimeout(_autoInjectPollTimer);
+      _autoInjectPollTimer = null;
+    }
+  }
+
+  function getMsgCount() {
+    const sel = _deps.config.MSG_SELECTORS;
+    if (!sel?.message) return 0;
+    try {
+      return document.querySelectorAll(sel.message).length;
+    } catch { return 0; }
+  }
+
+  function autoInjectTick() {
+    _autoInjectPollTimer = null;
     if (_deps.state.gmAutoInjected) return;
-    if (!_autoInjectPayload().text) return;
-    const MSG_SELECTORS = _deps.config.MSG_SELECTORS;
-    const NEW_CHAT_BTN_SELECTOR = _deps.config.NEW_CHAT_BTN_SELECTOR;
 
-    // Cancel any previous pending observer
-    if (_autoInjectObserver) {
-      _autoInjectObserver.disconnect();
-      _autoInjectObserver = null;
-    }
-
-    function getMsgCount() {
-      if (!MSG_SELECTORS?.message) return 0;
-      try {
-        return document.querySelectorAll(MSG_SELECTORS.message).length;
-      } catch { return 0; }
-    }
-
-    // True when chat UI is loaded enough to inject (input exists)
-    function chatReady() {
-      return !!_deps.inject.findInput();
-    }
-
-    // Action when chat is ready: if existing messages and we have a
-    // new-chat button, click it (the watcher will call us again with a
-    // clean chat). Otherwise inject into the current empty chat.
-    function actWhenReady() {
-      if (_deps.state.gmAutoInjected) return;
-      const msgCount = getMsgCount();
-      if (msgCount > 0) {
-        if (NEW_CHAT_BTN_SELECTOR) {
-          const newChatBtn = document.querySelector(NEW_CHAT_BTN_SELECTOR);
-          if (newChatBtn) {
-            console.debug("[ccb] tryAutoInject: existing chat detected → clicking 'new chat'");
-            newChatBtn.click();
-            return; // watcher resets state and calls us again
-          }
-        }
-        // No new-chat button — bail. Don't pollute an in-progress chat.
-        console.debug("[ccb] tryAutoInject: messages present, no new-chat btn — skipping");
-        return;
-      }
-      _doInject();
-    }
-
-    // If chat is already loaded — act immediately
-    if (chatReady()) {
-      actWhenReady();
+    // Phase 1 — chat UI not mounted yet. Untimed, as before.
+    if (!_deps.inject.findInput()) {
+      _autoInjectPollTimer = setTimeout(autoInjectTick, AUTO_INJECT_POLL_MS);
       return;
     }
 
-    // Otherwise watch DOM until chat UI appears (login screen → chat).
-    // No timeout — slow-loading sites can take minutes.
-    _autoInjectObserver = new MutationObserver(() => {
-      if (_deps.state.gmAutoInjected) {
-        _autoInjectObserver.disconnect();
-        _autoInjectObserver = null;
+    // Phase 2 — input is up; wait for the conversation to be empty.
+    if (!_autoInjectReadyAt) _autoInjectReadyAt = Date.now();
+    const waited = Date.now() - _autoInjectReadyAt;
+
+    if (getMsgCount() === 0) {
+      _doInject();
+      return;
+    }
+
+    if (waited >= AUTO_INJECT_TIMEOUT_MS) {
+      console.debug("[ccb] tryAutoInject: gave up waiting for an empty chat");
+      return;
+    }
+
+    // Still not empty after the grace period → this really is an existing
+    // conversation (e.g. a refresh restored it), so ask for a new chat. Only
+    // ever once per attempt: the click re-enters content.js's delegated
+    // handler, which calls tryAutoInject() again, and without this flag the
+    // two would bounce clicks off each other.
+    if (waited >= AUTO_INJECT_SETTLE_MS && !_autoInjectClickedNewChat) {
+      const selector = _deps.config.NEW_CHAT_BTN_SELECTOR;
+      const newChatBtn = selector ? document.querySelector(selector) : null;
+      if (!newChatBtn) {
+        // No way to reach a clean chat — don't pollute an in-progress one.
+        console.debug("[ccb] tryAutoInject: messages present, no new-chat btn — skipping");
         return;
       }
-      if (!chatReady()) return;
-      _autoInjectObserver.disconnect();
-      _autoInjectObserver = null;
-      // Wait a tick to let messages render in (so getMsgCount is accurate)
-      setTimeout(actWhenReady, 300);
-    });
-    _autoInjectObserver.observe(document.body, { childList: true, subtree: true });
-    console.debug("[ccb] tryAutoInject: waiting for chat UI via MutationObserver");
+      console.debug("[ccb] tryAutoInject: existing chat detected → clicking 'new chat'");
+      _autoInjectClickedNewChat = true;
+      newChatBtn.click();
+    }
+
+    _autoInjectPollTimer = setTimeout(autoInjectTick, AUTO_INJECT_POLL_MS);
+  }
+
+  async function tryAutoInject() {
+    if (_deps.state.gmAutoInjected) return;
+    if (!_autoInjectPayload().text) return;
+
+    // Re-entrancy: our own programmatic new-chat click calls this again. That
+    // must restart the poll but NOT restart its clock or clear the
+    // already-clicked flag, or the attempt could never time out.
+    const resuming = _autoInjectPollTimer !== null;
+    stopAutoInjectPoll();
+    if (!resuming) {
+      _autoInjectReadyAt = 0;
+      _autoInjectClickedNewChat = false;
+    }
+    autoInjectTick();
   }
 
   // ============================================================

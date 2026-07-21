@@ -502,7 +502,8 @@ A single file's own checkbox calls `_deps.render()` (fixed 2026-07-19 — it use
 | ----------------------- | ------------------------------------------------------------------------------------------ |
 | `getGM()`               | Returns the GM block from `state.blocks` (with `title: "זיכרון כללי"` default)            |
 | `renderGeneralMemory()` | Renders the GM card in the context tab (select-for-inject checkbox + autoLoad toggle). No edit button — the whole card's `click` opens `openEdit(GM_ID, ...)`; the checkbox/toggle `stopPropagation()` so using them doesn't also open the form |
-| `tryAutoInject()`       | Polls for input readiness, injects GM **and the active project's instructions** at *conversation start only*, clicks send |
+| `tryAutoInject()`       | Starts/resumes the poll for a chat that is both mounted **and empty**, then injects GM **and the active project's instructions** at *conversation start only*, clicks send. Re-entrant: its own programmatic new-chat click calls it again, which resumes the in-flight attempt instead of restarting its clock |
+| `autoInjectTick()`      | One poll step (150ms cadence). Phase 1 waits untimed for `inject.findInput()`; phase 2 waits for `getMsgCount() === 0`, with a 2.5s settle window and a 10s cap — see the transition-timing note below |
 | `_getActiveProjectInstructions()` | `## title\ncontent` for the active project (`state.currentProjectId`), or `null`. **Instructions only**, never the project's enabled documents (tens of thousands of tokens for a code project) — those stay behind the explicit footer `#injectDocsBtn` |
 | `_autoInjectPayload()`  | Builds `{ text, hasGm, hasProject }` — GM block (if `autoLoad` + content) and/or the project-instructions block, wrapped in `FRAMING_GM_*` / `FRAMING_PROJ_*`, joined into ONE injection |
 | `_doInject()`           | Guarded by `state.gmAutoInjected`; injects `_autoInjectPayload().text` and clicks send    |
@@ -512,7 +513,23 @@ A single file's own checkbox calls `_deps.render()` (fixed 2026-07-19 — it use
 - **General Memory** — gated on `gm.autoLoad` + non-empty content (unchanged).
 - **Active project instructions** — gated on a project being active (`state.currentProjectId`), `project.autoLoad !== false`, + non-empty `content`. `project.autoLoad` is an explicit per-project toggle, built dynamically inside `history-view.js#renderProjectInstructionsCard` (same `.toggle` markup as GM's, wired inline — no static id, no `content.js#wireEvents` entry). **Missing `autoLoad` defaults to ON** — both the toggle's checked state and the actual gate treat `undefined` as `true`, so older projects (created before the toggle existed) keep auto-loading without a migration step. The instructions card's `.auto-badge` ("נטען אוטומטית") reflects the toggle state, not the content — it shows even when instructions are empty, since it communicates intent ("this project *will* auto-load once you write something"), matching the GM card's badge pattern.
 
-Both are concatenated into a **single** `injectIntoInput(..., "prepend")` call (two sequential injections are unreliable on Gemini — same reason as the continuation flow). The payload is computed **at inject time**, not when `tryAutoInject` is called: the fallback `MutationObserver` has no timeout, so the user may switch project or edit GM in between, and reading late keeps the injection consistent with the current selection.
+Both are concatenated into a **single** `injectIntoInput(..., "prepend")` call (two sequential injections are unreliable on Gemini — same reason as the continuation flow). The payload is computed **at inject time**, not when `tryAutoInject` is called: the wait for a usable chat is unbounded in its first phase, so the user may switch project or edit GM in between, and reading late keeps the injection consistent with the current selection.
+
+#### Why the "empty chat" wait is a poll, not a single check (2026-07-21)
+
+Both triggers that reset auto-inject state — `content.js#installNewChatBtnWatcher`'s delegated click listener and its `ccb:urlchange` handler — are registered with `capture: true`, so they run **before** the site's own handler has begun tearing down the current conversation. At that instant the previous chat's message nodes are all still in the DOM.
+
+The original code read `msgCount` once, right there, and branched on it. On the internal chat site that meant a single click on "new chat" always looked like "user is sitting in an existing conversation", so it re-clicked the new-chat button — which re-entered the same capture listener, called `tryAutoInject()` again, saw the same stale DOM, and clicked again, recursing until the stack overflowed. Nothing was injected. By the time the user clicked a second time the DOM had settled, `msgCount` was 0, and injection worked — the reported "only works if I click twice". (A Node harness reproduces both halves: the pre-fix module raises `RangeError: Maximum call stack size exceeded`; the fixed one injects on the first click.)
+
+The fix replaces that one-shot read with `autoInjectTick()`, a 150ms poll governed by three separate timings:
+
+| Timing | Value | Why |
+| --- | --- | --- |
+| wait for `findInput()` | untimed | A login screen or slow SPA can take minutes to mount the chat; this phase must never expire. |
+| `AUTO_INJECT_SETTLE_MS` | 2500ms | Grace for an in-flight transition to drop the old messages. Only after this does a non-empty chat count as "genuinely an existing conversation" worth clicking new-chat for. |
+| `AUTO_INJECT_TIMEOUT_MS` | 10000ms | Overall cap on the wait-for-empty phase, so a chat that never empties stops polling instead of looping forever. |
+
+`_autoInjectClickedNewChat` ensures the new-chat button is clicked at most once per attempt, and `tryAutoInject()` treats a call arriving while a poll is already in flight as *resuming* that attempt (keeping `_autoInjectReadyAt` and the clicked flag) rather than starting a fresh one — together these are what make the re-entrancy terminate. Pending-timer guards compare against `null`, not truthiness, since a timer id of `0` is falsy.
 
 Both blocks are prefixed with `[[CCB:INJECTED]]` via their FRAMING, so `captureConversation` filters them out of saved conversations, and the AI's canned replies (`"Context loaded."`, `"Project guidelines loaded."`) are already in `INJECTION_AUTORESPONSES`.
 
