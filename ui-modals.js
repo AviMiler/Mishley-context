@@ -227,6 +227,9 @@
     await _deps.loadCtxWindow();
     const input = $el("ccb-ctx-size");
     if (input) input.value = String(Math.round(_deps.getCtxWindow() / 1000));
+    await _deps.loadDocMaxChars?.();
+    const docInput = $el("ccb-doc-max-chars");
+    if (docInput) docInput.value = String(Math.round((_deps.getDocMaxChars?.() || 50000) / 1000));
     overlay.classList.add("show");
   }
 

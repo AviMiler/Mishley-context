@@ -1512,8 +1512,11 @@
       // complete but silently isn't, which is worse than the 10-20K tokens it
       // costs on a very large project. Non-code docs (long-form text,
       // extracted office docs) keep the cap so a single huge attachment can't
-      // blow the context.
-      const maxChars = (doc.type === "code" || doc.type === "structure") ? Infinity : 10000;
+      // blow the context — its size is the user-editable "מגבלת תווים למסמך"
+      // setting (Advanced Options), not a hardcoded number.
+      const maxChars = (doc.type === "code" || doc.type === "structure")
+        ? Infinity
+        : (_deps.getDocMaxChars?.() || 50000);
       const injected = content.length > maxChars
         ? content.slice(0, maxChars) + "\n... [truncated]"
         : content;

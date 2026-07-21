@@ -33,6 +33,7 @@
     GM_ID,
     CTX_WINDOW_DEFAULT,
     CHARS_PER_TOKEN,
+    DOC_MAX_CHARS_DEFAULT,
   } = window.__ccbRawConfig;
 
   const CONFIG_PUBLIC = { AUTO_OPEN_URLS, SEND_BUTTON_SELECTOR, SIDEBAR_WIDTH };
@@ -70,6 +71,8 @@
     blocksCollapsed: false,
     ctxWindow: CTX_WINDOW_DEFAULT,
     ctxWindowLoaded: false,
+    docMaxChars: DOC_MAX_CHARS_DEFAULT,
+    docMaxCharsLoaded: false,
     // Global code-project scan rules (which folders/files/extensions get
     // scanned, and the per-file size cap). Seeded from document-handler.js's
     // defaults on first load, then user-editable from Advanced Options.
@@ -158,6 +161,27 @@
     const val = Math.max(4, Math.min(2048, k)) * 1000;
     state.ctxWindow = val;
     await new Promise((r) => chrome.storage.local.set({ ctxWindow: val }, r));
+    return val;
+  }
+
+  // Per-document character cap for the "טען קבצים" injection. Only bounds
+  // ordinary documents — code files and the generated structure doc are exempt
+  // in history-view.js, since truncating either silently drops exactly what was
+  // loaded for. Stored in thousands of chars in the UI, raw chars here.
+  async function loadDocMaxChars() {
+    if (state.docMaxCharsLoaded) return;
+    const data = await new Promise((r) =>
+      chrome.storage.local.get("docMaxChars", r),
+    );
+    state.docMaxChars = Number(data.docMaxChars) > 0 ? Number(data.docMaxChars) : DOC_MAX_CHARS_DEFAULT;
+    state.docMaxCharsLoaded = true;
+  }
+
+  async function setDocMaxChars(k) {
+    const val = Math.max(1, Math.min(1000, k)) * 1000;
+    state.docMaxChars = val;
+    state.docMaxCharsLoaded = true;
+    await new Promise((r) => chrome.storage.local.set({ docMaxChars: val }, r));
     return val;
   }
 
@@ -268,6 +292,8 @@
       loadBlocks,
       loadCtxWindow,
       getCtxWindow: () => state.ctxWindow,
+      loadDocMaxChars,
+      getDocMaxChars: () => state.docMaxChars,
       getProjects: () => historyView.getAllProjects(),
       loadScanSettings,
       // Never null: falls back to the built-in defaults if a scan somehow
@@ -307,6 +333,7 @@
       inject: ccbInject,
       openEdit,
       updateInjectBtn,
+      getDocMaxChars: () => state.docMaxChars,
       // Never null: falls back to the built-in defaults if a scan somehow
       // fires before loadScanSettings() resolved, so a scan can't run with
       // every filter silently disabled.
@@ -465,6 +492,22 @@
         console.error("Failed to save ctxWindow", e);
         input.value = String(Math.round(state.ctxWindow / 1000));
         setStatus("לא ניתן לשמור את חלון הקונטקסט", true);
+      }
+    });
+    $el("ccb-doc-max-chars").addEventListener("change", async () => {
+      const input = $el("ccb-doc-max-chars");
+      const revert = () => { input.value = String(Math.round(state.docMaxChars / 1000)); };
+      const raw = input?.value?.trim() || "";
+      if (!raw) return revert();
+      const value = Number(raw);
+      if (!Number.isFinite(value) || value < 1) return revert();
+      try {
+        const next = await setDocMaxChars(value);
+        input.value = String(Math.round(next / 1000));
+      } catch (e) {
+        console.error("Failed to save docMaxChars", e);
+        revert();
+        setStatus("לא ניתן לשמור את מגבלת התווים", true);
       }
     });
     $el("closeBtn").addEventListener("click", async () => {
@@ -1276,6 +1319,7 @@
   async function init() {
     if (!isActiveSitePage()) return;
     await loadCtxWindow();
+    await loadDocMaxChars();
     await loadScanSettings();
     // mountUI must run before chat module touches shadow DOM
     mountUI();

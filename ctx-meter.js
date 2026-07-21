@@ -49,24 +49,57 @@
     return shared ? shared(text) : Math.ceil((text || "").length / CHARS_PT());
   }
 
+  // Per-message memo, keyed on the message element (WeakMap — entries die with
+  // the DOM node, so navigating away can't leak them).
+  //
+  // This exists for a specific performance reason: the site selectors'
+  // messageText() reads `.innerText`, which is layout-dependent and therefore
+  // forces a synchronous reflow. estimateTokens() runs on every conversation
+  // mutation, so without a memo, every DOM change during a streaming response
+  // re-read (and re-scanned) EVERY message in the chat — cost proportional to
+  // the whole conversation, paid many times a second, growing as the chat
+  // grows. That is the "gets slower the longer I use it, a browser restart
+  // fixes it for a while" symptom.
+  //
+  // `textContent.length` is the change detector because, unlike innerText, it
+  // does not depend on layout. Only messages whose length actually changed pay
+  // for the innerText read + token scan; a stable message costs one cheap
+  // property read. An edit that preserves the exact length is missed, which is
+  // acceptable for a length-derived estimate.
+  const msgTokenCache = new WeakMap();
+
+  function measureMessage(node, sel) {
+    const rawLen = node.textContent?.length || 0;
+    const cached = msgTokenCache.get(node);
+    if (cached && cached.rawLen === rawLen) return cached;
+
+    const textNode =
+      typeof sel.messageText === "function" ? sel.messageText(node) : node;
+    const text =
+      typeof textNode === "string"
+        ? textNode.trim()
+        : (textNode?.textContent || textNode?.innerText || "").trim();
+    const entry = {
+      rawLen,
+      chars: text.length,
+      tokens: text ? estimateTextTokens(text) : 0,
+    };
+    msgTokenCache.set(node, entry);
+    return entry;
+  }
+
   function estimateTokens() {
     const sel = MSG_SEL();
     if (!sel?.message) return { chars: 0, count: 0, tokens: 0 };
-    const nodes = document.querySelectorAll(sel.message);
     let chars = 0,
       count = 0,
       tokens = 0;
-    nodes.forEach((n) => {
-      const textNode =
-        typeof sel.messageText === "function" ? sel.messageText(n) : n;
-      const text =
-        typeof textNode === "string"
-          ? textNode.trim()
-          : (textNode?.textContent || textNode?.innerText || "").trim();
-      if (!text) return;
-      chars += text.length;
+    document.querySelectorAll(sel.message).forEach((n) => {
+      const entry = measureMessage(n, sel);
+      if (!entry.chars) return;
+      chars += entry.chars;
       count++;
-      tokens += estimateTextTokens(text);
+      tokens += entry.tokens;
     });
     return { chars, count, tokens };
   }
@@ -220,6 +253,27 @@
   // ============================================================
   // Conversation watching
   // ============================================================
+  // A streaming AI response mutates the DOM continuously, and the observer
+  // below watches the whole subtree — so mutation bursts are coalesced into one
+  // recompute instead of recomputing per mutation. `setTimeout`, deliberately
+  // NOT `requestAnimationFrame`: rAF is suspended while the tab is
+  // backgrounded, which would freeze the meter for anyone who switched tabs
+  // mid-response (the progress indicator in content.js avoids rAF for the same
+  // reason). Leading-edge suppressed, trailing-edge fires — the meter is an
+  // ambient readout, so lagging a fraction of a second is invisible.
+  const CTX_METER_THROTTLE_MS = 400;
+  // Explicit null check, not truthiness: a timer id of 0 is falsy, which would
+  // let every mutation in a burst schedule its own update.
+  let ctxMeterThrottleTimer = null;
+
+  function scheduleCtxMeterUpdate() {
+    if (ctxMeterThrottleTimer !== null) return;
+    ctxMeterThrottleTimer = setTimeout(() => {
+      ctxMeterThrottleTimer = null;
+      updateCtxMeter();
+    }, CTX_METER_THROTTLE_MS);
+  }
+
   function watchConversation() {
     const sel = MSG_SEL();
     const rootSel = sel?.container || sel?.messageList;
@@ -228,7 +282,7 @@
     if (!root || root === ctxMeterObservedRoot) return;
     ctxMeterObserver?.disconnect();
     ctxMeterObservedRoot = root;
-    ctxMeterObserver = new MutationObserver(() => updateCtxMeter());
+    ctxMeterObserver = new MutationObserver(scheduleCtxMeterUpdate);
     ctxMeterObserver.observe(root, { childList: true, subtree: true });
     updateCtxMeter();
   }
@@ -388,6 +442,8 @@
     ctxMeterObserver?.disconnect();
     ctxMeterObserver = null;
     ctxMeterObservedRoot = null;
+    clearTimeout(ctxMeterThrottleTimer);
+    ctxMeterThrottleTimer = null;
     fileInputObserver?.disconnect();
     fileInputObserver = null;
     fileInputObservedRoot = null;

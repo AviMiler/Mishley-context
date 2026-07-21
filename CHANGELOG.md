@@ -2,6 +2,24 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-21 — Per-document char cap is now a setting + fix for progressive tab slowdown
+
+Two user-reported items.
+
+**1. The per-document truncation cap is editable (and much larger by default).**
+- Added: **"מגבלת תווים למסמך"** in Advanced Options (`#ccb-doc-max-chars`, entered in thousands of characters, clamped 1–1000). Stored at `chrome.storage.local["docMaxChars"]`, seeded from the new `config.js#DOC_MAX_CHARS_DEFAULT`. Wired exactly like the existing context-window setting: `content.js#loadDocMaxChars()`/`setDocMaxChars(k)`, populated by `ui-modals.js#openSettings`, consumed at inject time through a `getDocMaxChars` dep in `history-view.js#runProjectDocumentsInjection`.
+- Changed: **the default cap is 50,000 chars, up from a hardcoded 10,000.** 10,000 chars is only ~3–5K tokens — too small for a long pasted spec or an extracted Word document, which were being silently cut. The cap still exists (rather than being removed) because this injection does not auto-send: without any bound, one huge paste could still consume most of the window before the user notices.
+- Unchanged: code files (`type: "code"`) and the generated structure doc (`type: "structure"`) remain fully exempt from truncation regardless of this setting.
+
+**2. Fixed: the page got progressively slower the longer a conversation ran.**
+- User reported file loading/UI slowness that toggling Chrome's "use hardware acceleration when available" appeared to fix, but only temporarily. That toggle **relaunches Chrome** — the restart was doing the work, not the GPU setting, which is why the slowness always came back. Root cause was in `ctx-meter.js`.
+- Root cause: `watchConversation()` attached `new MutationObserver(() => updateCtxMeter())` with `subtree: true` and **no throttling**. `updateCtxMeter` → `estimateTokens()` reads each message through the site selector's `messageText()`, which uses **`.innerText`** — a layout-dependent property, so reading it forces a synchronous reflow. A streaming AI response mutates that subtree continuously, so the extension re-read and re-scanned **every message in the conversation, forcing a layout, many times per second** — a cost proportional to total conversation length, growing as the chat grew.
+- Fixed (throttle): the observer now calls `scheduleCtxMeterUpdate()`, coalescing a mutation burst into one trailing recompute every 400ms. Uses `setTimeout`, deliberately **not** `requestAnimationFrame` (suspended in backgrounded tabs, which would freeze the meter for a user who switched away mid-response — the same rule the progress indicator follows). The pending-timer guard tests `!== null` rather than truthiness: a timer id of `0` is falsy and would have let every mutation in a burst schedule its own update (caught by the test suite below).
+- Fixed (memoization): new `measureMessage()` caches `{ rawLen, chars, tokens }` per message element in a `WeakMap`, using `textContent.length` — which, unlike `innerText`, does **not** depend on layout — as the change detector. Only a message whose length actually changed pays for the `innerText` read and the token scan, so a recompute during streaming costs one message instead of the whole conversation. An edit that preserves the exact character count is missed, which is acceptable for a length-derived estimate.
+- `cleanup()` now also clears the pending throttle timer.
+- Verified with a Node `vm` suite over the real modules (37 assertions): 500 simulated mutations coalesce into exactly 1 scheduled update at 400ms; a burst over unchanged messages costs **0** `innerText` reads; a changed message re-measures exactly once; a newly appended message measures once; the throttle re-arms after firing; `cleanup()` clears it. Plus full wiring/clamping/truncation coverage for the new setting, confirming code and structure docs still bypass the cap and that raising the setting stops truncating an 80,000-char document.
+- See [ARCHITECTURE.md](ARCHITECTURE.md), [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md).
+
 ### 2026-07-21 — Fix: large code-project structure doc was truncated on injection
 
 - Fixed: **`PROJECT_STRUCTURE.md` (the auto-generated file-tree doc for code projects) could be silently cut off mid-listing when injected.** User reported that for a very large file structure, the extension "doesn't include all of it, cuts off in the middle." `history-view.js#runProjectDocumentsInjection` caps every non-code doc at 10,000 characters (`doc.type === "code" ? Infinity : 10000`) so a single huge attachment can't blow the context — but the structure doc's `type` is `"structure"`, not `"code"`, so it fell into the same 10,000-char cap as ordinary text docs. A project with a few hundred files easily produces a tree listing past that length, so the injected copy ended mid-tree with a `"... [truncated]"` marker even though the doc itself (`buildStructureMarkdown`) always contains every scanned file.

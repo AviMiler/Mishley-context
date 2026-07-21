@@ -314,6 +314,13 @@ window.__ccbTpl = (() => {
             </div>
             <input id="ccb-ctx-size" type="number" min="4" max="2048" step="4" value="128" />
           </div>
+          <div class="setting-row">
+            <div class="setting-row-label">
+              <span class="setting-row-title">מגבלת תווים למסמך</span>
+              <span class="setting-row-sub">אלפי תווים — קבצי קוד ומבנה הפרויקט אינם מוגבלים</span>
+            </div>
+            <input id="ccb-doc-max-chars" type="number" min="1" max="1000" step="5" value="50" />
+          </div>
           <div class="settings-list">
             <button class="settings-item" id="exportBackupBtn" type="button">
               <span class="settings-item-icon">${IC.download}</span>
