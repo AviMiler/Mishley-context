@@ -851,15 +851,11 @@
 
     const list = $el("list");
     if (!list) return;
+    // No empty-state placeholder by design (2026-07-21): with nothing to show
+    // the list simply stays blank, and the loop below naturally renders
+    // nothing. The History tab keeps its own `.empty` states — that CSS class
+    // is still in use, so it was not removed from ui-styles.js.
     list.innerHTML = "";
-
-    if (!items.length) {
-      const div = document.createElement("div");
-      div.className = "empty";
-      div.textContent = "בנק ריק\nלחץ + להוספת בלוק ראשון";
-      list.appendChild(div);
-      return;
-    }
 
     for (const b of items) {
       const projTitle = b.projectId

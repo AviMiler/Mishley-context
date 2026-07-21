@@ -2,6 +2,12 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-21 — Removed the empty-state placeholder from the Context tab's blocks list
+
+- Removed: the "בנק ריק / לחץ + להוספת בלוק ראשון" placeholder that `content.js#renderUnifiedBlocksList` rendered into `#list` when there were no blocks to show. Requested by the user — with nothing to display the list now simply stays blank. The `for` loop below it already renders nothing for an empty array, so the early-return branch was deleted outright rather than emptied.
+- Kept: the `.empty` CSS rule in `ui-styles.js`. It is **not** dead — `history-view.js#renderHistoryList` still uses the same class for its two states ("אין סיכומי שיחה שמורים" and "לא נמצא"), which this change deliberately does not touch.
+- See [ARCHITECTURE.md](ARCHITECTURE.md), [AGENT_CONTEXT.md](AGENT_CONTEXT.md).
+
 ### 2026-07-21 — Fix: one click on "new chat" didn't auto-inject (internal site); two did
 
 - Fixed: on the internal chat site, clicking "new chat" **once** did not auto-inject General Memory / project instructions — only a second click did.
