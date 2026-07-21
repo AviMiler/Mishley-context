@@ -2,6 +2,13 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-21 — Fix: large code-project structure doc was truncated on injection
+
+- Fixed: **`PROJECT_STRUCTURE.md` (the auto-generated file-tree doc for code projects) could be silently cut off mid-listing when injected.** User reported that for a very large file structure, the extension "doesn't include all of it, cuts off in the middle." `history-view.js#runProjectDocumentsInjection` caps every non-code doc at 10,000 characters (`doc.type === "code" ? Infinity : 10000`) so a single huge attachment can't blow the context — but the structure doc's `type` is `"structure"`, not `"code"`, so it fell into the same 10,000-char cap as ordinary text docs. A project with a few hundred files easily produces a tree listing past that length, so the injected copy ended mid-tree with a `"... [truncated]"` marker even though the doc itself (`buildStructureMarkdown`) always contains every scanned file.
+- Fix: `maxChars` now exempts `doc.type === "structure"` alongside `doc.type === "code"` — same reasoning already documented for code files: a chopped-off tree looks complete but silently isn't, which is worse than the extra tokens a large tree costs.
+- Verified with a small Node script simulating the cap logic for `structure`/`code`/`text`/`word` doc types against 15,000-char content: structure and code pass through unmodified; ordinary text/word docs still truncate at 10,000 chars exactly as before (no regression for the case the cap exists to protect).
+- See [ARCHITECTURE.md](ARCHITECTURE.md), [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md).
+
 ### 2026-07-21 — Dep-graph accuracy fixes + Hebrew-aware token estimation
 
 User asked for a deep audit of the file-linking (dep-graph) and token-estimation logic, then to fix every bug found except unsupported-language gaps (their stack is React-without-TS + .NET, so TS `.js`→`.ts` mapping, Vue/Svelte analysis, and tsconfig-alias support were deliberately skipped). Verified by a 35-assertion Node suite (`vm` sandbox over the real files — see AGENT_CONTEXT next-steps for the browser pass still pending).

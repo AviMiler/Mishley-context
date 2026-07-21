@@ -1507,9 +1507,13 @@
       // Code files are never truncated — the whole point of "load with
       // dependencies" is that every file in the closure has to actually be
       // there; a chopped-off file silently loses the exact function it was
-      // pulled in for. Non-code docs (long-form text, extracted office docs)
-      // keep the cap so a single huge attachment can't blow the context.
-      const maxChars = doc.type === "code" ? Infinity : 10000;
+      // pulled in for. The auto-generated structure doc (PROJECT_STRUCTURE.md)
+      // is exempted for the same reason: a tree cut off mid-listing looks
+      // complete but silently isn't, which is worse than the 10-20K tokens it
+      // costs on a very large project. Non-code docs (long-form text,
+      // extracted office docs) keep the cap so a single huge attachment can't
+      // blow the context.
+      const maxChars = (doc.type === "code" || doc.type === "structure") ? Infinity : 10000;
       const injected = content.length > maxChars
         ? content.slice(0, maxChars) + "\n... [truncated]"
         : content;
