@@ -684,16 +684,26 @@
   // when file content itself lived inline in `blocks`). `enabled` defaults to
   // true for the dependency-graph call sites (which only ever add files);
   // code-tree.js's folder checkbox passes it explicitly both ways.
+  // Returns how many docs actually matched (and had their state set). Callers
+  // that report "N files marked" must use this, not the requested paths'
+  // count — a stale dep graph can hold paths that no longer exist as
+  // documents (renamed/deleted since the last scan), and those are silently
+  // skipped here.
   async function enableFilesForProject(projectId, relativePaths, enabled = true) {
     const project = getProjectById(projectId);
-    if (!project) return;
+    if (!project) return 0;
     const wanted = new Set(relativePaths);
+    let matched = 0;
     for (const doc of project.documents || []) {
-      if (doc.type === "code" && wanted.has(doc.name)) doc.enabled = enabled;
+      if (doc.type === "code" && wanted.has(doc.name)) {
+        doc.enabled = enabled;
+        matched++;
+      }
     }
     project.updated = Date.now();
     await _deps.saveBlocks();
     _deps.render();
+    return matched;
   }
 
   // Same bulk-save principle for "select all" / "clear all" in the file tree.
@@ -1500,10 +1510,14 @@
       // pulled in for. Non-code docs (long-form text, extracted office docs)
       // keep the cap so a single huge attachment can't blow the context.
       const maxChars = doc.type === "code" ? Infinity : 10000;
-      body += `\n**${doc.name}** (${doc.estimatedTokens} tokens)\n---\n`;
-      body += content.length > maxChars
+      const injected = content.length > maxChars
         ? content.slice(0, maxChars) + "\n... [truncated]"
         : content;
+      // Token label is computed on what is actually injected (post-truncation),
+      // not the stored full-content estimate — the two disagreed whenever a
+      // long non-code doc was cut at maxChars.
+      body += `\n**${doc.name}** (${_deps.docHandler.estimateTokens(injected)} tokens)\n---\n`;
+      body += injected;
       body += "\n";
     }
     if (binaryDocs.length) {
@@ -1529,7 +1543,10 @@
       await _deps.docHandler.injectFilesToChat(project.id);
       _deps.setProgress({ label: `${textDocs.length} קבצים נטענו`, done: enabledDocs.length, total: enabledDocs.length, state: "done" });
       _deps.clearProgress(2500);
-      _deps.setStatus("קבצים נטענו — ניתן לערוך ולשלוח ✓");
+      // Estimated over the FULL injected text (framing wrapper + headers +
+      // separators included) — the per-doc sums alone hid the wrapper cost.
+      const totalTokens = _deps.docHandler.estimateTokens(text);
+      _deps.setStatus(`קבצים נטענו (~${totalTokens.toLocaleString("he-IL")} tokens) — ניתן לערוך ולשלוח ✓`);
     } else {
       _deps.setProgress({ label: r.error || "טעינת הקבצים נכשלה", state: "error" });
       _deps.clearProgress(4000);

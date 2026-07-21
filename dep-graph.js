@@ -71,13 +71,19 @@
       const c = text[i];
       const c2 = text[i + 1];
 
-      if ((mode === "code" || mode === "templateExpr" || mode === "interpExpr") && c === "/" && c2 === "/") {
+      // C#-style comments are NOT scanned in Razor: the razor "code" mode is
+      // mostly HTML markup with no string detection, so a URL in an attribute
+      // ("https://...", src="//cdn...") would start a phantom // comment and
+      // blank every type reference on the rest of that line. Razor keeps only
+      // @* *@ and <!-- --> (below); a commented-out type name inside an @{ }
+      // block may over-include, which is the documented bias direction.
+      if (lang !== "razor" && (mode === "code" || mode === "templateExpr" || mode === "interpExpr") && c === "/" && c2 === "/") {
         const s = i; i += 2;
         while (i < n && text[i] !== "\n") i++;
         comments.push([s, i]);
         continue;
       }
-      if ((mode === "code" || mode === "templateExpr" || mode === "interpExpr") && c === "/" && c2 === "*") {
+      if (lang !== "razor" && (mode === "code" || mode === "templateExpr" || mode === "interpExpr") && c === "/" && c2 === "*") {
         const s = i; i += 2;
         while (i < n && !(text[i] === "*" && text[i + 1] === "/")) i++;
         i = Math.min(i + 2, n);
@@ -256,14 +262,21 @@
     /\bimport\(\s*["']([^"']+)["']\s*\)/g,
   ];
 
+  // Returns null when `..` segments climb past the scanned root — the target
+  // lives outside the project, and mapping it back into the root used to
+  // create a false edge whenever an unrelated in-project file shared the name.
   function joinRelative(fromPath, importPath) {
     const baseDir = fromPath.includes("/") ? fromPath.slice(0, fromPath.lastIndexOf("/")) : "";
     const combined = (baseDir ? baseDir + "/" : "") + importPath;
     const stack = [];
     for (const part of combined.split("/")) {
       if (part === "" || part === ".") continue;
-      if (part === "..") stack.pop();
-      else stack.push(part);
+      if (part === "..") {
+        if (!stack.length) return null;
+        stack.pop();
+      } else {
+        stack.push(part);
+      }
     }
     return stack.join("/");
   }
@@ -299,7 +312,8 @@
 
   function resolveJsImport(fromPath, importPath, resolver) {
     if (importPath.startsWith(".")) {
-      return findCandidate(joinRelative(fromPath, importPath), resolver);
+      const joined = joinRelative(fromPath, importPath);
+      return joined === null ? null : findCandidate(joined, resolver);
     }
     const aliasRest = stripLeadingAlias(importPath);
     if (aliasRest === null) return null; // external package / unresolvable alias
@@ -323,7 +337,13 @@
   // ============================================================
   // C# — namespace/class symbol table + best-effort reference scan
   // ============================================================
-  const CS_TYPE_RE = /(?:^|\n)[ \t]*(?:(?:public|private|protected|internal|static|abstract|sealed|partial)\s+)*(?:class|interface|struct|enum|record)\s+([A-Za-z_]\w*)/g;
+  // Modifier list includes readonly/ref/new/unsafe/file so declarations like
+  // `readonly record struct X` / `ref struct X` / `file class X` register.
+  // `record(?:\s+(?:class|struct))?` handles C# 10 `record class` / `record
+  // struct` — without it, `record struct Point` captured the keyword "struct"
+  // as the type name, poisoning the symbol table with a name that appears in
+  // nearly every file that declares any struct.
+  const CS_TYPE_RE = /(?:^|\n)[ \t]*(?:(?:public|private|protected|internal|static|abstract|sealed|partial|readonly|ref|new|unsafe|file)\s+)*(?:class|interface|struct|enum|record(?:\s+(?:class|struct))?)\s+([A-Za-z_]\w*)/g;
   const CS_NAMESPACE_RE = /\bnamespace\s+([A-Za-z_][\w.]*)\s*[{;]/;
   const CS_USING_RE = /\busing\s+(?:static\s+)?([A-Za-z_][\w.]*)\s*;/g;
 
@@ -343,7 +363,11 @@
   function buildCsharpSymbolTable(files, stripped) {
     const bySimpleName = {};
     for (const file of files) {
-      const cleaned = stripped(file, "cs", "comments");
+      // "both" (comments + strings blanked): a multi-line verbatim string
+      // containing `class X` at line start (code-gen templates) must not
+      // register a phantom type. Blanking preserves offsets/newlines, so the
+      // (?:^|\n) anchors and namespace extraction still line up.
+      const cleaned = stripped(file, "cs", "both");
       const namespace = extractCsNamespace(cleaned);
       CS_TYPE_RE.lastIndex = 0;
       let m;

@@ -180,9 +180,14 @@
 
   function updateTokenCount() {
     if (!_tokenEl || !_project) return;
+    // File count covers only user-selectable code docs — the always-enabled
+    // structure doc made a fresh project read "1 קבצים נבחרים" with nothing
+    // ticked. The token sum still spans every enabled doc (structure
+    // included), because that is exactly what the footer inject sends.
     const enabled = (_project.documents || []).filter((d) => d.enabled);
+    const codeCount = enabled.filter((d) => d.type === "code").length;
     const tokens = enabled.reduce((sum, d) => sum + (d.estimatedTokens || 0), 0);
-    _tokenEl.textContent = `${enabled.length} קבצים נבחרים · ${tokens} tokens`;
+    _tokenEl.textContent = `${codeCount} קבצים נבחרים · ${tokens.toLocaleString("he-IL")} tokens`;
   }
 
   // Re-renders only the tree body (folders/files) from the current _project +
@@ -306,12 +311,17 @@
     }
 
     // enableFilesForProject triggers a global render → renderInline rebuild.
-    await _deps.historyView.enableFilesForProject(_project.id, Array.from(closure));
+    // It returns how many closure paths matched actual documents — with a
+    // stale graph (files renamed/removed since the last scan) that can be
+    // fewer than closure.size, and the status must not overstate it.
+    const marked = await _deps.historyView.enableFilesForProject(_project.id, Array.from(closure));
 
     if (closure.size <= 1) {
       _deps.setStatus?.(`לא זוהו קבצים נוספים (${label}) — ניתוח סטטי, לא כל קריאה ניתנת לזיהוי`);
+    } else if (marked < closure.size) {
+      _deps.setStatus?.(`סומנו ${marked} מתוך ${closure.size} קבצים (${label}) — ייתכן שנדרש רענון סריקה`, true);
     } else {
-      _deps.setStatus?.(`סומנו ${closure.size} קבצים (${label}) ✓`);
+      _deps.setStatus?.(`סומנו ${marked} קבצים (${label}) ✓`);
     }
   }
 

@@ -270,18 +270,24 @@
   }
 
   // ============================================================
-  // Token Estimation (reuses logic from ctx-meter.js)
+  // Token estimation — the CANONICAL implementation. ctx-meter.js delegates
+  // its per-file estimates here (it used to carry a near-identical fork of
+  // these heuristics, and the two drifted); the chars→tokens core itself
+  // lives in config.js#estimateTextTokens so there is exactly one policy,
+  // and it is Hebrew-aware (Hebrew runs ~2 chars/token vs ~3.5 for
+  // English/code — a flat 3.5 divisor undercounted Hebrew by ~40%).
   // ============================================================
   function estimateTokensForContent(content) {
     if (typeof content !== "string") return 0;
-    return Math.ceil(content.length / CHARS_PT);
+    const shared = window.__ccbRawConfig?.estimateTextTokens;
+    return shared ? shared(content) : Math.ceil(content.length / CHARS_PT);
   }
 
   function estimateTokensForFile(file) {
     // Text files: read and estimate by character count
     if (isLikelyTextFile(file)) {
       return file.text()
-        .then(text => Math.ceil(text.length / CHARS_PT))
+        .then(text => estimateTokensForContent(text))
         .catch(() => Math.ceil(file.size / CHARS_PT));
     }
 
@@ -328,7 +334,7 @@
     // Markup & Code
     if (/\.(html?|xml|svg|yaml|yml|toml|ini|conf|cfg)$/i.test(name) || type === "application/xml" || type === "text/xml" || type === "image/svg+xml") {
       return file.text()
-        .then(text => Math.ceil(text.length / (CHARS_PT * 1.2)))
+        .then(text => Math.ceil(estimateTokensForContent(text) / 1.2))
         .catch(() => Math.ceil(size / CHARS_PT));
     }
 
@@ -470,6 +476,11 @@
     return null;
   }
 
+  // Extension list is aligned with DEFAULT_CODE_EXTENSIONS — it used to miss
+  // half the languages the scanner itself supports (.cs, .cshtml, .razor,
+  // .php, .kt, .swift, .vue, ...), so uploading such a file skipped text
+  // extraction entirely (injected as a blob instead of text) and fell to the
+  // crude size/50 binary token fallback (~14x undercount on a source file).
   function isLikelyTextFile(file) {
     const name = (file.name || "").toLowerCase();
     const type = (file.type || "").toLowerCase();
@@ -478,7 +489,7 @@
       type === "application/json" ||
       type === "application/xml" ||
       type === "image/svg+xml" ||
-      /\.(txt|md|markdown|py|js|ts|jsx|tsx|json|csv|xml|html|htm|css|scss|sass|less|java|c|cpp|h|hpp|rs|go|rb|sh|yaml|yml|sql|ini|toml|env|log)$/i.test(name)
+      /\.(txt|md|markdown|py|js|jsx|mjs|cjs|ts|tsx|vue|svelte|json|csv|xml|html|htm|css|scss|sass|less|java|kt|kts|c|h|cc|cpp|hpp|cs|cshtml|razor|php|rs|go|rb|swift|m|mm|scala|sh|bash|zsh|ps1|sql|graphql|gql|proto|yaml|yml|ini|toml|env|log)$/i.test(name)
     );
   }
 

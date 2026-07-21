@@ -84,7 +84,29 @@ const _ACTIVE = _SITE_CONFIG[ACTIVE_SITE] || _SITE_CONFIG.gemini;
     // רוחב הסיידבר בפיקסלים
     SIDEBAR_WIDTH: 380,
     CTX_WINDOW_DEFAULT: 128000,
+    // יחסי תווים-לטוקן: 3.5 מכויל לאנגלית/קוד. עברית מתפרקת לטוקנים צפופים
+    // בהרבה (~2 תווים לטוקן בטוקנייזרים הנפוצים), כך שמחלק אחיד של 3.5 מציג
+    // חוסר של פי ~1.5-2 על שיחות ומסמכים בעברית.
     CHARS_PER_TOKEN: 3.5,
+    HEBREW_CHARS_PER_TOKEN: 2,
+
+    // אומדן הטוקנים הקנוני לטקסט — סופר תווים עבריים (U+0590–U+05FF) בנפרד
+    // משאר התווים, כל קבוצה ביחס שלה. כל המודולים (ctx-meter, document-handler)
+    // קוראים לפונקציה הזו דרך window.__ccbRawConfig במקום להחזיק עותקים
+    // מקומיים של החישוב — עותקים כפולים הם שגרמו לסחיפה בין המודולים בעבר.
+    estimateTextTokens(text) {
+      if (typeof text !== "string" || !text.length) return 0;
+      let hebrew = 0;
+      for (let i = 0; i < text.length; i++) {
+        const c = text.charCodeAt(i);
+        if (c >= 0x0590 && c <= 0x05ff) hebrew++;
+      }
+      const cfg = window.__ccbRawConfig;
+      return Math.ceil(
+        hebrew / (cfg?.HEBREW_CHARS_PER_TOKEN || 2) +
+          (text.length - hebrew) / (cfg?.CHARS_PER_TOKEN || 3.5),
+      );
+    },
 
     MSG_SELECTORS:
       ACTIVE_SITE === "gemini" ? _GEMINI_SELECTORS : _INTERNAL_CHAT_SELECTORS,

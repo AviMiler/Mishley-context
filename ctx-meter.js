@@ -40,12 +40,22 @@
   // ============================================================
   // Token estimation
   // ============================================================
+  // Chars→tokens goes through the shared Hebrew-aware estimator in config.js
+  // (Hebrew runs ~2 chars/token vs ~3.5 for English/code — a flat divisor
+  // made the meter undercount Hebrew conversations by ~40%). Fallback keeps
+  // the old flat ratio if config is somehow absent.
+  function estimateTextTokens(text) {
+    const shared = window.__ccbRawConfig?.estimateTextTokens;
+    return shared ? shared(text) : Math.ceil((text || "").length / CHARS_PT());
+  }
+
   function estimateTokens() {
     const sel = MSG_SEL();
     if (!sel?.message) return { chars: 0, count: 0, tokens: 0 };
     const nodes = document.querySelectorAll(sel.message);
     let chars = 0,
-      count = 0;
+      count = 0,
+      tokens = 0;
     nodes.forEach((n) => {
       const textNode =
         typeof sel.messageText === "function" ? sel.messageText(n) : n;
@@ -56,120 +66,26 @@
       if (!text) return;
       chars += text.length;
       count++;
+      tokens += estimateTextTokens(text);
     });
-    return { chars, count, tokens: Math.ceil(chars / CHARS_PT()) };
+    return { chars, count, tokens };
   }
 
-  function isLikelyTextFile(file) {
-    const name = (file?.name || "").toLowerCase();
-    const type = (file?.type || "").toLowerCase();
-    return (
-      type.startsWith("text/") ||
-      type === "application/json" ||
-      type === "application/xml" ||
-      type === "image/svg+xml" ||
-      /\.(txt|md|markdown|py|js|ts|jsx|tsx|json|csv|xml|html|htm|css|scss|sass|less|java|c|cpp|h|hpp|rs|go|rb|sh|yaml|yml|sql|ini|toml|env|log)$/i.test(
-        name,
-      )
-    );
-  }
-
-  // Classify file by extension/MIME and return realistic token estimate.
-  // Numbers based on typical LLM tokenization rates per format:
-  //   - Images: vision models charge ~85-1600 per image depending on size
-  //   - PDFs:   varies wildly with embedded media; heuristic: size/50
-  //   - Office: heavily compressed XML + images — actual text is small fraction
-  //   - Archives: size ratio of actual files unpredictable
-  async function estimateBinaryTokens(file) {
-    const name = (file?.name || "").toLowerCase();
-    const type = (file?.type || "").toLowerCase();
-    const size = file?.size || 0;
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Images — vision token cost is roughly flat per image
-    // ─────────────────────────────────────────────────────────────────────
-    if (type.startsWith("image/") || /\.(jpe?g|png|gif|webp|bmp|tiff?|heic|heif|svg)$/i.test(name)) {
-      if (size < 100 * 1024) return 85;      // small
-      if (size < 500 * 1024) return 400;     // medium
-      if (size < 2 * 1024 * 1024) return 1100; // large
-      return 1600;                            // very large
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Documents & Spreadsheets
-    // ─────────────────────────────────────────────────────────────────────
-
-    // PDF — text + fonts + embedded images
-    if (type === "application/pdf" || /\.pdf$/i.test(name)) {
-      return Math.ceil(size / 50);
-    }
-
-    // PowerPoint — mostly images + layout, minimal text
-    if (/\.(pptx?|odp)$/i.test(name) || type.includes("presentation")) {
-      return Math.ceil(size / 200);
-    }
-
-    // Word documents — text-heavy, compressed format
-    if (/\.(docx?|odt|rtf)$/i.test(name) || type.includes("wordprocessingml") || type.includes("msword")) {
-      return Math.ceil(size / 100);
-    }
-
-    // Excel / Sheets — structured data, compressed
-    if (/\.(xlsx?|ods|csv)$/i.test(name) || type.includes("spreadsheet") || type.includes("ms-excel")) {
-      return Math.ceil(size / 120);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Media (Audio/Video) — transcribed by Claude
-    // ─────────────────────────────────────────────────────────────────────
-    if (type.startsWith("audio/") || /\.(mp3|wav|m4a|ogg|flac|aac|wma)$/i.test(name)) {
-      return Math.ceil(size / 100);
-    }
-
-    if (type.startsWith("video/") || /\.(mp4|mov|avi|mkv|webm|m4v|flv|wmv|3gp)$/i.test(name)) {
-      return Math.ceil(size / 200);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Archives & Compressed — size is unpredictable
-    // ─────────────────────────────────────────────────────────────────────
-    if (/\.(zip|rar|7z|tar|gz|bz2|xz)$/i.test(name) ||
-        type.includes("zip") || type.includes("compressed") || type.includes("archive")) {
-      // Very conservative: we don't know what's inside
-      return Math.ceil(size / 300);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Markup & Code — human-readable, mostly text
-    // ─────────────────────────────────────────────────────────────────────
-    if (/\.(html?|xml|svg|yaml|yml|toml|ini|conf|cfg)$/i.test(name) ||
-        type === "application/xml" || type === "text/xml" || type === "image/svg+xml") {
-      // Treat as text-like (slightly less efficient than plain text due to overhead)
-      const text = await file.text().catch(() => "");
-      return Math.ceil(text.length / (CHARS_PT() * 1.2));
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // Fallback — conservative estimate
-    // ─────────────────────────────────────────────────────────────────────
-    return Math.ceil(size / 50);
-  }
-
+  // Per-file estimation is delegated to document-handler.js — the canonical
+  // copy of the text/binary heuristics (this module used to carry a
+  // near-identical fork, and the two drifted apart: different return shapes,
+  // different extension lists). Reading window.__ccbDocHandler at call time
+  // is load-order-safe even though ctx-meter.js loads first in the manifest:
+  // estimates only run from user file events, long after every content
+  // script is installed. (Same established cross-module pattern as
+  // document-handler calling window.__ccbCtxMeter.queueFilesForInjection.)
   async function estimateFileTokens(file) {
     if (!file) return null;
-    if (isLikelyTextFile(file)) {
-      const text = await file.text();
-      return {
-        name: file.name,
-        tokens: Math.ceil(text.length / CHARS_PT()),
-        size: file.size || 0,
-      };
-    }
-    return {
-      name: file.name,
-      tokens: await estimateBinaryTokens(file),
-      size: file.size || 0,
-    };
+    const docHandler = window.__ccbDocHandler;
+    const tokens = docHandler
+      ? await docHandler.estimateFileTokens(file)
+      : Math.ceil((file.size || 0) / 50); // last-resort if doc-handler is missing
+    return { name: file.name, tokens, size: file.size || 0 };
   }
 
   // ============================================================
@@ -207,7 +123,7 @@
         console.error("[ctx-meter] Failed to estimate file tokens", e);
         nextFiles.push({
           name: file.name,
-          tokens: await estimateBinaryTokens(file),
+          tokens: Math.ceil((file.size || 0) / 50), // crude size-based last resort
           size: file.size || 0,
         });
       }
