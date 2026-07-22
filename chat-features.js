@@ -188,8 +188,9 @@
     return f.everyPre + parts.join("\n\n") + f.everyPost;
   }
 
-  // True while OUR programmatic re-send click is in flight, so the capture
-  // listener lets it through instead of intercepting it again.
+  // True while one of OUR OWN programmatic send clicks (e.g. saveChat's
+  // summary-prompt send) is in flight, so the capture listener doesn't wrap
+  // it with per-message context.
   let _sendBypass = false;
 
   // The clickable send control: SEND_BUTTON_SELECTOR may match an inner icon
@@ -219,30 +220,25 @@
 
     const current = input.isContentEditable ? input.innerText || "" : input.value || "";
     if (!current.trim()) return; // nothing to send — let the site ignore it
-    // Already carries an injection (ours from this interception re-entering,
-    // or a manual "טען פרומפטים"/conversation load) — don't wrap twice.
+    // Already carries an injection (a manual "טען פרומפטים"/conversation load,
+    // or a previous prepend whose send didn't go through) — don't wrap twice.
     if (current.includes("[[CCB:CTX]]") || current.includes("[[CCB:INJECTED]]")) return;
 
     const prefix = buildPerMessagePrefix();
     if (!prefix) return;
 
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    e.stopPropagation();
+    // Prepend synchronously and let the ORIGINAL event proceed — the site's
+    // own handler then sends the combined text itself. Deliberately NOT
+    // block-and-replay (preventDefault + programmatic re-click): on Gemini
+    // the send listener is bound to the inner icon, not the wrapping
+    // <button>, so a synthetic click on the wrong element silently sent
+    // nothing (real bug, 2026-07-22 — Enter added the context but needed a
+    // second Enter to send; mouse clicks did nothing at all). The site's own
+    // handler demonstrably reads the mutated input fine: setInputValue
+    // dispatches its input events synchronously during the capture phase, so
+    // the page framework's model is up to date before the site's send handler
+    // (target/bubble phase) runs.
     _deps.inject.injectIntoInput(prefix, "prepend");
-
-    // Give the page's framework a tick to absorb the input event before
-    // re-sending; the bypass only spans our own synchronous click dispatch.
-    setTimeout(() => {
-      _sendBypass = true;
-      try {
-        const btn = _findSendButton();
-        if (btn) btn.click();
-        else console.error("[ccbChat] per-message inject: send button not found after prepend");
-      } finally {
-        _sendBypass = false;
-      }
-    }, 60);
   }
 
   let _sendHooksInstalled = false;
