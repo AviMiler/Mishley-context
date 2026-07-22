@@ -234,12 +234,14 @@
         e.key === "Enter" && !e.shiftKey && !e.isComposing &&
         (e.target === input || input.contains(e.target));
     } else {
-      // pointerover / pointerdown / mousedown / click — any pointer activity
-      // on the send control triggers the prepend. Hover (pointerover) is the
-      // earliest and the one that beats every possible send-trigger timing;
-      // the rest are fallbacks for keyboard-focus + programmatic paths where
-      // no hover ever happens. The [[CCB:CTX]] marker check above makes the
-      // series idempotent — only the first one actually prepends.
+      // pointerdown / mousedown / click on the send control. Prepending at
+      // pointerdown mirrors Enter's keydown timing: it fires before the
+      // click event that actually triggers the site's send, so the input is
+      // already mutated when the send handler reads it. (An earlier version
+      // also prepended on hover — pointerover — but that put the context in
+      // the input on every stray mouse pass, which the user rejected; hover
+      // was only ever needed while send DETECTION was broken, not timing.)
+      // The [[CCB:CTX]] marker check above makes the series idempotent.
       isSend = _isSendClick(e.target);
       // Temporary diagnostic (visible at default console level) for the
       // mouse-path detection failures — press/click only, hover is too noisy.
@@ -290,13 +292,15 @@
     // On WINDOW, capture phase — in the capture phase window listeners run
     // BEFORE document listeners, so even a site that delegates its send
     // handling at document-capture level (registered before this content
-    // script) can't read the input ahead of the prepend. And the whole
-    // ladder starts at pointerover (hover): the context enters the input
-    // before any press exists at all, so no send-trigger timing can beat it
-    // — mouse-click sends kept going out unprefixed with pointerdown alone
-    // (2026-07-22). pointerdown/mousedown/click cover non-hover paths, and
-    // the [[CCB:CTX]] marker check makes the series idempotent.
-    for (const type of ["pointerover", "pointerdown", "mousedown", "click"]) {
+    // script) can't read the input ahead of the prepend. The ladder starts
+    // at pointerdown — the press itself, mirroring Enter's keydown timing:
+    // it precedes the click that fires the site's send, so the input is
+    // mutated before the send handler reads it. (2026-07-22: a hover-based
+    // pointerover trigger was tried and reverted — it filled the input on
+    // every stray mouse pass; the misses that motivated it were detection
+    // bugs, not timing.) mousedown/click are same-gesture fallbacks, and the
+    // [[CCB:CTX]] marker check makes the series idempotent.
+    for (const type of ["pointerdown", "mousedown", "click"]) {
       window.addEventListener(type, _interceptSend, true);
     }
     window.addEventListener("keydown", _interceptSend, true);
