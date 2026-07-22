@@ -193,12 +193,24 @@
   // it with per-message context.
   let _sendBypass = false;
 
-  // The clickable send control: SEND_BUTTON_SELECTOR may match an inner icon
-  // (Gemini's mat-icon), so climb to the hosting <button> when there is one —
-  // a click on the button's padding must still count as a send.
-  function _findSendButton() {
-    const el = document.querySelector(_deps.config.SEND_BUTTON_SELECTOR);
-    return el ? (el.closest("button") || el) : null;
+  // Is this click target part of the send control? Resolved from the TARGET
+  // upward — never via document.querySelector — because the page may hold
+  // several elements matching SEND_BUTTON_SELECTOR (Gemini swaps mic/send
+  // icons and keeps stale copies), and querySelector's first match isn't
+  // necessarily the one that was clicked (real bug, 2026-07-22: mouse-click
+  // sends went out unprefixed because the comparison anchored on the wrong
+  // icon). Two cases: the click landed on/inside the icon itself, or on the
+  // hosting <button>'s padding around it.
+  function _isSendClick(target) {
+    if (!target || typeof target.closest !== "function") return false;
+    const sel = _deps.config.SEND_BUTTON_SELECTOR;
+    try {
+      if (target.closest(sel)) return true;
+      const btn = target.closest("button");
+      return !!(btn && btn.querySelector(sel));
+    } catch {
+      return false;
+    }
   }
 
   function _interceptSend(e) {
@@ -208,9 +220,8 @@
     if (!input) return;
 
     let isSend = false;
-    if (e.type === "click") {
-      const btn = _findSendButton();
-      isSend = !!(btn && (btn === e.target || btn.contains(e.target)));
+    if (e.type === "click" || e.type === "pointerdown") {
+      isSend = _isSendClick(e.target);
     } else if (e.type === "keydown") {
       isSend =
         e.key === "Enter" && !e.shiftKey && !e.isComposing &&
@@ -248,6 +259,12 @@
   function installSendInterceptor() {
     if (_sendHooksInstalled) return;
     _sendHooksInstalled = true;
+    // pointerdown as well as click: if the site triggers its send on
+    // pointer/mouse-down, a click-phase prepend arrives after the send
+    // already read the input. Prepending at pointerdown is harmless when the
+    // send is click-based — it just lands a moment earlier, and the
+    // [[CCB:CTX]] marker check keeps the later click from wrapping twice.
+    document.addEventListener("pointerdown", _interceptSend, true);
     document.addEventListener("click", _interceptSend, true);
     document.addEventListener("keydown", _interceptSend, true);
   }
