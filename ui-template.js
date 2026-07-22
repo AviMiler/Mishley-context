@@ -323,10 +323,20 @@ window.__ccbTpl = (() => {
           </div>
           <div class="setting-row">
             <div class="setting-row-label">
-              <span class="setting-row-title">מתי לטעון אוטומטית</span>
-              <span class="setting-row-sub">זיכרון כללי + הנחיות הפרויקט הפעיל</span>
+              <span class="setting-row-title">מתי לטעון זיכרון כללי</span>
+              <span class="setting-row-sub">אוטומטית</span>
             </div>
-            <select id="ccb-auto-inject-mode">
+            <select id="ccb-auto-inject-mode-gm">
+              <option value="start">בתחילת שיחה</option>
+              <option value="every">בכל הודעה</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <div class="setting-row-label">
+              <span class="setting-row-title">מתי לטעון הנחיות פרויקט</span>
+              <span class="setting-row-sub">אוטומטית, לפרויקט הפעיל</span>
+            </div>
+            <select id="ccb-auto-inject-mode-project">
               <option value="start">בתחילת שיחה</option>
               <option value="every">בכל הודעה</option>
             </select>

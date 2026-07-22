@@ -95,17 +95,18 @@
     title.className = "gm-title";
     title.textContent = "זיכרון כללי";
 
-    // Live mode badge: reflects WHEN auto-load happens (conversation start vs
-    // every message) and clicking it flips the global mode — same behavior on
-    // the project-instructions card (history-view.js#renderProjectInstructionsCard).
+    // Live mode badge: reflects WHEN GM auto-loads (conversation start vs
+    // every message) and clicking it flips GM's OWN mode — independent of the
+    // project-instructions card's mode (history-view.js#renderProjectInstructionsCard),
+    // split into separate settings 2026-07-22.
     const badge = document.createElement("span");
     badge.className = "auto-badge auto-badge-live";
-    const everyMode = _deps.getAutoInjectMode?.() === "every";
+    const everyMode = _deps.getAutoInjectMode?.("gm") === "every";
     badge.textContent = everyMode ? "נטען בכל הודעה" : "נטען בתחילת שיחה";
     badge.title = "לחץ למעבר בין טעינה בתחילת שיחה לטעינה בכל הודעה";
     badge.addEventListener("click", async (e) => {
       e.stopPropagation();
-      await _deps.setAutoInjectMode?.(everyMode ? "start" : "every");
+      await _deps.setAutoInjectMode?.("gm", everyMode ? "start" : "every");
       _deps.render();
     });
     if (!on) badge.style.display = "none";
@@ -144,10 +145,22 @@
   // tryAutoInject time — the MutationObserver below has no timeout, so the
   // user can switch project or edit GM between the call and the actual
   // injection. Reading late keeps us honest about the current selection.
+  //
+  // Each source is ALSO gated on its own mode being "start" (the default) —
+  // a source whose mode is "every" rides on per-message sends instead
+  // (buildPerMessagePrefix below) and must NOT also fire here, or it would
+  // both duplicate and waste a "Context loaded." exchange. The two sources
+  // are independent (2026-07-22 split): GM can be "every" while project
+  // instructions stay "start", or vice versa.
   function _autoInjectPayload() {
     const gm = getGM();
-    const hasGm = !!(gm.autoLoad && (gm.content || "").trim());
-    const projectInstructions = _getActiveProjectInstructions();
+    const hasGm =
+      _deps.getAutoInjectMode?.("gm") !== "every" &&
+      !!(gm.autoLoad && (gm.content || "").trim());
+    const projectInstructions =
+      _deps.getAutoInjectMode?.("project") !== "every"
+        ? _getActiveProjectInstructions()
+        : null;
     const f = _deps.framing;
     const parts = [];
     if (hasGm) parts.push(f.gmPre + gm.content + f.gmPost);
@@ -158,28 +171,41 @@
   // ============================================================
   // Per-message auto-inject ("בכל הודעה" mode)
   //
-  // When ccb_autoInjectMode === "every", the GM + active-project instructions
-  // are PREPENDED to the user's own message at send time instead of being
-  // injected once at conversation start. Send is intercepted in the CAPTURE
-  // phase (send-button click / Enter in the chat input), blocked, the input is
-  // rewritten with the framed context in front, and then re-sent
-  // programmatically — so the user never sees the context while typing.
+  // GM and the active project's instructions each have their OWN mode
+  // (2026-07-22 split — previously one shared setting for both). Whichever
+  // source(s) are set to "every" get PREPENDED to the user's own message at
+  // send time instead of being injected once at conversation start. Send is
+  // intercepted in the CAPTURE phase (send-button click / Enter in the chat
+  // input) and the input is rewritten with the framed context in front,
+  // letting the site's own handler send the combined text — see
+  // _interceptSend below for why this is mutate-and-let-through, not
+  // block-and-replay.
   // ============================================================
   const CTX_END_MARKER = "[[CCB:CTX-END]]";
 
-  function _isEveryMode() {
-    return _deps.getAutoInjectMode?.() === "every";
+  function _isGmEveryMode() {
+    return _deps.getAutoInjectMode?.("gm") === "every";
+  }
+  function _isProjectEveryMode() {
+    return _deps.getAutoInjectMode?.("project") === "every";
+  }
+  // Cheap gate for the interceptor: is there ANY source that needs
+  // per-message handling right now? Checked first, before the more expensive
+  // send-target detection, since this runs on every click/keydown page-wide.
+  function _hasEveryModeSource() {
+    return _isGmEveryMode() || _isProjectEveryMode();
   }
 
   // The framed context prefix for one outgoing message, or "" when there is
-  // nothing to attach. Same WHAT-selection as _autoInjectPayload (GM gated by
-  // its autoLoad toggle, project instructions by the project's), but wrapped
-  // in the per-message FRAMING_EVERY pair — no canned "Reply only with X"
-  // auto-response, since the user's real request follows in the same message.
+  // nothing to attach. Each source is included only when ITS OWN mode is
+  // "every" (a "start"-mode source is handled once at conversation start by
+  // _autoInjectPayload instead), wrapped in the per-message FRAMING_EVERY
+  // pair — no canned "Reply only with X" auto-response, since the user's
+  // real request follows in the same message.
   function buildPerMessagePrefix() {
     const gm = getGM();
-    const hasGm = !!(gm.autoLoad && (gm.content || "").trim());
-    const projectInstructions = _getActiveProjectInstructions();
+    const hasGm = _isGmEveryMode() && !!(gm.autoLoad && (gm.content || "").trim());
+    const projectInstructions = _isProjectEveryMode() ? _getActiveProjectInstructions() : null;
     if (!hasGm && !projectInstructions) return "";
     const parts = [];
     if (hasGm) parts.push("<memory>\n" + gm.content + "\n</memory>");
@@ -223,7 +249,7 @@
   }
 
   function _interceptSend(e) {
-    if (_sendBypass || !_isEveryMode()) return;
+    if (_sendBypass || !_hasEveryModeSource()) return;
 
     const input = _deps.inject.findInput();
     if (!input) return;
@@ -284,8 +310,9 @@
 
   let _sendHooksInstalled = false;
 
-  // Installed once per page load; inert unless mode === "every" (checked live
-  // on every event, so flipping the mode needs no listener churn).
+  // Installed once per page load; inert unless at least one source's mode is
+  // "every" (checked live on every event via _hasEveryModeSource, so flipping
+  // either source's mode needs no listener churn).
   function installSendInterceptor() {
     if (_sendHooksInstalled) return;
     _sendHooksInstalled = true;
@@ -404,11 +431,13 @@
   }
 
   async function tryAutoInject() {
-    // "בכל הודעה" mode: the context rides on every outgoing message instead —
-    // a conversation-start injection would both duplicate it and waste a
-    // "Context loaded." exchange.
-    if (_isEveryMode()) return;
     if (_deps.state.gmAutoInjected) return;
+    // No blanket "every mode" bail here — GM and project instructions each
+    // have their own mode now, so one source can be "every" (handled by
+    // buildPerMessagePrefix on send) while the other is "start" (handled
+    // here). _autoInjectPayload() already excludes any "every"-mode source,
+    // so this naturally no-ops once every remaining source is either absent
+    // or itself in "every" mode.
     if (!_autoInjectPayload().text) return;
 
     // Re-entrancy: our own programmatic new-chat click calls this again. That
@@ -794,8 +823,8 @@
      *   historyView: object,
      *   loadBlocks, saveBlocks, setStatus, render, updateInjectBtn,
      *   openEdit,
-     *   getAutoInjectMode: () => "start" | "every",
-     *   setAutoInjectMode: (mode) => Promise<string>,
+     *   getAutoInjectMode: (source: "gm" | "project") => "start" | "every",
+     *   setAutoInjectMode: (source: "gm" | "project", mode) => Promise<string>,
      * }} deps
      */
     init(deps) {

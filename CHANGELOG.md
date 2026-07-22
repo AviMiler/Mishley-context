@@ -2,6 +2,19 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-22 — Split per-message auto-inject mode into independent GM/project settings
+
+Follow-up to the per-message auto-inject feature below: the user asked for project instructions to have their own separate "when to auto-inject" setting, decoupled from General Memory's.
+
+- Changed: `chrome.storage.local["ccb_autoInjectMode"]` (one shared key) → two independent keys, `["ccb_autoInjectModeGm"]` and `["ccb_autoInjectModeProject"]`, each `"start"`/`"every"`. `content.js#getAutoInjectMode`/`setAutoInjectMode` now take a `source: "gm" | "project"` first argument. `loadAutoInjectMode()` loads both keys in a single `chrome.storage.local.get` call and, if neither new key is set yet, seeds both from the old shared key as a one-time migration — a user who'd already chosen "every" doesn't silently revert to "start" post-split.
+- Added: a second Advanced Options select, `#ccb-auto-inject-mode-project` (alongside the renamed `#ccb-auto-inject-mode-gm`), each with its own row/label ("מתי לטעון זיכרון כללי" / "מתי לטעון הנחיות פרויקט").
+- Changed: each card's live auto-badge now reads/flips only its OWN source's mode — the GM card's badge (`chat-features.js#renderGeneralMemory`) no longer affects the project-instructions card's mode (`history-view.js#renderProjectInstructionsCard`) and vice versa.
+- Changed (core logic, `chat-features.js`): `_autoInjectPayload()` (the conversation-start path) now excludes GM if `getAutoInjectMode("gm") === "every"`, and excludes the project's instructions if `getAutoInjectMode("project") === "every"` — independently, not as one combined check. `buildPerMessagePrefix()` (the per-message path) is the mirror image: includes GM only if its mode IS `"every"`, includes the project's instructions only if ITS mode IS `"every"`. Together, each source is handled by exactly one of the two paths, matching its own setting, regardless of what the other source is doing.
+- Removed: `tryAutoInject()`'s blanket `if (_isEveryMode()) return` early exit. It was correct only when one shared mode existed; with independent modes, a mixed combination (e.g. GM `"every"` + project `"start"`) needs the start-of-conversation poll to still run and inject the project's instructions alone. The check is no longer needed anyway — `_autoInjectPayload().text` is already empty whenever every remaining source is either absent or itself `"every"`.
+- Changed: the send interceptor's gate became `_hasEveryModeSource()` (true if GM OR project mode is `"every"`) in place of the old single `_isEveryMode()` boolean — still a cheap early-out before any DOM work, checked live per event.
+- Verified: `node --check` on all touched files (`content.js`, `chat-features.js`, `history-view.js`, `ui-modals.js`, `ui-template.js`). Manual browser verification of the new mixed-mode combinations is pending — see AGENT_CONTEXT.md's Next Steps.
+- See [ARCHITECTURE.md](ARCHITECTURE.md)'s updated "Per-message auto-inject" section, [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md).
+
 ### 2026-07-22 — Auto-inject mode: "בכל הודעה" (context prepended to every user message)
 
 User request: General Memory + the active project's instructions should load at the start of **every** user request, not just once at conversation start.

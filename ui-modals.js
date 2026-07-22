@@ -231,8 +231,10 @@
     const docInput = $el("ccb-doc-max-chars");
     if (docInput) docInput.value = String(Math.round((_deps.getDocMaxChars?.() || 50000) / 1000));
     await _deps.loadAutoInjectMode?.();
-    const modeSelect = $el("ccb-auto-inject-mode");
-    if (modeSelect) modeSelect.value = _deps.getAutoInjectMode?.() || "start";
+    const gmModeSelect = $el("ccb-auto-inject-mode-gm");
+    if (gmModeSelect) gmModeSelect.value = _deps.getAutoInjectMode?.("gm") || "start";
+    const projectModeSelect = $el("ccb-auto-inject-mode-project");
+    if (projectModeSelect) projectModeSelect.value = _deps.getAutoInjectMode?.("project") || "start";
     overlay.classList.add("show");
   }
 
@@ -578,7 +580,7 @@
      *   loadCtxWindow: () => Promise<void>,
      *   getCtxWindow: () => number,
      *   loadAutoInjectMode: () => Promise<void>,
-     *   getAutoInjectMode: () => "start" | "every",
+     *   getAutoInjectMode: (source: "gm" | "project") => "start" | "every",
      *   getProjects: () => Array, // ALL projects (regular + code) — showProjectPicker lists both
      *   loadScanSettings: () => Promise<void>,
      *   getScanSettings: () => object,        // live global code-project scan rules

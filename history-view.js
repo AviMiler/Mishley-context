@@ -263,17 +263,18 @@
     title.className = "gm-title";
     title.textContent = "הנחיות הפרויקט";
 
-    // Live mode badge — identical to the GM card's (chat-features.js
-    // #renderGeneralMemory): shows WHEN auto-load fires and clicking it flips
-    // the global ccb_autoInjectMode.
+    // Live mode badge — same pattern as the GM card's (chat-features.js
+    // #renderGeneralMemory), but reads/flips the PROJECT's own mode
+    // (ccb_autoInjectModeProject) — independent of GM's since the 2026-07-22
+    // split, so e.g. GM can ride every message while this stays start-only.
     const badge = document.createElement("span");
     badge.className = "auto-badge auto-badge-live";
-    const everyMode = _deps.getAutoInjectMode?.() === "every";
+    const everyMode = _deps.getAutoInjectMode?.("project") === "every";
     badge.textContent = everyMode ? "נטען בכל הודעה" : "נטען בתחילת שיחה";
     badge.title = "לחץ למעבר בין טעינה בתחילת שיחה לטעינה בכל הודעה";
     badge.addEventListener("click", async (e) => {
       e.stopPropagation();
-      await _deps.setAutoInjectMode?.(everyMode ? "start" : "every");
+      await _deps.setAutoInjectMode?.("project", everyMode ? "start" : "every");
       _deps.render();
     });
     if (!on) badge.style.display = "none";
@@ -1902,6 +1903,8 @@
      *   render: () => void,
      *   setStatus: (msg, isError?) => void,
      *   openEdit: (id, prefill?) => void, // shared block-edit form — used by the instructions card's whole-card click
+     *   getAutoInjectMode: (source: "gm" | "project") => "start" | "every",
+     *   setAutoInjectMode: (source: "gm" | "project", mode) => Promise<string>,
      * }} deps
      */
     init(deps) { _deps = deps; },

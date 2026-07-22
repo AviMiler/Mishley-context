@@ -76,8 +76,12 @@
     // WHEN auto-inject fires: "start" (once, at conversation start — the
     // long-standing behavior) or "every" (prepended to every outgoing user
     // message at send time, see chat-features.js#installSendInterceptor).
-    // WHAT gets loaded stays controlled by the GM/project autoLoad toggles.
-    autoInjectMode: "start",
+    // Independent per source (2026-07-22) — GM and the active project's
+    // instructions each have their own mode, so e.g. GM can ride every
+    // message while project instructions only load once. WHAT gets loaded
+    // stays controlled by the GM/project autoLoad toggles.
+    autoInjectModeGm: "start",
+    autoInjectModeProject: "start",
     autoInjectModeLoaded: false,
     // Global code-project scan rules (which folders/files/extensions get
     // scanned, and the per-file size cap). Seeded from document-handler.js's
@@ -193,31 +197,56 @@
     return val;
   }
 
-  // WHEN auto-inject fires — "start" | "every". Same load/set pattern as
-  // ctxWindow/docMaxChars. Must be loaded before the first tryAutoInject()
-  // call, since "every" mode suppresses the conversation-start injection.
+  // WHEN auto-inject fires — "start" | "every", tracked separately per source
+  // ("gm" | "project"). Same load/set pattern as ctxWindow/docMaxChars. Must
+  // be loaded before the first tryAutoInject() call, since a source in
+  // "every" mode is excluded from the conversation-start injection.
   async function loadAutoInjectMode() {
     if (state.autoInjectModeLoaded) return;
     const data = await new Promise((r) =>
-      chrome.storage.local.get("ccb_autoInjectMode", r),
+      chrome.storage.local.get(
+        ["ccb_autoInjectModeGm", "ccb_autoInjectModeProject", "ccb_autoInjectMode"],
+        r,
+      ),
     );
-    state.autoInjectMode = data.ccb_autoInjectMode === "every" ? "every" : "start";
+    // Migration: before 2026-07-22 there was one shared mode for both
+    // sources under "ccb_autoInjectMode". Seed both new keys from it when
+    // neither has been set yet, so a user who already chose "every" doesn't
+    // silently revert to "start" the first time this loads post-split.
+    const legacy = data.ccb_autoInjectMode === "every" ? "every" : "start";
+    const normalize = (v, fallback) => (v === "every" || v === "start" ? v : fallback);
+    state.autoInjectModeGm = normalize(data.ccb_autoInjectModeGm, legacy);
+    state.autoInjectModeProject = normalize(data.ccb_autoInjectModeProject, legacy);
     state.autoInjectModeLoaded = true;
   }
 
-  async function setAutoInjectMode(mode) {
+  const AUTO_INJECT_MODE_KEYS = {
+    gm: "ccb_autoInjectModeGm",
+    project: "ccb_autoInjectModeProject",
+  };
+  const AUTO_INJECT_MODE_LABELS = {
+    gm: "הזיכרון הכללי",
+    project: "הנחיות הפרויקט",
+  };
+
+  async function setAutoInjectMode(source, mode) {
     const val = mode === "every" ? "every" : "start";
-    state.autoInjectMode = val;
+    const key = AUTO_INJECT_MODE_KEYS[source] || AUTO_INJECT_MODE_KEYS.gm;
+    if (source === "project") state.autoInjectModeProject = val;
+    else state.autoInjectModeGm = val;
     state.autoInjectModeLoaded = true;
-    await new Promise((r) =>
-      chrome.storage.local.set({ ccb_autoInjectMode: val }, r),
-    );
+    await new Promise((r) => chrome.storage.local.set({ [key]: val }, r));
+    const label = AUTO_INJECT_MODE_LABELS[source] || AUTO_INJECT_MODE_LABELS.gm;
     setStatus(
       val === "every"
-        ? "הקונטקסט ייטען בתחילת כל הודעה ✓"
-        : "הקונטקסט ייטען פעם אחת בתחילת שיחה ✓",
+        ? label + " ייטען בתחילת כל הודעה ✓"
+        : label + " ייטען פעם אחת בתחילת שיחה ✓",
     );
     return val;
+  }
+
+  function getAutoInjectMode(source) {
+    return source === "project" ? state.autoInjectModeProject : state.autoInjectModeGm;
   }
 
   // Global code-project scan rules. On first ever load there's no stored
@@ -330,7 +359,7 @@
       loadDocMaxChars,
       getDocMaxChars: () => state.docMaxChars,
       loadAutoInjectMode,
-      getAutoInjectMode: () => state.autoInjectMode,
+      getAutoInjectMode,
       getProjects: () => historyView.getAllProjects(),
       loadScanSettings,
       // Never null: falls back to the built-in defaults if a scan somehow
@@ -371,7 +400,7 @@
       openEdit,
       updateInjectBtn,
       getDocMaxChars: () => state.docMaxChars,
-      getAutoInjectMode: () => state.autoInjectMode,
+      getAutoInjectMode,
       setAutoInjectMode,
       // Never null: falls back to the built-in defaults if a scan somehow
       // fires before loadScanSettings() resolved, so a scan can't run with
@@ -394,7 +423,7 @@
       render,
       updateInjectBtn,
       openEdit,
-      getAutoInjectMode: () => state.autoInjectMode,
+      getAutoInjectMode,
       setAutoInjectMode,
     });
   }
@@ -555,14 +584,25 @@
         setStatus("לא ניתן לשמור את מגבלת התווים", true);
       }
     });
-    $el("ccb-auto-inject-mode")?.addEventListener("change", async (e) => {
+    // Separate selects for GM and project-instructions auto-inject mode
+    // (2026-07-22 split — previously one shared select/setting for both).
+    $el("ccb-auto-inject-mode-gm")?.addEventListener("change", async (e) => {
       try {
-        await setAutoInjectMode(e.target.value);
-        // Refresh the GM/instructions cards so their live badge reflects it.
-        render();
+        await setAutoInjectMode("gm", e.target.value);
+        render(); // refresh the GM card's live badge
       } catch (err) {
-        console.error("Failed to save autoInjectMode", err);
-        e.target.value = state.autoInjectMode;
+        console.error("Failed to save autoInjectModeGm", err);
+        e.target.value = state.autoInjectModeGm;
+        setStatus("לא ניתן לשמור את מצב הטעינה", true);
+      }
+    });
+    $el("ccb-auto-inject-mode-project")?.addEventListener("change", async (e) => {
+      try {
+        await setAutoInjectMode("project", e.target.value);
+        render(); // refresh the project-instructions card's live badge
+      } catch (err) {
+        console.error("Failed to save autoInjectModeProject", err);
+        e.target.value = state.autoInjectModeProject;
         setStatus("לא ניתן לשמור את מצב הטעינה", true);
       }
     });
