@@ -242,7 +242,7 @@
 
     const toggleLabel = document.createElement("label");
     toggleLabel.className = "toggle";
-    toggleLabel.title = "טעינה אוטומטית של הנחיות הפרויקט בתחילת שיחה";
+    toggleLabel.title = "טעינה אוטומטית של הנחיות הפרויקט";
     toggleLabel.addEventListener("click", (e) => e.stopPropagation());
     const toggleInput = document.createElement("input");
     toggleInput.type = "checkbox";
@@ -263,9 +263,19 @@
     title.className = "gm-title";
     title.textContent = "הנחיות הפרויקט";
 
+    // Live mode badge — identical to the GM card's (chat-features.js
+    // #renderGeneralMemory): shows WHEN auto-load fires and clicking it flips
+    // the global ccb_autoInjectMode.
     const badge = document.createElement("span");
-    badge.className = "auto-badge";
-    badge.textContent = "נטען אוטומטית";
+    badge.className = "auto-badge auto-badge-live";
+    const everyMode = _deps.getAutoInjectMode?.() === "every";
+    badge.textContent = everyMode ? "נטען בכל הודעה" : "נטען בתחילת שיחה";
+    badge.title = "לחץ למעבר בין טעינה בתחילת שיחה לטעינה בכל הודעה";
+    badge.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await _deps.setAutoInjectMode?.(everyMode ? "start" : "every");
+      _deps.render();
+    });
     if (!on) badge.style.display = "none";
 
     header.appendChild(selectLabel);

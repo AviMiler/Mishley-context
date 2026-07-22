@@ -73,6 +73,12 @@
     ctxWindowLoaded: false,
     docMaxChars: DOC_MAX_CHARS_DEFAULT,
     docMaxCharsLoaded: false,
+    // WHEN auto-inject fires: "start" (once, at conversation start — the
+    // long-standing behavior) or "every" (prepended to every outgoing user
+    // message at send time, see chat-features.js#installSendInterceptor).
+    // WHAT gets loaded stays controlled by the GM/project autoLoad toggles.
+    autoInjectMode: "start",
+    autoInjectModeLoaded: false,
     // Global code-project scan rules (which folders/files/extensions get
     // scanned, and the per-file size cap). Seeded from document-handler.js's
     // defaults on first load, then user-editable from Advanced Options.
@@ -103,6 +109,8 @@
     get projPost()     { return window.__ccbRawConfig.FRAMING_PROJ_POST || ""; },
     get docsPre()      { return window.__ccbRawConfig.FRAMING_DOCS_PRE || ""; },
     get docsPost()     { return window.__ccbRawConfig.FRAMING_DOCS_POST || ""; },
+    get everyPre()     { return window.__ccbRawConfig.FRAMING_EVERY_PRE || ""; },
+    get everyPost()    { return window.__ccbRawConfig.FRAMING_EVERY_POST || ""; },
     get summaryPrompt() { return window.__ccbRawConfig.SUMMARY_PROMPT || ""; },
   };
 
@@ -182,6 +190,33 @@
     state.docMaxChars = val;
     state.docMaxCharsLoaded = true;
     await new Promise((r) => chrome.storage.local.set({ docMaxChars: val }, r));
+    return val;
+  }
+
+  // WHEN auto-inject fires — "start" | "every". Same load/set pattern as
+  // ctxWindow/docMaxChars. Must be loaded before the first tryAutoInject()
+  // call, since "every" mode suppresses the conversation-start injection.
+  async function loadAutoInjectMode() {
+    if (state.autoInjectModeLoaded) return;
+    const data = await new Promise((r) =>
+      chrome.storage.local.get("ccb_autoInjectMode", r),
+    );
+    state.autoInjectMode = data.ccb_autoInjectMode === "every" ? "every" : "start";
+    state.autoInjectModeLoaded = true;
+  }
+
+  async function setAutoInjectMode(mode) {
+    const val = mode === "every" ? "every" : "start";
+    state.autoInjectMode = val;
+    state.autoInjectModeLoaded = true;
+    await new Promise((r) =>
+      chrome.storage.local.set({ ccb_autoInjectMode: val }, r),
+    );
+    setStatus(
+      val === "every"
+        ? "הקונטקסט ייטען בתחילת כל הודעה ✓"
+        : "הקונטקסט ייטען פעם אחת בתחילת שיחה ✓",
+    );
     return val;
   }
 
@@ -294,6 +329,8 @@
       getCtxWindow: () => state.ctxWindow,
       loadDocMaxChars,
       getDocMaxChars: () => state.docMaxChars,
+      loadAutoInjectMode,
+      getAutoInjectMode: () => state.autoInjectMode,
       getProjects: () => historyView.getAllProjects(),
       loadScanSettings,
       // Never null: falls back to the built-in defaults if a scan somehow
@@ -334,6 +371,8 @@
       openEdit,
       updateInjectBtn,
       getDocMaxChars: () => state.docMaxChars,
+      getAutoInjectMode: () => state.autoInjectMode,
+      setAutoInjectMode,
       // Never null: falls back to the built-in defaults if a scan somehow
       // fires before loadScanSettings() resolved, so a scan can't run with
       // every filter silently disabled.
@@ -355,6 +394,8 @@
       render,
       updateInjectBtn,
       openEdit,
+      getAutoInjectMode: () => state.autoInjectMode,
+      setAutoInjectMode,
     });
   }
 
@@ -468,6 +509,10 @@
       "click",
       () => void modals.resetPromptsEditor("framingDocs"),
     );
+    $el("resetFramingEveryBtn")?.addEventListener(
+      "click",
+      () => void modals.resetPromptsEditor("framingEvery"),
+    );
     $el("ccb-files-row").addEventListener("click", (e) => {
       e.stopPropagation();
       window.__ccbCtxMeter.openFilesDropdown($el("ccb-files-row"));
@@ -508,6 +553,17 @@
         console.error("Failed to save docMaxChars", e);
         revert();
         setStatus("לא ניתן לשמור את מגבלת התווים", true);
+      }
+    });
+    $el("ccb-auto-inject-mode")?.addEventListener("change", async (e) => {
+      try {
+        await setAutoInjectMode(e.target.value);
+        // Refresh the GM/instructions cards so their live badge reflects it.
+        render();
+      } catch (err) {
+        console.error("Failed to save autoInjectMode", err);
+        e.target.value = state.autoInjectMode;
+        setStatus("לא ניתן לשמור את מצב הטעינה", true);
       }
     });
     $el("closeBtn").addEventListener("click", async () => {
@@ -1323,6 +1379,10 @@
     window.__ccbCtxMeter.watchFileInputs();
     window.__ccbCtxMeter.watchConversation();
     await loadBlocks();
+    // Must resolve before the first tryAutoInject — "every" mode suppresses
+    // the conversation-start injection, and an unloaded mode would default to
+    // "start" for that first call.
+    await loadAutoInjectMode();
     installUrlChangeWatcher();
     installNewChatBtnWatcher();
     window.__ccbChat.tryAutoInject();

@@ -151,7 +151,7 @@ The manual save button still exists in the History tab; it scrolls the chat to t
 framing: {
   manualPre, manualPost, gmPre, gmPost,
   convPre, convPost, projPre, projPost,
-  docsPre, docsPost,
+  docsPre, docsPost, everyPre, everyPost,
   summaryPrompt,
 }
 ```
@@ -161,23 +161,24 @@ framing: {
 Keeps technical markers locked:
 
 - INJECTED marker (locked prefix): `[[CCB:INJECTED]]\n`
+- Per-message markers (locked): `[[CCB:CTX]]\n` prefix and `\n[[CCB:CTX-END]]\n\n` **suffix** — unlike every other pair, the every-message pair's end marker closes the POST (the user's own message follows it in the same chat message), so its extraction/apply logic is suffix-based, and the pair is stored **trimmed** with structural newlines re-added on apply
 - Opening/closing tags (locked): `<context>…</context>`, `<memory>…</memory>`, `<transcript>…</transcript>`, `<project>…</project>`, `<documents>…</documents>`
 - SUMMARY_PROMPT trailing template (locked last 2 lines): the `[[CCB:TITLE:...]]` / `[[CCB:SAVE]]` lines
 
 Editable state shape (`__ccbPromptsAPI.getEditable()`):
 ```
-{ manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro, docsIntro, docsOutro, summaryBody }
+{ manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro, docsIntro, docsOutro, everyIntro, everyOutro, summaryBody }
 ```
 
 Storage key: `chrome.storage.local["ccb_prompts"]`.
 Backward-compat: old `framingBodies.{manual,gm}` and old `framingBody` are read on startup.
 
 `reset(key)` accepts:
-- `"framingAll"` — resets all 5 framing pairs (manual/gm/conv/proj/docs)
-- `"framingManual"`, `"framingGm"`, `"framingConv"`, `"framingProj"`, `"framingDocs"` — one section
+- `"framingAll"` — resets all 6 framing pairs (manual/gm/conv/proj/docs/every)
+- `"framingManual"`, `"framingGm"`, `"framingConv"`, `"framingProj"`, `"framingDocs"`, `"framingEvery"` — one section
 - `"summary"` — summary body only
 
-Note: the prompts editor UI exposes the 5 FRAMING sections only; SUMMARY_PROMPT editing is intentionally hidden for now.
+Note: the prompts editor UI exposes the 6 FRAMING sections only; SUMMARY_PROMPT editing is intentionally hidden for now.
 
 ## Runtime config keys patched by prompts.js
 
@@ -193,6 +194,8 @@ Note: the prompts editor UI exposes the 5 FRAMING sections only; SUMMARY_PROMPT 
 | `FRAMING_PROJ_POST`    | Closes project: `</project>` + outro                                 |
 | `FRAMING_DOCS_PRE`     | Opens file injection: `[[CCB:INJECTED]]` + intro + `<documents>`     |
 | `FRAMING_DOCS_POST`    | Closes file injection: `</documents>` + outro                        |
+| `FRAMING_EVERY_PRE`    | Opens the per-message context prefix: `[[CCB:CTX]]` + intro (the `<memory>`/`<project>` body is built by `chat-features.js#buildPerMessagePrefix`, not by this pair) |
+| `FRAMING_EVERY_POST`   | Closes it: outro + `[[CCB:CTX-END]]` — the user's own message follows in the same chat message |
 
 (Legacy flat keys `FRAMING`, `FRAMING_MANUAL`, `FRAMING_GM` are also patched for backward compatibility but no code reads them directly anymore — the `framing` getters in `content.js` fall back to these only if PRE is undefined.)
 
@@ -237,6 +240,7 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | `chrome.storage.local.ctxWindow`   | content.js     | `number` (tokens, used by the meter)                   |
 | `chrome.storage.local.docMaxChars` | content.js     | `number` (chars) — per-document truncation cap for the "טען קבצים" injection. Loaded by `loadDocMaxChars()`, written by `setDocMaxChars(k)` (k in thousands, clamped 1–1000). Read at inject time via the `getDocMaxChars` dep in `history-view.js` |
 | `chrome.storage.local.ccb_scanSettings` | content.js | `{ denyDirs, denyFilenames, codeExtensions, maxFileSizeKb }` — the GLOBAL code-project scan rules (see below) |
+| `chrome.storage.local.ccb_autoInjectMode` | content.js | `"start"` \| `"every"` — WHEN auto-inject fires (conversation start vs prepended to every outgoing message). Loaded by `loadAutoInjectMode()` **before the first `tryAutoInject()`**, written by `setAutoInjectMode(mode)`. See "Per-message auto-inject" in the chat-features section |
 
 ## content.js — function index
 
@@ -502,7 +506,7 @@ A single file's own checkbox calls `_deps.render()` (fixed 2026-07-19 — it use
 | ----------------------- | ------------------------------------------------------------------------------------------ |
 | `getGM()`               | Returns the GM block from `state.blocks` (with `title: "זיכרון כללי"` default)            |
 | `renderGeneralMemory()` | Renders the GM card in the context tab (select-for-inject checkbox + autoLoad toggle). No edit button — the whole card's `click` opens `openEdit(GM_ID, ...)`; the checkbox/toggle `stopPropagation()` so using them doesn't also open the form |
-| `tryAutoInject()`       | Starts/resumes the poll for a chat that is both mounted **and empty**, then injects GM **and the active project's instructions** at *conversation start only*, clicks send. Re-entrant: its own programmatic new-chat click calls it again, which resumes the in-flight attempt instead of restarting its clock |
+| `tryAutoInject()`       | Starts/resumes the poll for a chat that is both mounted **and empty**, then injects GM **and the active project's instructions** at *conversation start only*, clicks send. Re-entrant: its own programmatic new-chat click calls it again, which resumes the in-flight attempt instead of restarting its clock. **No-op when `ccb_autoInjectMode === "every"`** — see "Per-message auto-inject" below |
 | `autoInjectTick()`      | One poll step (150ms cadence). Phase 1 waits untimed for `inject.findInput()`; phase 2 waits for `getMsgCount() === 0`, with a 2.5s settle window and a 10s cap — see the transition-timing note below |
 | `_getActiveProjectInstructions()` | `## title\ncontent` for the active project (`state.currentProjectId`), or `null`. **Instructions only**, never the project's enabled documents (tens of thousands of tokens for a code project) — those stay behind the explicit footer `#injectDocsBtn` |
 | `_autoInjectPayload()`  | Builds `{ text, hasGm, hasProject }` — GM block (if `autoLoad` + content) and/or the project-instructions block, wrapped in `FRAMING_GM_*` / `FRAMING_PROJ_*`, joined into ONE injection |
@@ -532,6 +536,23 @@ The fix replaces that one-shot read with `autoInjectTick()`, a 150ms poll govern
 `_autoInjectClickedNewChat` ensures the new-chat button is clicked at most once per attempt, and `tryAutoInject()` treats a call arriving while a poll is already in flight as *resuming* that attempt (keeping `_autoInjectReadyAt` and the clicked flag) rather than starting a fresh one — together these are what make the re-entrancy terminate. Pending-timer guards compare against `null`, not truthiness, since a timer id of `0` is falsy.
 
 Both blocks are prefixed with `[[CCB:INJECTED]]` via their FRAMING, so `captureConversation` filters them out of saved conversations, and the AI's canned replies (`"Context loaded."`, `"Project guidelines loaded."`) are already in `INJECTION_AUTORESPONSES`.
+
+### Per-message auto-inject ("בכל הודעה" mode, 2026-07-22)
+
+A global setting, `chrome.storage.local["ccb_autoInjectMode"]` (`"start"` default / `"every"`), decides **WHEN** auto-inject fires. **WHAT** is unchanged — still the per-card `autoLoad` toggles (GM + active project's instructions). Owned by `content.js` (`loadAutoInjectMode`/`setAutoInjectMode`, the `docMaxChars` pattern; loaded in `init()` **before** the first `tryAutoInject()` since `"every"` suppresses the start injection). Chosen from the Advanced Options select (`#ccb-auto-inject-mode`) or by clicking the live auto-badge on either card (`.auto-badge-live`, "נטען בתחילת שיחה" ↔ "נטען בכל הודעה" — both cards re-render via `render()` after a flip).
+
+In `"every"` mode:
+
+| Piece | Behavior |
+| --- | --- |
+| `installSendInterceptor()` | Installed once in `chat.init()` (active-site pages only, since `initModules` runs from `mountUI`). Capture-phase `click` + `keydown` listeners on `document`; **inert unless the mode is `"every"`** — checked live per event, so flipping the mode needs no listener add/remove. |
+| `_interceptSend(e)` | Detects a send: click inside the send button (`_findSendButton()` climbs from `SEND_BUTTON_SELECTOR` to the hosting `<button>`, since Gemini's selector matches an inner icon), or plain Enter in the chat input (not Shift+Enter, not IME composition). Skips empty inputs and inputs already carrying `[[CCB:CTX]]` or `[[CCB:INJECTED]]` (a manual load the user is sending — never double-wrap). Then: `preventDefault` + `stopImmediatePropagation`, prepend `buildPerMessagePrefix()`, and after a 60ms tick re-click the send button under `_sendBypass` so the capture listener lets our own click through. |
+| `buildPerMessagePrefix()` | GM in `<memory>`, instructions in `<project>` (same gating as `_autoInjectPayload`), wrapped in `FRAMING_EVERY_PRE`/`POST` — computed fresh per send, so mid-conversation project switches/GM edits apply to the next message. |
+| `tryAutoInject()` | Early-returns — the first message carries the context anyway; a start injection would duplicate it and waste a "Context loaded." exchange. |
+| `captureConversation()` | The prefix rides **inside the user's real message**, so the `[[CCB:INJECTED]]` drop-the-whole-message rule can't apply. The markers are `[[CCB:CTX]]`…`[[CCB:CTX-END]]` instead, and capture **strips** everything through `CTX_END_MARKER`, keeping the user's text — saved conversations stay clean. |
+| `saveChat()` | Its programmatic summary-prompt send click is wrapped in `_sendBypass` — the summary prompt is a standalone instruction, not a user message to wrap. |
+
+The framing is the 6th editable pair (`everyIntro`/`everyOutro` in `prompts.js`, reset key `framingEvery`, editor section "מעטפת טעינה בכל הודעה"). Unlike the other five pairs its outro has no canned "Reply only with X" (the model must answer the user's actual request in the same message), and `prompts.js` stores the pair **trimmed**, re-adding structural newlines in `applyToRawConfig` (`CTX_MARKER` prefix / `CTX_END_SUFFIX` suffix), so an edited value composes identically to the default.
 
 ### Manual injection
 

@@ -2,6 +2,21 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-22 — Auto-inject mode: "בכל הודעה" (context prepended to every user message)
+
+User request: General Memory + the active project's instructions should load at the start of **every** user request, not just once at conversation start.
+
+- Added: a global **auto-inject mode** — `chrome.storage.local["ccb_autoInjectMode"]`, `"start"` (default, the long-standing conversation-start behavior) or `"every"`. WHAT loads is still controlled by the existing GM/project `autoLoad` toggles; the mode only controls WHEN.
+- Added: **send interception** (`chat-features.js#installSendInterceptor` / `_interceptSend`) — in `"every"` mode, a capture-phase `click`/`keydown` listener catches the send action (send-button click, or Enter without Shift in the chat input), blocks it, prepends `buildPerMessagePrefix()` to the input, and re-sends programmatically (`_sendBypass` guard so our own click passes through). The user never sees the context while typing — it attaches at the moment of sending. Interceptor is installed once per page load and inert unless the mode is `"every"` (checked live per event, so flipping the mode needs no listener churn).
+- Added: a 6th framing pair **`FRAMING_EVERY_PRE`/`POST`** (`config.js`, editable in the prompts editor as "מעטפת טעינה בכל הודעה"). Unlike every other pair it wraps context that shares a message with the user's real request, so there's no canned "Reply only with X" response, and its markers are `[[CCB:CTX]]`/`[[CCB:CTX-END]]` — **not** `[[CCB:INJECTED]]` — because capture must strip the prefix and keep the user's text, not drop the whole message. `prompts.js` stores `everyIntro`/`everyOutro` trimmed and re-adds structural newlines on apply, with a `framingEvery` reset key.
+- Changed: `captureConversation()` now strips everything up to and including `[[CCB:CTX-END]]` from a captured message (keeping the user's actual text) before the existing `[[CCB:INJECTED]]` drop-check — saved conversations stay clean of the per-message context.
+- Changed: `tryAutoInject()` returns immediately in `"every"` mode — the first message carries the context anyway, and a start-injection would both duplicate it and waste a "Context loaded." exchange.
+- Changed: `saveChat()`'s programmatic summary-prompt send now sets `_sendBypass` around its click so the summary prompt isn't wrapped with per-message context.
+- UI: new "מתי לטעון אוטומטית" `<select>` in Advanced Options (`#ccb-auto-inject-mode`, populated in `ui-modals.js#openSettings`, wired in `content.js` like `ccb-ctx-size`); the GM/instructions cards' auto-badge is now a **live, clickable mode badge** (`.auto-badge-live`) — text reads "נטען בתחילת שיחה" or "נטען בכל הודעה" per the current mode, and clicking it flips the mode (both cards, `chat-features.js#renderGeneralMemory` + `history-view.js#renderProjectInstructionsCard`).
+- Wiring: `content.js` gained `loadAutoInjectMode`/`setAutoInjectMode` (the `docMaxChars` pattern), passes `getAutoInjectMode`/`setAutoInjectMode` deps to `chat-features.js`/`history-view.js` and `loadAutoInjectMode`/`getAutoInjectMode` to `ui-modals.js`; `loadAutoInjectMode()` resolves in `init()` **before** the first `tryAutoInject()`.
+- Verified: `node --check` on all 8 touched files; manual browser pass pending (see AGENT_CONTEXT next steps).
+- See [ARCHITECTURE.md](ARCHITECTURE.md)'s new "Per-message auto-inject" section, [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md).
+
 ### 2026-07-21 — Removed the empty-state placeholder from the Context tab's blocks list
 
 - Removed: the "בנק ריק / לחץ + להוספת בלוק ראשון" placeholder that `content.js#renderUnifiedBlocksList` rendered into `#list` when there were no blocks to show. Requested by the user — with nothing to display the list now simply stays blank. The `for` loop below it already renders nothing for an empty array, so the early-return branch was deleted outright rather than emptied.

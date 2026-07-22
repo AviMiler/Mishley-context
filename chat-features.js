@@ -95,9 +95,19 @@
     title.className = "gm-title";
     title.textContent = "זיכרון כללי";
 
+    // Live mode badge: reflects WHEN auto-load happens (conversation start vs
+    // every message) and clicking it flips the global mode — same behavior on
+    // the project-instructions card (history-view.js#renderProjectInstructionsCard).
     const badge = document.createElement("span");
-    badge.className = "auto-badge";
-    badge.textContent = "נטען אוטומטית";
+    badge.className = "auto-badge auto-badge-live";
+    const everyMode = _deps.getAutoInjectMode?.() === "every";
+    badge.textContent = everyMode ? "נטען בכל הודעה" : "נטען בתחילת שיחה";
+    badge.title = "לחץ למעבר בין טעינה בתחילת שיחה לטעינה בכל הודעה";
+    badge.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await _deps.setAutoInjectMode?.(everyMode ? "start" : "every");
+      _deps.render();
+    });
     if (!on) badge.style.display = "none";
 
     header.appendChild(selectLabel);
@@ -143,6 +153,107 @@
     if (hasGm) parts.push(f.gmPre + gm.content + f.gmPost);
     if (projectInstructions) parts.push(f.projPre + projectInstructions + f.projPost);
     return { text: parts.join("\n\n"), hasGm, hasProject: !!projectInstructions };
+  }
+
+  // ============================================================
+  // Per-message auto-inject ("בכל הודעה" mode)
+  //
+  // When ccb_autoInjectMode === "every", the GM + active-project instructions
+  // are PREPENDED to the user's own message at send time instead of being
+  // injected once at conversation start. Send is intercepted in the CAPTURE
+  // phase (send-button click / Enter in the chat input), blocked, the input is
+  // rewritten with the framed context in front, and then re-sent
+  // programmatically — so the user never sees the context while typing.
+  // ============================================================
+  const CTX_END_MARKER = "[[CCB:CTX-END]]";
+
+  function _isEveryMode() {
+    return _deps.getAutoInjectMode?.() === "every";
+  }
+
+  // The framed context prefix for one outgoing message, or "" when there is
+  // nothing to attach. Same WHAT-selection as _autoInjectPayload (GM gated by
+  // its autoLoad toggle, project instructions by the project's), but wrapped
+  // in the per-message FRAMING_EVERY pair — no canned "Reply only with X"
+  // auto-response, since the user's real request follows in the same message.
+  function buildPerMessagePrefix() {
+    const gm = getGM();
+    const hasGm = !!(gm.autoLoad && (gm.content || "").trim());
+    const projectInstructions = _getActiveProjectInstructions();
+    if (!hasGm && !projectInstructions) return "";
+    const parts = [];
+    if (hasGm) parts.push("<memory>\n" + gm.content + "\n</memory>");
+    if (projectInstructions) parts.push("<project>\n" + projectInstructions + "\n</project>");
+    const f = _deps.framing;
+    return f.everyPre + parts.join("\n\n") + f.everyPost;
+  }
+
+  // True while OUR programmatic re-send click is in flight, so the capture
+  // listener lets it through instead of intercepting it again.
+  let _sendBypass = false;
+
+  // The clickable send control: SEND_BUTTON_SELECTOR may match an inner icon
+  // (Gemini's mat-icon), so climb to the hosting <button> when there is one —
+  // a click on the button's padding must still count as a send.
+  function _findSendButton() {
+    const el = document.querySelector(_deps.config.SEND_BUTTON_SELECTOR);
+    return el ? (el.closest("button") || el) : null;
+  }
+
+  function _interceptSend(e) {
+    if (_sendBypass || !_isEveryMode()) return;
+
+    const input = _deps.inject.findInput();
+    if (!input) return;
+
+    let isSend = false;
+    if (e.type === "click") {
+      const btn = _findSendButton();
+      isSend = !!(btn && (btn === e.target || btn.contains(e.target)));
+    } else if (e.type === "keydown") {
+      isSend =
+        e.key === "Enter" && !e.shiftKey && !e.isComposing &&
+        (e.target === input || input.contains(e.target));
+    }
+    if (!isSend) return;
+
+    const current = input.isContentEditable ? input.innerText || "" : input.value || "";
+    if (!current.trim()) return; // nothing to send — let the site ignore it
+    // Already carries an injection (ours from this interception re-entering,
+    // or a manual "טען פרומפטים"/conversation load) — don't wrap twice.
+    if (current.includes("[[CCB:CTX]]") || current.includes("[[CCB:INJECTED]]")) return;
+
+    const prefix = buildPerMessagePrefix();
+    if (!prefix) return;
+
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    e.stopPropagation();
+    _deps.inject.injectIntoInput(prefix, "prepend");
+
+    // Give the page's framework a tick to absorb the input event before
+    // re-sending; the bypass only spans our own synchronous click dispatch.
+    setTimeout(() => {
+      _sendBypass = true;
+      try {
+        const btn = _findSendButton();
+        if (btn) btn.click();
+        else console.error("[ccbChat] per-message inject: send button not found after prepend");
+      } finally {
+        _sendBypass = false;
+      }
+    }, 60);
+  }
+
+  let _sendHooksInstalled = false;
+
+  // Installed once per page load; inert unless mode === "every" (checked live
+  // on every event, so flipping the mode needs no listener churn).
+  function installSendInterceptor() {
+    if (_sendHooksInstalled) return;
+    _sendHooksInstalled = true;
+    document.addEventListener("click", _interceptSend, true);
+    document.addEventListener("keydown", _interceptSend, true);
   }
 
   function _doInject() {
@@ -243,6 +354,10 @@
   }
 
   async function tryAutoInject() {
+    // "בכל הודעה" mode: the context rides on every outgoing message instead —
+    // a conversation-start injection would both duplicate it and waste a
+    // "Context loaded." exchange.
+    if (_isEveryMode()) return;
     if (_deps.state.gmAutoInjected) return;
     if (!_autoInjectPayload().text) return;
 
@@ -348,8 +463,16 @@
     const messages = [];
     for (const n of nodes) {
       const text = MSG_SELECTORS.messageText(n) || "";
-      const trimmed = text.trim();
+      let trimmed = text.trim();
       if (!trimmed) continue;
+      // Per-message injection prefix: unlike [[CCB:INJECTED]] (a standalone
+      // injection message, dropped whole), the CTX block is glued in front of
+      // the user's REAL message — strip the prefix, keep the rest.
+      const ctxEnd = trimmed.indexOf(CTX_END_MARKER);
+      if (ctxEnd !== -1) {
+        trimmed = trimmed.slice(ctxEnd + CTX_END_MARKER.length).trim();
+        if (!trimmed) continue;
+      }
       if (trimmed.includes("[[CCB:INJECTED]]")) continue;
       let role = "user";
       if (MSG_SELECTORS.aiMessageMatch && MSG_SELECTORS.aiMessageMatch(n)) {
@@ -463,8 +586,15 @@
       if (r.ok) {
         setTimeout(() => {
           const btn = document.querySelector(_deps.config.SEND_BUTTON_SELECTOR);
-          if (btn) btn.click();
-          else _deps.setStatus("לא נמצא כפתור שליחה", true);
+          // Bypass the per-message interceptor — the summary prompt is a
+          // standalone instruction, not a user message to wrap with context.
+          _sendBypass = true;
+          try {
+            if (btn) btn.click();
+            else _deps.setStatus("לא נמצא כפתור שליחה", true);
+          } finally {
+            _sendBypass = false;
+          }
         }, 100);
       } else {
         _deps.setStatus(r.error || "נכשל", true);
@@ -614,9 +744,14 @@
      *   historyView: object,
      *   loadBlocks, saveBlocks, setStatus, render, updateInjectBtn,
      *   openEdit,
+     *   getAutoInjectMode: () => "start" | "every",
+     *   setAutoInjectMode: (mode) => Promise<string>,
      * }} deps
      */
-    init(deps) { _deps = deps; },
+    init(deps) {
+      _deps = deps;
+      installSendInterceptor();
+    },
     getGM,
     renderGeneralMemory,
     tryAutoInject,

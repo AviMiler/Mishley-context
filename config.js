@@ -219,4 +219,22 @@ const _ACTIVE = _SITE_CONFIG[ACTIVE_SITE] || _SITE_CONFIG.gemini;
   FRAMING_DOCS_POST:
     "\n</documents>\n\n" +
     'Reply only with "Files loaded." and wait for the first instruction.\n',
+
+  // Wrapper for the per-message auto-inject mode ("בכל הודעה") — the context
+  // (GM + active-project instructions, each in its own <memory>/<project> tag,
+  // built in chat-features.js#buildPerMessagePrefix) is PREPENDED to the
+  // user's own message at send time, so unlike every other framing pair the
+  // user's actual request follows in the SAME message. That's why the outro
+  // has no "Reply only with X" canned response, and why the markers are
+  // [[CCB:CTX]]/[[CCB:CTX-END]] rather than [[CCB:INJECTED]] — capture
+  // (chat-features.js#captureConversation) must STRIP this prefix from the
+  // saved message, not drop the whole message like it does for [[CCB:INJECTED]].
+  FRAMING_EVERY_PRE:
+    "[[CCB:CTX]]\n" +
+    "The following block is standing background context — the user's general memory and/or the active project's guidelines — attached automatically to this message. " +
+    "It is NOT part of the request itself: internalize it silently, apply it to your response, and do not comment on or acknowledge it.\n\n",
+
+  FRAMING_EVERY_POST:
+    "\nEnd of background context. The user's actual message follows — respond to it only." +
+    "\n[[CCB:CTX-END]]\n\n",
 };

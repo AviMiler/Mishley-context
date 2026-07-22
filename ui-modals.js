@@ -230,6 +230,9 @@
     await _deps.loadDocMaxChars?.();
     const docInput = $el("ccb-doc-max-chars");
     if (docInput) docInput.value = String(Math.round((_deps.getDocMaxChars?.() || 50000) / 1000));
+    await _deps.loadAutoInjectMode?.();
+    const modeSelect = $el("ccb-auto-inject-mode");
+    if (modeSelect) modeSelect.value = _deps.getAutoInjectMode?.() || "start";
     overlay.classList.add("show");
   }
 
@@ -462,6 +465,10 @@
       $el("promptFramingDocsIntro").value = editable.docsIntro || "";
     if ($el("promptFramingDocsOutro"))
       $el("promptFramingDocsOutro").value = editable.docsOutro || "";
+    if ($el("promptFramingEveryIntro"))
+      $el("promptFramingEveryIntro").value = editable.everyIntro || "";
+    if ($el("promptFramingEveryOutro"))
+      $el("promptFramingEveryOutro").value = editable.everyOutro || "";
 
     const overlay = $el("promptsOverlay");
     overlay?.classList.add("show");
@@ -489,13 +496,15 @@
     const projOutro    = ($el("promptFramingProjOutro")?.value    || "").trim();
     const docsIntro    = ($el("promptFramingDocsIntro")?.value    || "").trim();
     const docsOutro    = ($el("promptFramingDocsOutro")?.value    || "").trim();
+    const everyIntro   = ($el("promptFramingEveryIntro")?.value   || "").trim();
+    const everyOutro   = ($el("promptFramingEveryOutro")?.value   || "").trim();
 
     if (!manualIntro || !gmIntro) {
       _deps.setStatus("הוראות לפני הפרומפטים השמורים ולפני הזיכרון לא יכולות להיות ריקות", true);
       return;
     }
 
-    const payload = { manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro, docsIntro, docsOutro };
+    const payload = { manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro, docsIntro, docsOutro, everyIntro, everyOutro };
 
     await api.save(payload);
     _deps.refreshPromptsFromRawConfig();
@@ -529,12 +538,17 @@
       if ($el("promptFramingDocsIntro")) $el("promptFramingDocsIntro").value = editable.docsIntro || "";
       if ($el("promptFramingDocsOutro")) $el("promptFramingDocsOutro").value = editable.docsOutro || "";
     };
+    const refreshEvery = () => {
+      if ($el("promptFramingEveryIntro")) $el("promptFramingEveryIntro").value = editable.everyIntro || "";
+      if ($el("promptFramingEveryOutro")) $el("promptFramingEveryOutro").value = editable.everyOutro || "";
+    };
     if (key === "framingAll") {
       refreshManual();
       refreshGm();
       refreshConv();
       refreshProj();
       refreshDocs();
+      refreshEvery();
     } else if (key === "framingManual") {
       refreshManual();
     } else if (key === "framingGm") {
@@ -545,6 +559,8 @@
       refreshProj();
     } else if (key === "framingDocs") {
       refreshDocs();
+    } else if (key === "framingEvery") {
+      refreshEvery();
     }
     _deps.setStatus("הפרומפט אופס ✓");
   }
@@ -561,6 +577,8 @@
      *   loadBlocks: () => Promise<void>,
      *   loadCtxWindow: () => Promise<void>,
      *   getCtxWindow: () => number,
+     *   loadAutoInjectMode: () => Promise<void>,
+     *   getAutoInjectMode: () => "start" | "every",
      *   getProjects: () => Array, // ALL projects (regular + code) — showProjectPicker lists both
      *   loadScanSettings: () => Promise<void>,
      *   getScanSettings: () => object,        // live global code-project scan rules

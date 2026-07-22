@@ -903,6 +903,10 @@ window.__ccbCSS = (() => {
       background: var(--bg-tag); color: var(--text-mute);
       border-radius: var(--r-tag); font-weight: 500; white-space: nowrap;
     }
+    /* Live mode badge (GM + project-instructions cards) — clickable, flips
+       the global auto-inject mode (start-of-conversation vs every message). */
+    .auto-badge-live { cursor: pointer; }
+    .auto-badge-live:hover { background: var(--bg-hover, var(--bg-tag)); color: var(--text-strong); }
     .gm-edit-btn {
       height: 26px; padding: 0 10px; flex-shrink: 0;
       border: 1px solid var(--border-input); background: var(--bg-card);
@@ -1411,6 +1415,22 @@ window.__ccbCSS = (() => {
       text-align: center;
     }
     .setting-row input[type="number"]:focus {
+      border-color: var(--text-faint);
+      box-shadow: 0 0 0 2px rgba(28,25,23,.08);
+    }
+    .setting-row select {
+      width: 118px;
+      height: 32px;
+      border: 1px solid var(--border-input);
+      border-radius: 10px;
+      padding: 0 8px;
+      font-size: 13px;
+      color: var(--text-strong);
+      background: var(--bg-card);
+      outline: none;
+      cursor: pointer;
+    }
+    .setting-row select:focus {
       border-color: var(--text-faint);
       box-shadow: 0 0 0 2px rgba(28,25,23,.08);
     }

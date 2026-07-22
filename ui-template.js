@@ -321,6 +321,16 @@ window.__ccbTpl = (() => {
             </div>
             <input id="ccb-doc-max-chars" type="number" min="1" max="1000" step="5" value="50" />
           </div>
+          <div class="setting-row">
+            <div class="setting-row-label">
+              <span class="setting-row-title">מתי לטעון אוטומטית</span>
+              <span class="setting-row-sub">זיכרון כללי + הנחיות הפרויקט הפעיל</span>
+            </div>
+            <select id="ccb-auto-inject-mode">
+              <option value="start">בתחילת שיחה</option>
+              <option value="every">בכל הודעה</option>
+            </select>
+          </div>
           <div class="settings-list">
             <button class="settings-item" id="exportBackupBtn" type="button">
               <span class="settings-item-icon">${IC.download}</span>
@@ -432,6 +442,19 @@ window.__ccbTpl = (() => {
                 <div class="prompts-locked prompts-locked-tag">&lt;documents&gt; … &lt;/documents&gt;</div>
                 <div class="prompts-sublabel">הוראות אחרי הקבצים</div>
                 <textarea id="promptFramingDocsOutro" spellcheck="false"></textarea>
+              </div>
+
+              <!-- 6) Per-message context wrapper (auto-inject mode: every message) -->
+              <div class="prompts-subsection">
+                <div class="prompts-subhead">
+                  <div class="prompts-subtitle">6) מעטפת טעינה בכל הודעה</div>
+                  <button id="resetFramingEveryBtn" type="button" class="prompts-reset">איפוס</button>
+                </div>
+                <div class="prompts-sublabel">הוראות לפני הקונטקסט</div>
+                <textarea id="promptFramingEveryIntro" spellcheck="false"></textarea>
+                <div class="prompts-locked prompts-locked-tag">&lt;memory&gt; / &lt;project&gt; … הודעת המשתמש אחרי [[CCB:CTX-END]]</div>
+                <div class="prompts-sublabel">הוראות אחרי הקונטקסט</div>
+                <textarea id="promptFramingEveryOutro" spellcheck="false"></textarea>
               </div>
             </div>
           </div>

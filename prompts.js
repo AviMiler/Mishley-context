@@ -19,6 +19,11 @@
   const PROJ_CLOSE = "\n</project>\n\n";
   const DOCS_OPEN = "<documents>\n";
   const DOCS_CLOSE = "\n</documents>\n\n";
+  // Per-message mode markers. Unlike every other pair, the END marker is a
+  // SUFFIX of the POST (the user's own message follows it in the same chat
+  // message), so its extraction/apply logic below is suffix-based.
+  const CTX_MARKER = "[[CCB:CTX]]\n";
+  const CTX_END_SUFFIX = "\n[[CCB:CTX-END]]\n\n";
 
   const raw = window.__ccbRawConfig;
   if (!raw) return;
@@ -90,6 +95,21 @@
     ? extractOutro(raw.FRAMING_DOCS_POST, DOCS_CLOSE)
     : "";
 
+  // Per-message pair — suffix-based extraction (see CTX_END_SUFFIX note above).
+  // Stored trimmed; applyToRawConfig re-adds the structural newlines, so a
+  // user-edited (trimmed) value and the default compose identically.
+  const everyIntroDefault = (() => {
+    let s = norm(raw.FRAMING_EVERY_PRE || "");
+    if (s.startsWith(CTX_MARKER)) s = s.slice(CTX_MARKER.length);
+    return s.trim();
+  })();
+
+  const everyOutroDefault = (() => {
+    let s = norm(raw.FRAMING_EVERY_POST || "");
+    if (s.endsWith(CTX_END_SUFFIX)) s = s.slice(0, -CTX_END_SUFFIX.length);
+    return s.trim();
+  })();
+
   const { body: summaryBodyDefault, suffix: SUMMARY_SUFFIX } =
     splitSummaryPrompt(norm(raw.SUMMARY_PROMPT));
 
@@ -106,6 +126,8 @@
     projOutro: projOutroDefault,
     docsIntro: docsIntroDefault,
     docsOutro: docsOutroDefault,
+    everyIntro: everyIntroDefault,
+    everyOutro: everyOutroDefault,
     summaryBody: summaryBodyDefault,
   };
 
@@ -127,6 +149,12 @@
 
     raw.FRAMING_DOCS_PRE = INJECTED_MARKER + state.docsIntro + DOCS_OPEN;
     raw.FRAMING_DOCS_POST = DOCS_CLOSE + state.docsOutro;
+
+    // Per-message mode: PRE ends before the <memory>/<project> body that
+    // chat-features.js builds; POST ends with the CTX-END marker, after which
+    // the user's own message follows in the same chat message.
+    raw.FRAMING_EVERY_PRE = CTX_MARKER + state.everyIntro + "\n\n";
+    raw.FRAMING_EVERY_POST = "\n" + state.everyOutro + CTX_END_SUFFIX;
 
     raw.FRAMING_MANUAL = INJECTED_MARKER + state.manualIntro;
     raw.FRAMING_GM = INJECTED_MARKER + state.gmIntro;
@@ -155,6 +183,8 @@
     if (typeof stored.projOutro === "string")      state.projOutro     = stored.projOutro;
     if (typeof stored.docsIntro === "string")      state.docsIntro     = stored.docsIntro;
     if (typeof stored.docsOutro === "string")      state.docsOutro     = stored.docsOutro;
+    if (typeof stored.everyIntro === "string")     state.everyIntro    = stored.everyIntro;
+    if (typeof stored.everyOutro === "string")     state.everyOutro    = stored.everyOutro;
     if (typeof stored.summaryBody === "string")   state.summaryBody  = stored.summaryBody;
 
     // Backward-compat: old schema had framingBodies: { manual, gm }
@@ -190,6 +220,8 @@
         projOutro:      state.projOutro,
         docsIntro:      state.docsIntro,
         docsOutro:      state.docsOutro,
+        everyIntro:     state.everyIntro,
+        everyOutro:     state.everyOutro,
         summaryBody:   state.summaryBody,
       };
     },
@@ -207,11 +239,13 @@
         projClose:       PROJ_CLOSE.trim(),
         docsOpen:        DOCS_OPEN.trim(),
         docsClose:       DOCS_CLOSE.trim(),
+        ctxMarker:       CTX_MARKER.trim(),
+        ctxEndMarker:    CTX_END_SUFFIX.trim(),
         summarySuffix:   SUMMARY_SUFFIX,
       };
     },
 
-    async save({ manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro, docsIntro, docsOutro, summaryBody }) {
+    async save({ manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro, docsIntro, docsOutro, everyIntro, everyOutro, summaryBody }) {
       if (typeof manualIntro   === "string") state.manualIntro   = manualIntro;
       if (typeof manualOutro   === "string") state.manualOutro   = manualOutro;
       if (typeof gmIntro       === "string") state.gmIntro       = gmIntro;
@@ -222,6 +256,8 @@
       if (typeof projOutro     === "string") state.projOutro     = projOutro;
       if (typeof docsIntro     === "string") state.docsIntro     = docsIntro;
       if (typeof docsOutro     === "string") state.docsOutro     = docsOutro;
+      if (typeof everyIntro    === "string") state.everyIntro    = everyIntro;
+      if (typeof everyOutro    === "string") state.everyOutro    = everyOutro;
       if (typeof summaryBody   === "string") state.summaryBody   = summaryBody;
       applyToRawConfig();
       await new Promise((resolve) =>
@@ -237,6 +273,8 @@
             projOutro:     state.projOutro,
             docsIntro:     state.docsIntro,
             docsOutro:     state.docsOutro,
+            everyIntro:    state.everyIntro,
+            everyOutro:    state.everyOutro,
             summaryBody:   state.summaryBody,
           },
         }, resolve),
@@ -259,16 +297,19 @@
         projOutro:     projOutroDefault,
         docsIntro:     docsIntroDefault,
         docsOutro:     docsOutroDefault,
+        everyIntro:    everyIntroDefault,
+        everyOutro:    everyOutroDefault,
         summaryBody:   summaryBodyDefault,
       };
 
       const keysToReset = key === "framingAll"
-        ? ["manualIntro", "manualOutro", "gmIntro", "gmOutro", "convIntro", "convOutro", "projIntro", "projOutro", "docsIntro", "docsOutro"]
+        ? ["manualIntro", "manualOutro", "gmIntro", "gmOutro", "convIntro", "convOutro", "projIntro", "projOutro", "docsIntro", "docsOutro", "everyIntro", "everyOutro"]
         : key === "framingManual"  ? ["manualIntro",  "manualOutro"]
         : key === "framingGm"      ? ["gmIntro", "gmOutro"]
         : key === "framingConv"    ? ["convIntro", "convOutro"]
         : key === "framingProj"    ? ["projIntro", "projOutro"]
         : key === "framingDocs"    ? ["docsIntro", "docsOutro"]
+        : key === "framingEvery"   ? ["everyIntro", "everyOutro"]
         : key === "summary"        ? ["summaryBody"]
         : resetMap[key] !== undefined ? [key]
         : [];
