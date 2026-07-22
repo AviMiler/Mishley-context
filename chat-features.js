@@ -206,8 +206,17 @@
     const sel = _deps.config.SEND_BUTTON_SELECTOR;
     try {
       if (target.closest(sel)) return true;
-      const btn = target.closest("button");
-      return !!(btn && btn.querySelector(sel));
+      const btn = target.closest("button, [role='button']");
+      if (btn && btn.querySelector(sel)) return true;
+      // Heuristic fallback — the exact-structure checks above kept missing on
+      // Gemini (its send control isn't a plain <button> wrapping the icon the
+      // selector names). Any ancestor whose class mentions "send" counts:
+      // Gemini uses send-button-icon/send-button-container, the internal site
+      // uses send-button. A rare false positive merely prepends the context
+      // to the input (visible, idempotent, still sent with the message) — it
+      // can never block a send.
+      if (target.closest('[class*="send" i]')) return true;
+      return false;
     } catch {
       return false;
     }
@@ -232,6 +241,15 @@
       // no hover ever happens. The [[CCB:CTX]] marker check above makes the
       // series idempotent — only the first one actually prepends.
       isSend = _isSendClick(e.target);
+      // Temporary diagnostic (visible at default console level) for the
+      // mouse-path detection failures — press/click only, hover is too noisy.
+      if (!isSend && (e.type === "pointerdown" || e.type === "click")) {
+        const t = e.target;
+        console.log(
+          "[ccb-debug] pointer not detected as send:",
+          e.type, t?.tagName, String(t?.className || "").slice(0, 120),
+        );
+      }
     }
     if (!isSend) return;
 
@@ -256,8 +274,10 @@
     // the page framework's model is up to date before the site's send handler
     // (target/bubble phase) runs.
     _deps.inject.injectIntoInput(prefix, "prepend");
-    // Content-free diagnostic: which event won the race to prepend.
-    console.debug("[ccb] per-message context prepended via", e.type);
+    // Which event won the race to prepend. console.log, not console.debug —
+    // debug is hidden at the console's default level, which made the earlier
+    // diagnostic invisible exactly when it was needed.
+    console.log("[ccb] per-message context prepended via", e.type);
   }
 
   let _sendHooksInstalled = false;
