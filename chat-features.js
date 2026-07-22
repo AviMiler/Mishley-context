@@ -220,12 +220,18 @@
     if (!input) return;
 
     let isSend = false;
-    if (e.type === "click" || e.type === "pointerdown") {
-      isSend = _isSendClick(e.target);
-    } else if (e.type === "keydown") {
+    if (e.type === "keydown") {
       isSend =
         e.key === "Enter" && !e.shiftKey && !e.isComposing &&
         (e.target === input || input.contains(e.target));
+    } else {
+      // pointerover / pointerdown / mousedown / click — any pointer activity
+      // on the send control triggers the prepend. Hover (pointerover) is the
+      // earliest and the one that beats every possible send-trigger timing;
+      // the rest are fallbacks for keyboard-focus + programmatic paths where
+      // no hover ever happens. The [[CCB:CTX]] marker check above makes the
+      // series idempotent — only the first one actually prepends.
+      isSend = _isSendClick(e.target);
     }
     if (!isSend) return;
 
@@ -250,6 +256,8 @@
     // the page framework's model is up to date before the site's send handler
     // (target/bubble phase) runs.
     _deps.inject.injectIntoInput(prefix, "prepend");
+    // Content-free diagnostic: which event won the race to prepend.
+    console.debug("[ccb] per-message context prepended via", e.type);
   }
 
   let _sendHooksInstalled = false;
@@ -259,14 +267,19 @@
   function installSendInterceptor() {
     if (_sendHooksInstalled) return;
     _sendHooksInstalled = true;
-    // pointerdown as well as click: if the site triggers its send on
-    // pointer/mouse-down, a click-phase prepend arrives after the send
-    // already read the input. Prepending at pointerdown is harmless when the
-    // send is click-based — it just lands a moment earlier, and the
-    // [[CCB:CTX]] marker check keeps the later click from wrapping twice.
-    document.addEventListener("pointerdown", _interceptSend, true);
-    document.addEventListener("click", _interceptSend, true);
-    document.addEventListener("keydown", _interceptSend, true);
+    // On WINDOW, capture phase — in the capture phase window listeners run
+    // BEFORE document listeners, so even a site that delegates its send
+    // handling at document-capture level (registered before this content
+    // script) can't read the input ahead of the prepend. And the whole
+    // ladder starts at pointerover (hover): the context enters the input
+    // before any press exists at all, so no send-trigger timing can beat it
+    // — mouse-click sends kept going out unprefixed with pointerdown alone
+    // (2026-07-22). pointerdown/mousedown/click cover non-hover paths, and
+    // the [[CCB:CTX]] marker check makes the series idempotent.
+    for (const type of ["pointerover", "pointerdown", "mousedown", "click"]) {
+      window.addEventListener(type, _interceptSend, true);
+    }
+    window.addEventListener("keydown", _interceptSend, true);
   }
 
   function _doInject() {
