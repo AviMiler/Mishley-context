@@ -4,6 +4,19 @@
 // (heuristic, best-effort — favors including too much over missing a file).
 // Neither is 100% — dynamic dispatch (computed member access, reflection,
 // eval, virtual/interface calls) can't be resolved statically. See CLAUDE.md.
+//
+// SYMBOL EXTRACTION IS AST-FIRST (2026-07-23): .cs and .js/.jsx/.mjs/.cjs
+// files are parsed by tree-sitter (real grammar-level AST) in the background
+// service worker (background.js hosts the WASM — content scripts can't
+// compile WASM under the host page's CSP). This kills the whole class of
+// regex bugs the project kept hitting (phantom "struct" symbol from `record
+// struct`, phantom // comment from a URL in Razor markup). The regex layer
+// below is RETAINED IN FULL as the fallback — per file (a single file
+// tree-sitter can't parse) and per language (worker dead, WASM load failed)
+// — so a scan never breaks because of the parser. .ts/.tsx stay on the regex
+// import scan by scope decision (imports are simple syntax; regex is
+// high-confidence there). Razor has no tree-sitter grammar — its markup scan
+// stays regex, but it consumes the (now AST-accurate) C# symbol table.
 // JS resolution also handles `@/`/`~/` alias imports (tried against `src/`
 // first, then project root) and is case-insensitive as a fallback, since
 // real filesystems the extension runs on (Windows/macOS) are.
@@ -252,6 +265,45 @@
   }
 
   // ============================================================
+  // tree-sitter bridge — batches file text to background.js, which hosts
+  // the WASM parsers (see the header comment for why a service worker).
+  // Returns Map<relativePath, facts> — facts per background.js's protocol
+  // ({ ok, namespace, usings, definitions, identifiers } for cs;
+  // { ok, imports } for js) — or null on ANY batch failure, which callers
+  // treat as "this language falls back to regex wholesale".
+  // ============================================================
+  const TS_BATCH_MAX_FILES = 50;
+  const TS_BATCH_MAX_CHARS = 1500000;
+
+  async function parseViaTreeSitter(lang, files) {
+    if (!files.length) return new Map();
+    if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.sendMessage) return null;
+    const facts = new Map();
+    let batch = [];
+    let chars = 0;
+    const flush = async () => {
+      if (!batch.length) return;
+      const payload = batch.map((f) => ({ path: f.relativePath, content: f.content }));
+      batch = [];
+      chars = 0;
+      const resp = await chrome.runtime.sendMessage({ type: "ccbTsParse", lang, files: payload });
+      if (!resp || !resp.ok) throw new Error((resp && resp.error) || "no response from parser worker");
+      for (const r of resp.results) facts.set(r.path, r);
+    };
+    try {
+      for (const f of files) {
+        batch.push(f);
+        chars += f.content.length;
+        if (batch.length >= TS_BATCH_MAX_FILES || chars >= TS_BATCH_MAX_CHARS) await flush();
+      }
+      await flush();
+      return facts;
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  // ============================================================
   // JS / TS / JSX — import & require resolution
   // ============================================================
   const JS_IMPORT_PATTERNS = [
@@ -334,6 +386,21 @@
     return Array.from(deps);
   }
 
+  // AST-side twin of analyzeJsFile: import specifiers come straight from
+  // import/export/require/dynamic-import nodes; resolution is shared.
+  function analyzeJsFileFromFacts(file, facts, resolver) {
+    const deps = new Set();
+    for (const spec of facts.imports) {
+      const resolved = resolveJsImport(file.relativePath, spec, resolver);
+      if (resolved && resolved !== file.relativePath) deps.add(resolved);
+    }
+    return Array.from(deps);
+  }
+
+  // Extensions eligible for tree-sitter JS parsing. The javascript grammar
+  // includes JSX; .ts/.tsx are excluded by scope decision (see header).
+  const JS_AST_EXTENSIONS = new Set(["js", "jsx", "mjs", "cjs"]);
+
   // ============================================================
   // C# — namespace/class symbol table + best-effort reference scan
   // ============================================================
@@ -360,9 +427,21 @@
     return usings;
   }
 
-  function buildCsharpSymbolTable(files, stripped) {
+  // Hybrid: AST facts when tree-sitter parsed the file, regex otherwise —
+  // per file, so one unparseable file doesn't degrade the whole table.
+  // csFacts may be null (language-level parser failure → all-regex).
+  function buildCsharpSymbolTable(files, stripped, csFacts) {
     const bySimpleName = {};
+    const add = (name, file, namespace) => {
+      if (!bySimpleName[name]) bySimpleName[name] = [];
+      bySimpleName[name].push({ file, namespace });
+    };
     for (const file of files) {
+      const facts = csFacts ? csFacts.get(file.relativePath) : null;
+      if (facts && facts.ok) {
+        for (const name of facts.definitions) add(name, file.relativePath, facts.namespace || "");
+        continue;
+      }
       // "both" (comments + strings blanked): a multi-line verbatim string
       // containing `class X` at line start (code-gen templates) must not
       // register a phantom type. Blanking preserves offsets/newlines, so the
@@ -371,13 +450,29 @@
       const namespace = extractCsNamespace(cleaned);
       CS_TYPE_RE.lastIndex = 0;
       let m;
-      while ((m = CS_TYPE_RE.exec(cleaned))) {
-        const name = m[1];
-        if (!bySimpleName[name]) bySimpleName[name] = [];
-        bySimpleName[name].push({ file: file.relativePath, namespace });
-      }
+      while ((m = CS_TYPE_RE.exec(cleaned))) add(m[1], file.relativePath, namespace);
     }
     return { bySimpleName };
+  }
+
+  // AST-side twin of analyzeCsharpFile: same candidate-preference logic, but
+  // matched names come from real identifier nodes (strings/comments/partial
+  // word hits are impossible by construction) and namespace/usings come from
+  // the AST rather than regex.
+  function analyzeCsharpFileFromFacts(file, facts, symbolTable) {
+    const deps = new Set();
+    for (const name of facts.identifiers) {
+      const candidates = symbolTable.bySimpleName[name];
+      if (!candidates) continue;
+      const preferred = candidates.filter(
+        (cand) => cand.namespace === (facts.namespace || "") || facts.usings.includes(cand.namespace),
+      );
+      const chosen = preferred.length ? preferred : candidates; // ambiguous → include all
+      for (const cand of chosen) {
+        if (cand.file !== file.relativePath) deps.add(cand.file);
+      }
+    }
+    return Array.from(deps);
   }
 
   function analyzeCsharpFile(file, symbolTable, stripped, combined) {
@@ -470,24 +565,47 @@
     };
 
     const jsFiles = included.filter((f) => JS_EXTENSIONS.has(ext(f.relativePath)));
+    // One parse round-trip per language, up front (batched inside).
+    // null → that language's parser is unavailable → regex wholesale.
+    const jsFacts = await parseViaTreeSitter(
+      "js",
+      jsFiles.filter((f) => JS_AST_EXTENSIONS.has(ext(f.relativePath))),
+    );
+    let jsAst = 0;
     for (const file of jsFiles) {
-      graph[file.relativePath] = analyzeJsFile(file, resolver, stripped);
+      const facts = jsFacts ? jsFacts.get(file.relativePath) : null;
+      if (facts && facts.ok) {
+        graph[file.relativePath] = analyzeJsFileFromFacts(file, facts, resolver);
+        jsAst++;
+      } else {
+        graph[file.relativePath] = analyzeJsFile(file, resolver, stripped);
+      }
       await maybeYield();
     }
 
     const csFiles = included.filter((f) => ext(f.relativePath) === "cs");
     const razorFiles = included.filter((f) => RAZOR_EXTENSIONS.has(ext(f.relativePath)));
+    let csAst = 0;
     if (csFiles.length || razorFiles.length) {
-      const symbolTable = buildCsharpSymbolTable(csFiles, stripped);
+      const csFacts = await parseViaTreeSitter("cs", csFiles);
+      const symbolTable = buildCsharpSymbolTable(csFiles, stripped, csFacts);
       // One combined regex for the whole run — it only depends on the symbol
       // table, so rebuilding it per file (as before) recompiled a pattern
-      // holding every type name in the project, once for every file.
+      // holding every type name in the project, once for every file. Still
+      // needed even on the AST path: razor files (no grammar) and any cs
+      // file tree-sitter couldn't parse scan with it.
       const names = Object.keys(symbolTable.bySimpleName);
       const combined = names.length
         ? new RegExp(`\\b(${names.map(escapeRegex).join("|")})\\b`, "g")
         : null;
       for (const file of csFiles) {
-        graph[file.relativePath] = combined ? analyzeCsharpFile(file, symbolTable, stripped, combined) : [];
+        const facts = csFacts ? csFacts.get(file.relativePath) : null;
+        if (facts && facts.ok) {
+          graph[file.relativePath] = analyzeCsharpFileFromFacts(file, facts, symbolTable);
+          csAst++;
+        } else {
+          graph[file.relativePath] = combined ? analyzeCsharpFile(file, symbolTable, stripped, combined) : [];
+        }
         await maybeYield();
       }
       for (const file of razorFiles) {
@@ -513,8 +631,18 @@
     for (const file of included) {
       if (!graph[file.relativePath]) graph[file.relativePath] = [];
     }
-    // Timing/operation log only — file count, never paths or content.
-    console.log("[ccb-timing] dep-graph.buildGraph", { files: included.length, ms: Date.now() - startedAt });
+    // Timing/operation log only — counts/ms, never paths or content.
+    // csAst/jsAst = files whose symbols came from tree-sitter; the rest of
+    // each language's count fell back to regex. Both zero + nonzero files
+    // usually means the background worker/WASM failed to load.
+    console.log("[ccb-timing] dep-graph.buildGraph", {
+      files: included.length,
+      csAst,
+      csTotal: csFiles.length,
+      jsAst,
+      jsTotal: jsFiles.length,
+      ms: Date.now() - startedAt,
+    });
     return graph;
   }
 

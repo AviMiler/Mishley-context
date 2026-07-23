@@ -1,5 +1,5 @@
 # Project Map
-_Last updated: 2026-07-21_
+_Last updated: 2026-07-23_
 
 ## File Tree
 ```
@@ -33,6 +33,12 @@ _Last updated: 2026-07-21_
 ├── chat-features.js
 ├── content.js
 ├── summarizer.js
+├── background.js                  # MV3 service worker — tree-sitter WASM parser host for dep-graph.js
+├── wasm/                          # vendored tree-sitter runtime + grammars (see DEPENDENCIES.md)
+│   ├── tree-sitter.js
+│   ├── tree-sitter.wasm
+│   ├── tree-sitter-c-sharp.wasm
+│   └── tree-sitter-javascript.wasm
 └── mishley-test-projects/        # local scan/dep-graph test fixtures, not part of the extension
     ├── dotnet-demo/               # small C# fixture
     ├── dotnet-shop-api/           # larger C# fixture (controllers/services/repos)

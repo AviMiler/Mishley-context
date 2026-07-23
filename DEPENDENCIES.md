@@ -1,6 +1,19 @@
 # Dependencies
 
-No package manager, build step, or third-party libraries — this is a vanilla-JS Chrome MV3 extension. Every `.js` file is loaded directly as a content script in the order listed in `manifest.json`.
+No package manager or build step — this is a vanilla-JS Chrome MV3 extension. Every content-script `.js` file is loaded directly in the order listed in `manifest.json`. The one third-party dependency is **vendored** (checked-in binaries, no npm):
+
+## Vendored: tree-sitter (WASM) — `wasm/`
+
+Used only by `background.js` (the service worker) to parse C# and JS/JSX for `dep-graph.js`'s symbol extraction (2026-07-23). Downloaded once from jsDelivr (npm mirror) and committed; updating means re-downloading newer files, there is nothing to "install".
+
+| File | Package / version | Size | Role |
+|---|---|---|---|
+| `wasm/tree-sitter.js` | `web-tree-sitter@0.25.6` | 147 KB | ESM runtime (why `background.js` is a `"type": "module"` worker) |
+| `wasm/tree-sitter.wasm` | `web-tree-sitter@0.25.6` | 201 KB | Core parser engine |
+| `wasm/tree-sitter-c-sharp.wasm` | `@vscode/tree-sitter-wasm@0.1.4` | 5.8 MB | C# grammar |
+| `wasm/tree-sitter-javascript.wasm` | `@vscode/tree-sitter-wasm@0.1.4` | 376 KB | JS grammar (includes JSX) |
+
+**Version-pairing caution:** grammar `.wasm` files must be ABI-compatible with the runtime. The 0.25.6 runtime + vscode 0.1.4 grammars pairing is verified (Node test suite loads and parses with both grammars); when updating, update the runtime and grammars together and re-run the parse tests. Requires `'wasm-unsafe-eval'` in the manifest's `content_security_policy.extension_pages` — WASM only compiles in the worker, never in content scripts (host-page CSP blocks it there; that's the entire reason `background.js` exists).
 
 ## Browser APIs relied on
 
