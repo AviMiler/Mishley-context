@@ -128,9 +128,11 @@ state: {
 
 **Save eligibility:** `persistConversation` skips any capture that has no `role === "user"` message after `[[CCB:INJECTED]]` filtering, and trims any leading AI messages (which are auto-responses to injections like "Context loaded." that captureConversation can't detect). This prevents injection-only chats from creating noise blocks.
 
-**Injection auto-response filtering:** The framing prompts ask the model to reply with a fixed string after each injection ("Context loaded.", "Transcript loaded.", "Project guidelines loaded.", "Files loaded."). These responses are not part of the real conversation. They are filtered out:
+**Injection auto-response filtering:** The framing prompts ask the model to reply with a fixed string after each injection ("Context loaded.", "Transcript loaded.", "Project guidelines loaded."). These responses are not part of the real conversation. They are filtered out:
 - At capture time — `captureConversation` in `chat-features.js` drops any AI message whose trimmed text matches one of the canned responses.
 - At read time — `buildHistoryMessages` in `history-view.js` filters the same set so older saved blocks (created before the capture-time filter) don't show pollution in the conversation view.
+
+Both `INJECTION_AUTORESPONSES` sets still list `"Files loaded."` too, but it's dead for anything captured after 2026-07-22: `FRAMING_DOCS_POST` no longer instructs a canned reply (see "`FRAMING_DOCS_POST` wording" under "Runtime config keys patched by prompts.js"), so the model never says it for new injections. Kept only in `history-view.js`'s copy, which is explicitly for filtering **legacy** saved blocks from before the change.
 
 One conversation block per page load. The first message in a fresh chat creates a `kind: "conversation"` block with a default title (`שיחה — date time`) and stores its id in `state.currentConversationId`. Every subsequent message triggers an auto-save (debounced 2.5s) that **updates the same block** in place — no new block is created. The binding is cleared in two ways:
 
@@ -199,7 +201,9 @@ Note: the prompts editor UI exposes the 6 FRAMING sections only; SUMMARY_PROMPT 
 
 (Legacy flat keys `FRAMING`, `FRAMING_MANUAL`, `FRAMING_GM` are also patched for backward compatibility but no code reads them directly anymore — the `framing` getters in `content.js` fall back to these only if PRE is undefined.)
 
-`FRAMING_DOCS_*` is consumed by exactly one call site: `history-view.js#injectProjectDocuments()` (the footer "קבצים" button — the dedicated top-level file-injection action). One other place builds a literal `<documents>...</documents>` block but is deliberately **not** wired to this pair, since it's nested inside a different outer wrapper already: `chat-features.js#injectSelected()` (docs of a manually-selected project block, nested inside FRAMING_MANUAL/FRAMING_GM). The canned reply `"Files loaded."` is in `INJECTION_AUTORESPONSES` (both `chat-features.js` and `history-view.js`) alongside `"Context loaded."`/`"Transcript loaded."`/`"Project guidelines loaded."`.
+`FRAMING_DOCS_*` is consumed by exactly one call site: `history-view.js#injectProjectDocuments()` (the footer "קבצים" button — the dedicated top-level file-injection action). One other place builds a literal `<documents>...</documents>` block but is deliberately **not** wired to this pair, since it's nested inside a different outer wrapper already: `chat-features.js#injectSelected()` (docs of a manually-selected project block, nested inside FRAMING_MANUAL/FRAMING_GM).
+
+**`FRAMING_DOCS_POST` wording (2026-07-22):** `injectProjectDocuments()` never auto-sends, so the user's real request always follows the files in the SAME chat message, never as a separate turn. The original outro — `Reply only with "Files loaded." and wait for the first instruction.` — was therefore instructing the model to just acknowledge, while a real question sat immediately after it in the same message. Reworded to `End of the attached files. The user's actual request follows — respond to it only.`, matching the "end of context, the user's message follows" pattern `FRAMING_EVERY_POST` already uses for the per-message wrapper. No canned reply means nothing for `INJECTION_AUTORESPONSES`'s `"Files loaded."` entries to match going forward — they remain only in `history-view.js`'s copy, kept for filtering legacy saved blocks captured under the old wording.
 
 ## config.js — site switching
 

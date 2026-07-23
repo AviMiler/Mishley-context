@@ -218,7 +218,7 @@ const _ACTIVE = _SITE_CONFIG[ACTIVE_SITE] || _SITE_CONFIG.gemini;
 
   FRAMING_DOCS_POST:
     "\n</documents>\n\n" +
-    'Reply only with "Files loaded." and wait for the first instruction.\n',
+    "End of the attached files. The user's actual request follows — respond to it only.\n",
 
   // Wrapper for the per-message auto-inject mode ("בכל הודעה") — the context
   // (GM + active-project instructions, each in its own <memory>/<project> tag,

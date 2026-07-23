@@ -2,6 +2,16 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-22 — Reworded file-loading framing ending to match the per-message style
+
+User request: since loading files (`injectProjectDocuments()`, the footer "טען קבצים" button) never auto-sends, the user's real request always follows the files in the same chat message — so the ending framing should say "end of files, from here on is the user's request," the same pattern already used by the per-message General Memory/project-instructions wrapper (`FRAMING_EVERY_POST`), instead of instructing a canned acknowledgment reply.
+
+- Changed: `config.js#FRAMING_DOCS_POST` — was `Reply only with "Files loaded." and wait for the first instruction.`, now `End of the attached files. The user's actual request follows — respond to it only.` `FRAMING_DOCS_PRE` is unchanged (its "not a question or task, internalize as fixed context" framing was already accurate). No code changes needed beyond `config.js` — `prompts.js`'s editable `docsOutro` default derives from this text automatically (it strips the locked `</documents>` prefix at load time), so the prompts editor picks up the new wording without any edits there.
+- Unchanged (deliberately, out of scope): `FRAMING_MANUAL` (the "טען פרומפטים" button) and the conversation-view "טען נבחרים" wrapper have the same underlying no-auto-send behavior and could arguably use the same rewording, but the user's request was specifically about file loading — not touched.
+- Note: `INJECTION_AUTORESPONSES`'s `"Files loaded."`/`"Files loaded"` entries (`chat-features.js`, `history-view.js`) are left in place though now dead for new captures (nothing produces that exact reply anymore) — `history-view.js`'s copy is explicitly documented as filtering **legacy** saved blocks from before this change, so removing it would stop filtering old pollution out of existing conversation history.
+- Verified: `node --check config.js`.
+- See [ARCHITECTURE.md](ARCHITECTURE.md) (Conversation model + Runtime config keys sections), [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md).
+
 ### 2026-07-22 — Split per-message auto-inject mode into independent GM/project settings
 
 Follow-up to the per-message auto-inject feature below: the user asked for project instructions to have their own separate "when to auto-inject" setting, decoupled from General Memory's.
