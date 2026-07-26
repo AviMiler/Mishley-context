@@ -3,10 +3,17 @@
   "name": "Mishley Code - Context Bank for Internal Chat",
   "version": "0.2.0",
   "description": "בנק קונטקסטים לצ'אט הפנימי - פאנל צף, טעינת רקע, סיכום שיחות",
-  "permissions": ["storage"],
+  "permissions": ["storage", "unlimitedStorage"],
   "host_permissions": [
     "*://*/*"
   ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "Context Bank (Ctrl+Shift+L)"
@@ -14,7 +21,7 @@
   "content_scripts": [
     {
       "matches": ["*://*/*"],
-      "js": ["config.js", "storage.js", "inject.js", "push.js", "ui-styles.js", "ui-template.js", "content.js", "summarizer.js"],
+      "js": ["config.js", "prompts.js", "storage.js", "inject.js", "push.js", "ui-styles.js", "ui-template.js", "ctx-meter.js", "ui-modals.js", "fs-handles.js", "document-handler.js", "dep-graph.js", "code-tree.js", "history-view.js", "chat-features.js", "content.js", "summarizer.js"],
       "run_at": "document_idle"
     }
   ],

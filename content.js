@@ -1,68 +1,296 @@
-// content.js — UI orchestration, state, and business logic.
+// content.js — orchestrator: state, mount, wireEvents, edit form, context list, init.
 // Dependencies (loaded first via manifest):
-//   config.js → window.__ccbRawConfig
-//   storage.js → window.__ccbStorage
-//   inject.js → window.__ccbInject
-//   push.js → window.__ccbPush
-//   ui-styles.js → window.__ccbCSS
-//   ui-template.js → window.__ccbTpl
+//   config.js        → window.__ccbRawConfig
+//   prompts.js       → window.__ccbPromptsAPI
+//   storage.js       → window.__ccbStorage
+//   inject.js        → window.__ccbInject
+//   push.js          → window.__ccbPush
+//   ui-styles.js     → window.__ccbCSS
+//   ui-template.js   → window.__ccbTpl
+//   ctx-meter.js     → window.__ccbCtxMeter
+//   ui-modals.js     → window.__ccbModals
+//   document-handler.js → window.__ccbDocHandler
+//   history-view.js  → window.__ccbHistoryView
+//   chat-features.js → window.__ccbChat
 
-(() => {
+(async () => {
   if (window.__ccbInstalled) return;
   window.__ccbInstalled = true;
+
+  try {
+    if (window.__ccbPromptsAPI?.ready) await window.__ccbPromptsAPI.ready;
+  } catch {
+    // ignore
+  }
 
   const {
     AUTO_OPEN_URLS,
     SEND_BUTTON_SELECTOR,
+    NEW_CHAT_BTN_SELECTOR,
     SIDEBAR_WIDTH,
     MSG_SELECTORS,
     STORAGE_KEY,
     GM_ID,
-    SUMMARY_PROMPT,
-    FRAMING,
+    CTX_WINDOW_DEFAULT,
+    CHARS_PER_TOKEN,
+    DOC_MAX_CHARS_DEFAULT,
   } = window.__ccbRawConfig;
 
-  const CONFIG = { AUTO_OPEN_URLS, SEND_BUTTON_SELECTOR, SIDEBAR_WIDTH };
-  const { loadBlocks: _loadBlocks, saveBlocks: _saveBlocks } =
-    window.__ccbStorage;
-  const { findInput, injectIntoInput } = window.__ccbInject;
+  const CONFIG_PUBLIC = { AUTO_OPEN_URLS, SEND_BUTTON_SELECTOR, SIDEBAR_WIDTH };
+  const { loadBlocks: _loadBlocks, saveBlocks: _saveBlocks } = window.__ccbStorage;
+  const ccbInject = window.__ccbInject;
   const { pushPage } = window.__ccbPush;
   const CSS = window.__ccbCSS;
   const { IC, PANEL_HTML } = window.__ccbTpl;
   const isActiveSitePage = () =>
-    CONFIG.AUTO_OPEN_URLS.some((u) => location.href.startsWith(u));
+    CONFIG_PUBLIC.AUTO_OPEN_URLS.some((u) => location.href.startsWith(u));
+
 
   // ============================================================
-  // State
+  // Shared state — modules receive a reference and mutate directly
   // ============================================================
-  // DEBOUNCE: הערה את השורה להלן כדי להשבית את debouncing החיפוש
-  const ENABLE_SEARCH_DEBOUNCE = true; // false = השבתת debounce
-  const DEBOUNCE_MS = 300; // זמן ההשהיה (מילישניות)
+  const state = {
+    blocks: {},
+    blocksLoaded: false,
+    selected: new Set(),
+    editingId: null,
+    historySearchMode: "title",
+    // The globally active project (or null = "no project"), selected via the
+    // persistent bar above both tabs. Drives: which blocks/documents show in
+    // the Context tab, which project a newly-started conversation is stamped
+    // with, and the History tab's project filter. Persisted across sessions
+    // (see loadActiveProjectId/setActiveProjectId in history-view.js).
+    currentProjectId: null,
+    activeProjectLoaded: false,
+    // History tab: when a project is active, the list is filtered to that
+    // project's conversations by default — this overrides the filter to show
+    // everything. Transient (resets each panel session), like historySearchMode.
+    historyShowAll: false,
+    historyCollapsed: false,
+    projectDocumentsCollapsed: false,
+    blocksCollapsed: false,
+    ctxWindow: CTX_WINDOW_DEFAULT,
+    ctxWindowLoaded: false,
+    docMaxChars: DOC_MAX_CHARS_DEFAULT,
+    docMaxCharsLoaded: false,
+    // WHEN auto-inject fires: "start" (once, at conversation start — the
+    // long-standing behavior) or "every" (prepended to every outgoing user
+    // message at send time, see chat-features.js#installSendInterceptor).
+    // Independent per source (2026-07-22) — GM and the active project's
+    // instructions each have their own mode, so e.g. GM can ride every
+    // message while project instructions only load once. WHAT gets loaded
+    // stays controlled by the GM/project autoLoad toggles.
+    autoInjectModeGm: "start",
+    autoInjectModeProject: "start",
+    autoInjectModeLoaded: false,
+    // Global code-project scan rules (which folders/files/extensions get
+    // scanned, and the per-file size cap). Seeded from document-handler.js's
+    // defaults on first load, then user-editable from Advanced Options.
+    scanSettings: null,
+    scanSettingsLoaded: false,
+    gmAutoInjected: false,
+    currentConversationViewId: null,
+    cvSelectedIndices: new Set(),
+    cvMatchElements: [],
+    cvMatchIndex: 0,
+    cvOpenedFromProject: false,
+    hiDropdownCleanup: null,
+    // Auto-save: id of the conversation block bound to *this* page load.
+    // Cleared on URL change (SPA new chat); page refresh naturally resets it
+    // because content scripts re-execute.
+    currentConversationId: null,
+  };
 
-  let blocks = {};
-  let blocksLoaded = false;
+  // Live FRAMING getters — picks up edits from prompts.js automatically
+  const framing = {
+    get manualPre()    { return window.__ccbRawConfig.FRAMING_MANUAL_PRE || window.__ccbRawConfig.FRAMING || ""; },
+    get manualPost()   { return window.__ccbRawConfig.FRAMING_MANUAL_POST || ""; },
+    get gmPre()        { return window.__ccbRawConfig.FRAMING_GM_PRE || window.__ccbRawConfig.FRAMING || ""; },
+    get gmPost()       { return window.__ccbRawConfig.FRAMING_GM_POST || ""; },
+    get convPre()      { return window.__ccbRawConfig.FRAMING_CONV_PRE || ""; },
+    get convPost()     { return window.__ccbRawConfig.FRAMING_CONV_POST || ""; },
+    get projPre()      { return window.__ccbRawConfig.FRAMING_PROJ_PRE || ""; },
+    get projPost()     { return window.__ccbRawConfig.FRAMING_PROJ_POST || ""; },
+    get docsPre()      { return window.__ccbRawConfig.FRAMING_DOCS_PRE || ""; },
+    get docsPost()     { return window.__ccbRawConfig.FRAMING_DOCS_POST || ""; },
+    get everyPre()     { return window.__ccbRawConfig.FRAMING_EVERY_PRE || ""; },
+    get everyPost()    { return window.__ccbRawConfig.FRAMING_EVERY_POST || ""; },
+    get summaryPrompt() { return window.__ccbRawConfig.SUMMARY_PROMPT || ""; },
+  };
+
   let shadow = null;
   let $el = null;
-  let selected = new Set();
-  let editingId = null;
   let mounted = false;
-  let historySearchMode = "title";
+  let toastTimer = null;
   let searchTimeout = null;
-  let lastInjectedConversationId = null; // שיחה מוזרקת כרגע
-  let autoSaveObserver = null; // Observer לשמירה אוטומטית
-  let autoSaveContainer = null; // container נוכחי של ההיסטוריה החיה
-  let autoSaveAttachTimer = null; // ניסיון חוזר אם ה-container עוד לא קיים
-  let lastSaveMessageCount = 0; // מספר ההודעות בשמירה אחרונה
-  let autoSaveTimeout = null; // Debounce לשמירה אוטומטית
+  const ENABLE_SEARCH_DEBOUNCE = true;
+
+  const DEBOUNCE_MS = 300;
+
+  // ============================================================
+  // Storage wrappers (mutate state.blocks / state.ctxWindow)
+  // ============================================================
+  // One-time (idempotent) migration: fold the old Context-tab "ctx-project"
+  // grouping blocks into the unified History-style "project" shape, so a
+  // project can hold both plain text blocks (via child projectId) AND
+  // documents/code-project file loading. Keeps the same id — child blocks
+  // referencing it via projectId keep working unchanged.
+  async function migrateCtxProjects() {
+    let changed = false;
+    for (const b of Object.values(state.blocks)) {
+      if (b && b.kind === "ctx-project") {
+        b.kind = "project";
+        if (!Array.isArray(b.documents)) b.documents = [];
+        if (b.isCodeProject === undefined) b.isCodeProject = false;
+        changed = true;
+      }
+    }
+    if (changed) await saveBlocks();
+  }
 
   async function loadBlocks() {
-    if (blocksLoaded) return;
-    blocks = await _loadBlocks(STORAGE_KEY);
-    blocksLoaded = true;
+    if (state.blocksLoaded) return;
+    state.blocks = await _loadBlocks(STORAGE_KEY);
+    await migrateCtxProjects();
+    await window.__ccbHistoryView.loadActiveProjectId();
+    state.blocksLoaded = true;
   }
 
   async function saveBlocks() {
-    await _saveBlocks(STORAGE_KEY, blocks);
+    await _saveBlocks(STORAGE_KEY, state.blocks);
+  }
+
+  async function loadCtxWindow() {
+    if (state.ctxWindowLoaded) return;
+    const data = await new Promise((r) =>
+      chrome.storage.local.get("ctxWindow", r),
+    );
+    state.ctxWindow = data.ctxWindow || CTX_WINDOW_DEFAULT;
+    state.ctxWindowLoaded = true;
+  }
+
+  async function setCtxWindow(k) {
+    const val = Math.max(4, Math.min(2048, k)) * 1000;
+    state.ctxWindow = val;
+    await new Promise((r) => chrome.storage.local.set({ ctxWindow: val }, r));
+    return val;
+  }
+
+  // Per-document character cap for the "טען קבצים" injection. Only bounds
+  // ordinary documents — code files and the generated structure doc are exempt
+  // in history-view.js, since truncating either silently drops exactly what was
+  // loaded for. Stored in thousands of chars in the UI, raw chars here.
+  async function loadDocMaxChars() {
+    if (state.docMaxCharsLoaded) return;
+    const data = await new Promise((r) =>
+      chrome.storage.local.get("docMaxChars", r),
+    );
+    state.docMaxChars = Number(data.docMaxChars) > 0 ? Number(data.docMaxChars) : DOC_MAX_CHARS_DEFAULT;
+    state.docMaxCharsLoaded = true;
+  }
+
+  async function setDocMaxChars(k) {
+    const val = Math.max(1, Math.min(1000, k)) * 1000;
+    state.docMaxChars = val;
+    state.docMaxCharsLoaded = true;
+    await new Promise((r) => chrome.storage.local.set({ docMaxChars: val }, r));
+    return val;
+  }
+
+  // WHEN auto-inject fires — "start" | "every", tracked separately per source
+  // ("gm" | "project"). Same load/set pattern as ctxWindow/docMaxChars. Must
+  // be loaded before the first tryAutoInject() call, since a source in
+  // "every" mode is excluded from the conversation-start injection.
+  async function loadAutoInjectMode() {
+    if (state.autoInjectModeLoaded) return;
+    const data = await new Promise((r) =>
+      chrome.storage.local.get(
+        ["ccb_autoInjectModeGm", "ccb_autoInjectModeProject", "ccb_autoInjectMode"],
+        r,
+      ),
+    );
+    // Migration: before 2026-07-22 there was one shared mode for both
+    // sources under "ccb_autoInjectMode". Seed both new keys from it when
+    // neither has been set yet, so a user who already chose "every" doesn't
+    // silently revert to "start" the first time this loads post-split.
+    const legacy = data.ccb_autoInjectMode === "every" ? "every" : "start";
+    const normalize = (v, fallback) => (v === "every" || v === "start" ? v : fallback);
+    state.autoInjectModeGm = normalize(data.ccb_autoInjectModeGm, legacy);
+    state.autoInjectModeProject = normalize(data.ccb_autoInjectModeProject, legacy);
+    state.autoInjectModeLoaded = true;
+  }
+
+  const AUTO_INJECT_MODE_KEYS = {
+    gm: "ccb_autoInjectModeGm",
+    project: "ccb_autoInjectModeProject",
+  };
+  const AUTO_INJECT_MODE_LABELS = {
+    gm: "הזיכרון הכללי",
+    project: "הנחיות הפרויקט",
+  };
+
+  async function setAutoInjectMode(source, mode) {
+    const val = mode === "every" ? "every" : "start";
+    const key = AUTO_INJECT_MODE_KEYS[source] || AUTO_INJECT_MODE_KEYS.gm;
+    if (source === "project") state.autoInjectModeProject = val;
+    else state.autoInjectModeGm = val;
+    state.autoInjectModeLoaded = true;
+    await new Promise((r) => chrome.storage.local.set({ [key]: val }, r));
+    const label = AUTO_INJECT_MODE_LABELS[source] || AUTO_INJECT_MODE_LABELS.gm;
+    setStatus(
+      val === "every"
+        ? label + " ייטען בתחילת כל הודעה ✓"
+        : label + " ייטען פעם אחת בתחילת שיחה ✓",
+    );
+    return val;
+  }
+
+  function getAutoInjectMode(source) {
+    return source === "project" ? state.autoInjectModeProject : state.autoInjectModeGm;
+  }
+
+  // Global code-project scan rules. On first ever load there's no stored
+  // value, so we seed from document-handler.js's built-in defaults AND persist
+  // that immediately — so what the settings dialog shows is always exactly
+  // what the scanner uses, and existing users see today's behavior unchanged,
+  // just now visible and editable. Each field falls back individually so a
+  // partially-written object (older build, interrupted write) can't leave a
+  // filter undefined.
+  async function loadScanSettings() {
+    if (state.scanSettingsLoaded) return;
+    const defaults = window.__ccbDocHandler.getDefaultScanSettings();
+    const data = await new Promise((r) =>
+      chrome.storage.local.get("ccb_scanSettings", r),
+    );
+    const stored = data.ccb_scanSettings;
+    if (!stored) {
+      state.scanSettings = defaults;
+      await new Promise((r) =>
+        chrome.storage.local.set({ ccb_scanSettings: defaults }, r),
+      );
+    } else {
+      state.scanSettings = {
+        denyDirs: Array.isArray(stored.denyDirs) ? stored.denyDirs : defaults.denyDirs,
+        denyFilenames: Array.isArray(stored.denyFilenames) ? stored.denyFilenames : defaults.denyFilenames,
+        codeExtensions: Array.isArray(stored.codeExtensions) ? stored.codeExtensions : defaults.codeExtensions,
+        maxFileSizeKb: Number(stored.maxFileSizeKb) > 0 ? Number(stored.maxFileSizeKb) : defaults.maxFileSizeKb,
+      };
+    }
+    state.scanSettingsLoaded = true;
+  }
+
+  async function saveScanSettings(next) {
+    const defaults = window.__ccbDocHandler.getDefaultScanSettings();
+    const val = {
+      denyDirs: Array.isArray(next?.denyDirs) ? next.denyDirs : defaults.denyDirs,
+      denyFilenames: Array.isArray(next?.denyFilenames) ? next.denyFilenames : defaults.denyFilenames,
+      codeExtensions: Array.isArray(next?.codeExtensions) ? next.codeExtensions : defaults.codeExtensions,
+      maxFileSizeKb: Math.max(1, Number(next?.maxFileSizeKb) || defaults.maxFileSizeKb),
+    };
+    state.scanSettings = val;
+    state.scanSettingsLoaded = true;
+    await new Promise((r) => chrome.storage.local.set({ ccb_scanSettings: val }, r));
+    return val;
   }
 
   // ============================================================
@@ -86,6 +314,8 @@
     while (wrap.firstChild) shadow.appendChild(wrap.firstChild);
     $el = (id) => shadow.getElementById(id);
 
+    initModules();
+
     $el("fab").style.pointerEvents = "auto";
     $el("panel").style.pointerEvents = "auto";
 
@@ -100,198 +330,107 @@
   }
 
   // ============================================================
-  // Dialogs
+  // Module wiring — build deps + call each module's init()
   // ============================================================
-  function showConfirm({ title, msg, confirmLabel, danger = false }) {
-    return new Promise((resolve) => {
-      $el("dialogTitle").textContent = title;
-      $el("dialogMsg").textContent = msg;
-      $el("dialogConfirm").textContent = confirmLabel;
-      $el("dialogConfirm").className =
-        "dialog-confirm" + (danger ? " danger" : "");
-      $el("dialogCancel").textContent = "ביטול";
-      const overlay = $el("dialogOverlay");
-      overlay.classList.add("show");
+  function initModules() {
+    const getShadow = () => shadow;
+    const modals = window.__ccbModals;
+    const historyView = window.__ccbHistoryView;
+    const chat = window.__ccbChat;
+    const docHandler = window.__ccbDocHandler;
 
-      let settled = false;
-      const done = (result) => {
-        if (settled) return;
-        settled = true;
-        overlay.classList.remove("show");
-        resolve(result);
-      };
-      $el("dialogConfirm").addEventListener("click", () => done(true), {
-        once: true,
-      });
-      $el("dialogCancel").addEventListener("click", () => done(false), {
-        once: true,
-      });
+    window.__ccbCtxMeter.init({
+      getShadow,
+      MSG_SELECTORS,
+      CHARS_PER_TOKEN,
+      CTX_WINDOW_DEFAULT,
+      getCtxWindow: () => state.ctxWindow,
+      closeDropdown: () => historyView.closeHiDropdown(),
+      setDropdownCleanup: (fn) => { state.hiDropdownCleanup = fn; },
     });
-  }
 
-  function showChoice({ title, msg, primaryLabel, secondaryLabel }) {
-    return new Promise((resolve) => {
-      $el("dialogTitle").textContent = title;
-      $el("dialogMsg").textContent = msg;
-      $el("dialogConfirm").textContent = primaryLabel;
-      $el("dialogConfirm").className = "dialog-confirm";
-      $el("dialogCancel").textContent = secondaryLabel;
-      const overlay = $el("dialogOverlay");
-      overlay.classList.add("show");
-
-      let settled = false;
-      const done = (result) => {
-        if (settled) return;
-        settled = true;
-        overlay.classList.remove("show");
-        resolve(result);
-      };
-      $el("dialogConfirm").addEventListener("click", () => done("primary"), {
-        once: true,
-      });
-      $el("dialogCancel").addEventListener("click", () => done("secondary"), {
-        once: true,
-      });
+    modals.init({
+      getShadow,
+      setStatus,
+      refreshPromptsFromRawConfig: () => {},  // framing uses live getters; no-op
+      loadBlocks,
+      loadCtxWindow,
+      getCtxWindow: () => state.ctxWindow,
+      loadDocMaxChars,
+      getDocMaxChars: () => state.docMaxChars,
+      loadAutoInjectMode,
+      getAutoInjectMode,
+      getProjects: () => historyView.getAllProjects(),
+      loadScanSettings,
+      // Never null: falls back to the built-in defaults if a scan somehow
+      // fires before loadScanSettings() resolved, so a scan can't run with
+      // every filter silently disabled.
+      getScanSettings: () => state.scanSettings || docHandler.getDefaultScanSettings(),
+      saveScanSettings,
+      getDefaultScanSettings: () => docHandler.getDefaultScanSettings(),
     });
-  }
 
-  function showPrompt({ title, defaultValue = "" }) {
-    return new Promise((resolve) => {
-      $el("dialogTitle").textContent = title;
-      $el("dialogMsg").textContent = "";
-      $el("dialogConfirm").textContent = "שמור";
-      $el("dialogConfirm").className = "dialog-confirm";
-      $el("dialogCancel").textContent = "ביטול";
-      const input = $el("dialogInput");
-      input.value = defaultValue;
-      input.style.display = "block";
-      const overlay = $el("dialogOverlay");
-      overlay.classList.add("show");
-      setTimeout(() => {
-        input.focus();
-        input.select();
-      }, 50);
-
-      let settled = false;
-      const done = (result) => {
-        if (settled) return;
-        settled = true;
-        input.style.display = "none";
-        overlay.classList.remove("show");
-        resolve(result);
-      };
-      $el("dialogConfirm").addEventListener(
-        "click",
-        () => done(input.value.trim() || defaultValue),
-        { once: true },
-      );
-      $el("dialogCancel").addEventListener("click", () => done(null), {
-        once: true,
-      });
-      input.addEventListener(
-        "keydown",
-        (e) => {
-          if (e.key === "Enter") done(input.value.trim() || defaultValue);
-          if (e.key === "Escape") done(null);
-        },
-        { once: true },
-      );
+    docHandler.init({
+      loadBlocks,
+      saveBlocks,
+      getBlocks: () => state.blocks,
     });
-  }
 
-  function openSettings() {
-    const overlay = $el("settingsOverlay");
-    const box = $el("settingsBox");
-    const btn = $el("settingsBtn");
-    if (!overlay || !box || !btn) return;
-    const panelRect = $el("panel").getBoundingClientRect();
-    const btnRect = btn.getBoundingClientRect();
-    const left = btnRect.left - panelRect.left;
-    const top = btnRect.bottom - panelRect.top + 10;
-    box.style.left = Math.max(12, Math.min(left, panelRect.width - 282)) + "px";
-    box.style.top = Math.max(12, top) + "px";
-    overlay.classList.add("show");
-  }
-
-  function closeSettings() {
-    const overlay = $el("settingsOverlay");
-    if (overlay) overlay.classList.remove("show");
-  }
-
-  async function exportBackup() {
-    await loadBlocks();
-    const blob = new Blob([JSON.stringify(blocks, null, 2)], {
-      type: "application/json;charset=utf-8",
+    window.__ccbCodeTree.init({
+      docHandler,
+      getShadow,
+      historyView,
+      setStatus,
+      render,
     });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "context-bank-backup.json";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    closeSettings();
-    setStatus("הגיבוי יוצא ✓");
-  }
 
-  async function importBackupFile(file) {
-    if (!file) return;
-    const text = await file.text();
-    let parsed;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      setStatus("קובץ JSON לא תקין", true);
-      return;
-    }
-
-    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
-      setStatus("מבנה קובץ לא תקין", true);
-      return;
-    }
-
-    const ok = await showConfirm({
-      title: "ייבוא גיבוי",
-      msg: "הייבוא יחליף את כל הבלוקים הקיימים. להמשיך?",
-      confirmLabel: "ייבוא",
-      danger: true,
+    historyView.init({
+      getShadow,
+      state,
+      framing,
+      modals,
+      docHandler,
+      loadBlocks,
+      saveBlocks,
+      render,
+      setStatus,
+      setProgress,
+      clearProgress,
+      inject: ccbInject,
+      openEdit,
+      updateInjectBtn,
+      getDocMaxChars: () => state.docMaxChars,
+      getAutoInjectMode,
+      setAutoInjectMode,
+      // Never null: falls back to the built-in defaults if a scan somehow
+      // fires before loadScanSettings() resolved, so a scan can't run with
+      // every filter silently disabled.
+      getScanSettings: () => state.scanSettings || docHandler.getDefaultScanSettings(),
     });
-    if (!ok) return;
 
-    blocks = parsed;
-    blocksLoaded = true;
-    selected.clear();
-    editingId = null;
-    await saveBlocks();
-    closeEdit();
-    closeSettings();
-    render();
-    updateInjectBtn();
-    setStatus("הייבוא הושלם ✓");
+    chat.init({
+      getShadow,
+      state,
+      config: { GM_ID, SEND_BUTTON_SELECTOR, NEW_CHAT_BTN_SELECTOR, MSG_SELECTORS, CHARS_PER_TOKEN },
+      framing,
+      inject: ccbInject,
+      modals,
+      historyView,
+      docHandler,
+      loadBlocks,
+      saveBlocks,
+      setStatus,
+      render,
+      updateInjectBtn,
+      openEdit,
+      getAutoInjectMode,
+      setAutoInjectMode,
+    });
   }
 
   // ============================================================
-  // Wire events
+  // Wire events (central switchboard)
   // ============================================================
-  function hasUnsavedChanges() {
-    if (
-      !editingId &&
-      !$el("editTitle").value.trim() &&
-      !$el("editContent").value.trim()
-    )
-      return false;
-    const b = editingId ? blocks[editingId] : null;
-    if (!b)
-      return (
-        !!$el("editTitle").value.trim() || !!$el("editContent").value.trim()
-      );
-    return (
-      $el("editTitle").value.trim() !== (b.title || "") ||
-      $el("editContent").value.trim() !== (b.content || "")
-    );
-  }
-
   function debouncedRender() {
     if (!ENABLE_SEARCH_DEBOUNCE) {
       render();
@@ -301,34 +440,175 @@
     searchTimeout = setTimeout(render, DEBOUNCE_MS);
   }
 
+  function resetTabDefaults(tabName) {
+    try {
+      const historyView = window.__ccbHistoryView;
+      if (tabName === "history") {
+        state.historySearchMode = "title";
+        $el("toggleSearchTitle")?.classList.add("active");
+        $el("toggleSearchContent")?.classList.remove("active");
+        if ($el("searchHistory")) $el("searchHistory").value = "";
+        state.historyCollapsed = false;
+        historyView.closeConversationView();
+      } else if (tabName === "context") {
+        state.selected.clear();
+        updateInjectBtn();
+        historyView.closeHiDropdown();
+        const expanded = $el("ccb-ctx-expanded");
+        if (expanded) {
+          expanded.style.display = "none";
+          expanded.setAttribute("aria-hidden", "true");
+          $el("ccb-ctx-expand")?.setAttribute("aria-expanded", "false");
+        }
+      }
+    } catch (e) {
+      console.error("resetTabDefaults error", e);
+    }
+  }
+
   function wireEvents() {
+    const modals = window.__ccbModals;
+    const historyView = window.__ccbHistoryView;
+    const chat = window.__ccbChat;
+
     $el("fab").addEventListener("click", togglePanel);
     $el("settingsBtn").addEventListener("click", (e) => {
       e.stopPropagation();
-      closeSettings();
-      openSettings();
+      modals.closeSettings();
+      void modals.openSettings();
     });
-    $el("settingsCloseBtn").addEventListener("click", closeSettings);
+    $el("settingsCloseBtn").addEventListener("click", modals.closeSettings);
     $el("settingsOverlay").addEventListener("click", (e) => {
-      if (e.target === $el("settingsOverlay")) closeSettings();
+      if (e.target === $el("settingsOverlay")) modals.closeSettings();
     });
     window.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") closeSettings();
+      if (e.key === "Escape") {
+        modals.closeSettings();
+        modals.closeScanSettings();
+      }
+    });
+    $el("scanSettingsOverlay")?.addEventListener("click", (e) => {
+      if (e.target === $el("scanSettingsOverlay")) modals.closeScanSettings();
     });
     $el("exportBackupBtn").addEventListener("click", exportBackup);
     $el("importBackupBtn").addEventListener("click", () => {
-      closeSettings();
+      modals.closeSettings();
       $el("importBackupInput").value = "";
       $el("importBackupInput").click();
+    });
+    $el("editPromptsBtn")?.addEventListener("click", () => {
+      modals.openPromptsEditor();
+    });
+    $el("scanSettingsBtn")?.addEventListener("click", () => {
+      modals.closeSettings();
+      void modals.openScanSettings();
     });
     $el("importBackupInput").addEventListener("change", async () => {
       const file = $el("importBackupInput").files?.[0];
       await importBackupFile(file);
       $el("importBackupInput").value = "";
     });
+
+    $el("savePromptsBtn")?.addEventListener(
+      "click",
+      () => void modals.savePromptsEditor(),
+    );
+    $el("cancelPromptsBtn")?.addEventListener("click", modals.closePromptsEditor);
+    $el("resetFramingBtn")?.addEventListener(
+      "click",
+      () => void modals.resetPromptsEditor("framingAll"),
+    );
+    $el("resetFramingManualBtn")?.addEventListener(
+      "click",
+      () => void modals.resetPromptsEditor("framingManual"),
+    );
+    $el("resetFramingGmBtn")?.addEventListener(
+      "click",
+      () => void modals.resetPromptsEditor("framingGm"),
+    );
+    $el("resetFramingConvBtn")?.addEventListener(
+      "click",
+      () => void modals.resetPromptsEditor("framingConv"),
+    );
+    $el("resetFramingProjBtn")?.addEventListener(
+      "click",
+      () => void modals.resetPromptsEditor("framingProj"),
+    );
+    $el("resetFramingDocsBtn")?.addEventListener(
+      "click",
+      () => void modals.resetPromptsEditor("framingDocs"),
+    );
+    $el("resetFramingEveryBtn")?.addEventListener(
+      "click",
+      () => void modals.resetPromptsEditor("framingEvery"),
+    );
+    $el("ccb-files-row").addEventListener("click", (e) => {
+      e.stopPropagation();
+      window.__ccbCtxMeter.openFilesDropdown($el("ccb-files-row"));
+    });
+    $el("ccb-ctx-size").addEventListener("change", async () => {
+      const input = $el("ccb-ctx-size");
+      const raw = input?.value?.trim() || "";
+      if (!raw) {
+        input.value = String(Math.round(state.ctxWindow / 1000));
+        return;
+      }
+      const value = Number(raw);
+      if (!Number.isFinite(value)) {
+        input.value = String(Math.round(state.ctxWindow / 1000));
+        return;
+      }
+      try {
+        const next = await setCtxWindow(value);
+        input.value = String(Math.round(next / 1000));
+        window.__ccbCtxMeter.update();
+      } catch (e) {
+        console.error("Failed to save ctxWindow", e);
+        input.value = String(Math.round(state.ctxWindow / 1000));
+        setStatus("לא ניתן לשמור את חלון הקונטקסט", true);
+      }
+    });
+    $el("ccb-doc-max-chars").addEventListener("change", async () => {
+      const input = $el("ccb-doc-max-chars");
+      const revert = () => { input.value = String(Math.round(state.docMaxChars / 1000)); };
+      const raw = input?.value?.trim() || "";
+      if (!raw) return revert();
+      const value = Number(raw);
+      if (!Number.isFinite(value) || value < 1) return revert();
+      try {
+        const next = await setDocMaxChars(value);
+        input.value = String(Math.round(next / 1000));
+      } catch (e) {
+        console.error("Failed to save docMaxChars", e);
+        revert();
+        setStatus("לא ניתן לשמור את מגבלת התווים", true);
+      }
+    });
+    // Separate selects for GM and project-instructions auto-inject mode
+    // (2026-07-22 split — previously one shared select/setting for both).
+    $el("ccb-auto-inject-mode-gm")?.addEventListener("change", async (e) => {
+      try {
+        await setAutoInjectMode("gm", e.target.value);
+        render(); // refresh the GM card's live badge
+      } catch (err) {
+        console.error("Failed to save autoInjectModeGm", err);
+        e.target.value = state.autoInjectModeGm;
+        setStatus("לא ניתן לשמור את מצב הטעינה", true);
+      }
+    });
+    $el("ccb-auto-inject-mode-project")?.addEventListener("change", async (e) => {
+      try {
+        await setAutoInjectMode("project", e.target.value);
+        render(); // refresh the project-instructions card's live badge
+      } catch (err) {
+        console.error("Failed to save autoInjectModeProject", err);
+        e.target.value = state.autoInjectModeProject;
+        setStatus("לא ניתן לשמור את מצב הטעינה", true);
+      }
+    });
     $el("closeBtn").addEventListener("click", async () => {
       if ($el("panel").classList.contains("editing") && hasUnsavedChanges()) {
-        const ok = await showConfirm({
+        const ok = await modals.showConfirm({
           title: "שינויים שלא נשמרו",
           msg: "אם תצא עכשיו, השינויים שעשית יאבדו.",
           confirmLabel: "צא בלי לשמור",
@@ -337,34 +617,146 @@
       }
       setPanelOpen(false);
     });
+    $el("addProjectBtn").addEventListener("click", () => void historyView.addProject());
+    $el("addCodeProjectBtn").addEventListener("click", () => void historyView.createCodeProjectBookmark());
+    $el("projectSelectBtn").addEventListener("click", () => {
+      historyView.toggleProjectSelectDropdown();
+    });
+    $el("historyShowAll").addEventListener("change", (e) => {
+      state.historyShowAll = e.target.checked;
+      historyView.renderHistoryList();
+    });
     $el("searchHistory").addEventListener("input", debouncedRender);
     $el("toggleSearchTitle").addEventListener("click", () => {
-      historySearchMode = "title";
+      state.historySearchMode = "title";
       $el("toggleSearchTitle").classList.add("active");
       $el("toggleSearchContent").classList.remove("active");
       $el("searchHistory").placeholder = "חיפוש בשיחות...";
-      renderHistoryList();
+      historyView.renderHistoryList();
     });
     $el("toggleSearchContent").addEventListener("click", () => {
-      historySearchMode = "content";
+      state.historySearchMode = "content";
       $el("toggleSearchContent").classList.add("active");
       $el("toggleSearchTitle").classList.remove("active");
       $el("searchHistory").placeholder = "חיפוש מילה בתוכן...";
-      renderHistoryList();
+      historyView.renderHistoryList();
+    });
+    $el("historyCollapseBtn").addEventListener("click", () => {
+      state.historyCollapsed = !state.historyCollapsed;
+      historyView.syncCollapsibleSections();
     });
     $el("addBtn").addEventListener("click", () => openEdit(null));
-    $el("injectBtn").addEventListener("click", injectSelected);
-    $el("summarizeBtn").addEventListener("click", saveChat);
-    $el("summarizeBtnHistory").addEventListener("click", saveChat);
+    $el("injectBtn").addEventListener("click", () => chat.injectSelected());
+    $el("injectDocsBtn").addEventListener("click", () => historyView.injectProjectDocuments());
+    // No manual "save chat" button anymore — auto-save (chat-features.js#
+    // scheduleAutoSave) covers it. chat.saveChat() is still exported and still
+    // does the full scroll-to-top capture; it just has no UI trigger today.
     $el("saveBtn").addEventListener("click", saveEdit);
     $el("cancelBtn").addEventListener("click", closeEdit);
     $el("deleteBtn").addEventListener("click", deleteEdit);
+    $el("projectDocumentsToggle").addEventListener("click", () => {
+      state.projectDocumentsCollapsed = !state.projectDocumentsCollapsed;
+      historyView.syncProjectDocumentsSection();
+    });
+    $el("blocksCollapseBtn").addEventListener("click", () => {
+      state.blocksCollapsed = !state.blocksCollapsed;
+      syncBlocksSection();
+    });
+
+    const ctxExpand = $el("ccb-ctx-expand");
+    if (ctxExpand) {
+      ctxExpand.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const expanded = $el("ccb-ctx-expanded");
+        const chevron = ctxExpand.querySelector(".collapse-btn");
+        if (!expanded) return;
+        const isOpen =
+          expanded.style.display !== "" && expanded.style.display !== "block";
+        if (isOpen) {
+          expanded.style.display = "block";
+          expanded.setAttribute("aria-hidden", "false");
+          ctxExpand.setAttribute("aria-expanded", "true");
+          chevron?.classList.remove("collapsed");
+        } else {
+          expanded.style.display = "none";
+          expanded.setAttribute("aria-hidden", "true");
+          ctxExpand.setAttribute("aria-expanded", "false");
+          chevron?.classList.add("collapsed");
+        }
+        window.__ccbCtxMeter.update();
+      });
+    }
+
+    $el("projectEditBtn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      const project = historyView.getProjectById(state.currentProjectId);
+      if (project) historyView.openProjectDropdown(project, $el("projectEditBtn"));
+    });
+
+    // Conversation View
+    $el("cvBack")?.addEventListener("click", historyView.closeConversationView);
+
+    let cvSearchTimer = null;
+    $el("cvSearch")?.addEventListener("input", () => {
+      clearTimeout(cvSearchTimer);
+      cvSearchTimer = setTimeout(() => {
+        const b = state.currentConversationViewId ? state.blocks[state.currentConversationViewId] : null;
+        if (b) historyView.renderConversationMessages(b, ($el("cvSearch")?.value || "").trim());
+      }, DEBOUNCE_MS);
+    });
+
+    $el("cvNavPrev")?.addEventListener("click", () => {
+      if (!state.cvMatchElements.length) return;
+      state.cvMatchIndex =
+        (state.cvMatchIndex - 1 + state.cvMatchElements.length) % state.cvMatchElements.length;
+      historyView.updateNavMatch();
+    });
+    $el("cvNavNext")?.addEventListener("click", () => {
+      if (!state.cvMatchElements.length) return;
+      state.cvMatchIndex = (state.cvMatchIndex + 1) % state.cvMatchElements.length;
+      historyView.updateNavMatch();
+    });
+
+    $el("cvSelAll")?.addEventListener("click", () => {
+      const b = state.currentConversationViewId ? state.blocks[state.currentConversationViewId] : null;
+      if (!b) return;
+      state.cvSelectedIndices = new Set(historyView.buildHistoryMessages(b).map((_, i) => i));
+      historyView.renderConversationMessages(b, ($el("cvSearch")?.value || "").trim());
+    });
+    $el("cvSelNone")?.addEventListener("click", () => {
+      state.cvSelectedIndices = new Set();
+      const b = state.currentConversationViewId ? state.blocks[state.currentConversationViewId] : null;
+      if (b) historyView.renderConversationMessages(b, ($el("cvSearch")?.value || "").trim());
+      else historyView.updateCvFooter();
+    });
+
+    // "טען נבחרים" — inject selected messages into current chat as context
+    // (does NOT bind to the loaded conversation; current chat stays its own).
+    // Deliberately does not auto-send — the user reviews/edits and sends
+    // themselves, same as file loading (injectProjectDocuments).
+    $el("cvLoadBtn")?.addEventListener("click", () => {
+      const b = state.currentConversationViewId ? state.blocks[state.currentConversationViewId] : null;
+      if (!b || !state.cvSelectedIndices.size) return;
+      const allMsgs = historyView.buildHistoryMessages(b);
+      const selectedMsgs = allMsgs.filter((_, i) => state.cvSelectedIndices.has(i));
+      const text = historyView.buildConversationInjectionText(selectedMsgs);
+      const r = ccbInject.injectIntoInput(text, "replace");
+      if (r.ok) {
+        historyView.closeConversationView();
+        setStatus("נטען — ניתן לערוך ולשלוח ✓");
+      } else {
+        setStatus(r.error || "נכשל", true);
+      }
+    });
 
     shadow.querySelectorAll(".tab").forEach((tab) => {
       tab.addEventListener("click", async () => {
+        historyView.closeConversationView();
+        historyView.closeProjectSelectDropdown();
+        resetTabDefaults(tab.dataset.tab);
         if ($el("panel").classList.contains("editing")) {
           if (hasUnsavedChanges()) {
-            const ok = await showConfirm({
+            const ok = await modals.showConfirm({
               title: "שינויים שלא נשמרו",
               msg: "אם תצא עכשיו, השינויים שעשית יאבדו.",
               confirmLabel: "צא בלי לשמור",
@@ -377,19 +769,13 @@
           t.classList.remove("active");
           t.setAttribute("aria-selected", "false");
         });
-        shadow
-          .querySelectorAll(".tab-pane")
-          .forEach((p) => p.classList.remove("active"));
+        shadow.querySelectorAll(".tab-pane").forEach((p) => p.classList.remove("active"));
         tab.classList.add("active");
         tab.setAttribute("aria-selected", "true");
-        shadow
-          .getElementById("pane-" + tab.dataset.tab)
-          .classList.add("active");
+        shadow.getElementById("pane-" + tab.dataset.tab).classList.add("active");
         moveTabIndicator(tab);
         render();
-        const isHistory = tab.dataset.tab === "history";
-        $el("mainFooter").style.display = isHistory ? "none" : "";
-        $el("historyFooter").style.display = isHistory ? "" : "none";
+        window.__ccbCtxMeter.update();
       });
     });
     requestAnimationFrame(() => {
@@ -404,6 +790,7 @@
   async function setPanelOpen(open) {
     if (!isActiveSitePage()) return;
     mountUI();
+
     if (open) {
       await loadBlocks();
       $el("panel").classList.add("open");
@@ -411,8 +798,15 @@
       pushPage(true);
       render();
       updateInjectBtn();
-      $el("searchHistory").focus();
+      window.__ccbCtxMeter.update();
+      // Only the history pane has a search field to focus — guard against
+      // focusing it while hidden behind the (now-default) context tab.
+      if (shadow.querySelector(".tab.active")?.dataset.tab === "history") {
+        $el("searchHistory").focus();
+      }
     } else {
+      window.__ccbHistoryView.closeConversationView();
+      window.__ccbHistoryView.closeProjectSelectDropdown();
       $el("panel").classList.remove("open");
       $el("fab").classList.remove("hidden");
       pushPage(false);
@@ -427,615 +821,220 @@
   }
 
   // ============================================================
-  // General Memory
+  // Render orchestrator
+  // Timing/operation log only — counts, never block/conversation content.
+  // Every scan/inject flow ends by calling this; before this it had zero
+  // timing, so a slow render here was indistinguishable from "stuck" in
+  // the console (see [ccb-timing] history-view.render for the breakdown
+  // of the historyViewMs slice below).
   // ============================================================
-  function getGM() {
-    return (
-      blocks[GM_ID] || {
-        id: GM_ID,
-        kind: "general_memory",
-        content: "",
-        autoLoad: false,
-      }
-    );
+  function render() {
+    const startedAt = Date.now();
+    window.__ccbChat.renderGeneralMemory();
+    const t1 = Date.now();
+    renderUnifiedBlocksList();
+    const blocksListMs = Date.now() - t1;
+    syncBlocksSection();
+    syncInjectDocsBtn();
+    const t2 = Date.now();
+    window.__ccbHistoryView.render();
+    const historyViewMs = Date.now() - t2;
+    // After renderProjectContext() has pruned any non-active project's id from
+    // state.selected, refresh the footer count so it matches what's ticked.
+    updateInjectBtn();
+    const t3 = Date.now();
+    window.__ccbCtxMeter.watchConversation();
+    window.__ccbCtxMeter.update();
+    const ctxMeterMs = Date.now() - t3;
+    console.log("[ccb-timing] render", {
+      totalBlocks: Object.keys(state.blocks || {}).length,
+      blocksListMs, historyViewMs, ctxMeterMs,
+      totalMs: Date.now() - startedAt,
+    });
   }
 
-  function renderGeneralMemory() {
-    const card = $el("gmCard");
-    if (!card) return;
-    const gm = getGM();
-    const on = !!gm.autoLoad;
-    const content = (gm.content || "").trim();
-    const selectedForInject = selected.has(GM_ID);
+  function syncBlocksSection() {
+    const collapsed = state.blocksCollapsed;
+    const section = $el("blocksSection");
+    const btn = $el("blocksCollapseBtn");
+    if (section) section.classList.toggle("collapsed", collapsed);
+    if (btn) {
+      btn.classList.toggle("collapsed", collapsed);
+      btn.title = collapsed ? "פתח פרומפטים" : "סגור פרומפטים";
+      btn.setAttribute("aria-label", collapsed ? "פתח פרומפטים" : "סגור פרומפטים");
+    }
+  }
 
-    card.innerHTML = "";
-    const wrap = document.createElement("div");
-    wrap.className = "gm-card";
+  // ============================================================
+  // Context list (kept here — tightly coupled to selected state)
+  // ============================================================
 
-    const header = document.createElement("div");
-    header.className = "gm-header";
+  /** Renders a single context block row. `projTitle` shows a tag pill when the block belongs to a project. */
+  function renderBlockRow(b, projTitle) {
+    const isSelected = state.selected.has(b.id);
+    const row = document.createElement("div");
+    row.className = "block" + (isSelected ? " selected" : "");
 
-    const selectLabel = document.createElement("label");
-    selectLabel.className = "cb-wrap gm-select";
-    const selectInput = document.createElement("input");
-    selectInput.type = "checkbox";
-    selectInput.checked = selectedForInject;
-    selectInput.setAttribute("aria-label", "הוסף זיכרון כללי להזרקה");
-    selectInput.addEventListener("change", () => {
-      if (selectInput.checked) selected.add(GM_ID);
-      else selected.delete(GM_ID);
+    const cbWrap = document.createElement("label");
+    cbWrap.className = "cb-wrap";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = isSelected;
+    cb.setAttribute("aria-label", b.title);
+    cbWrap.addEventListener("click", (e) => e.stopPropagation());
+    cb.addEventListener("change", () => {
+      if (cb.checked) state.selected.add(b.id);
+      else state.selected.delete(b.id);
+      row.classList.toggle("selected", cb.checked);
       updateInjectBtn();
     });
-    const selectBox = document.createElement("span");
-    selectBox.className = "cb-box";
-    selectBox.innerHTML =
+    const cbBox = document.createElement("span");
+    cbBox.className = "cb-box";
+    cbBox.innerHTML =
       '<svg class="cb-check" width="10" height="8" viewBox="0 0 10 8" fill="none"><polyline points="1,4 4,7 9,1" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-    selectLabel.appendChild(selectInput);
-    selectLabel.appendChild(selectBox);
+    cbWrap.appendChild(cb);
+    cbWrap.appendChild(cbBox);
 
-    const toggleLabel = document.createElement("label");
-    toggleLabel.className = "toggle";
-    const toggleInput = document.createElement("input");
-    toggleInput.type = "checkbox";
-    toggleInput.checked = on;
-    toggleInput.addEventListener("change", async () => {
-      await loadBlocks();
-      const g = getGM();
-      g.autoLoad = toggleInput.checked;
-      g.kind = "general_memory";
-      g.id = GM_ID;
-      blocks[GM_ID] = g;
-      await saveBlocks();
-      renderGeneralMemory();
-    });
-    const toggleTrack = document.createElement("span");
-    toggleTrack.className = "toggle-track";
-    toggleLabel.appendChild(toggleInput);
-    toggleLabel.appendChild(toggleTrack);
+    const main = document.createElement("div");
+    main.className = "block-main";
+    const head = document.createElement("div");
+    head.className = "block-head";
+    const titleEl = document.createElement("div");
+    titleEl.className = "block-title";
+    titleEl.textContent = b.title;
+    head.appendChild(titleEl);
 
-    const title = document.createElement("span");
-    title.className = "gm-title";
-    title.textContent = "זיכרון כללי";
+    // Project name tag — marks blocks that belong to the active project
+    if (projTitle) {
+      const tag = document.createElement("span");
+      tag.className = "ctx-proj-tag";
+      tag.textContent = projTitle;
+      head.appendChild(tag);
+    }
 
-    const badge = document.createElement("span");
-    badge.className = "auto-badge";
-    badge.textContent = "נטען אוטומטית";
-    if (!on) badge.style.display = "none";
-
-    const editBtn = document.createElement("button");
-    editBtn.className = "gm-edit-btn";
-    editBtn.textContent = "עריכה";
-    editBtn.addEventListener("click", () =>
-      openEdit(GM_ID, { title: "זיכרון כללי", content, tags: "" }),
-    );
-
-    header.appendChild(selectLabel);
-    header.appendChild(toggleLabel);
-    header.appendChild(title);
-    header.appendChild(editBtn);
-    wrap.appendChild(header);
-
-    if (on) wrap.appendChild(badge);
-
-    card.appendChild(wrap);
-  }
-
-  async function tryAutoInject() {
-    const gm = getGM();
-    if (!gm.autoLoad || !(gm.content || "").trim()) return;
-    let tries = 0;
-    const poll = setInterval(() => {
-      tries++;
-      if (tries > 100) {
-        clearInterval(poll);
-        return;
+    main.appendChild(head);
+    if ((b.tags || []).length) {
+      const tagsRow = document.createElement("div");
+      tagsRow.className = "block-tags";
+      for (const t of b.tags || []) {
+        const span = document.createElement("span");
+        span.className = "tag";
+        span.textContent = t;
+        tagsRow.appendChild(span);
       }
-      const el = findInput();
-      if (!el) return;
-      clearInterval(poll);
-      injectIntoInput(FRAMING + gm.content, "prepend");
-      setTimeout(() => {
-        const btn = document.querySelector(CONFIG.SEND_BUTTON_SELECTOR);
-        if (btn) btn.click();
-      }, 100);
-    }, 100);
+      main.appendChild(tagsRow);
+    }
+
+    row.addEventListener("click", () => openEdit(b.id));
+    row.appendChild(cbWrap);
+    row.appendChild(main);
+    return row;
   }
 
-  // ============================================================
-  // Render
-  // ============================================================
-  function dateGroup(ts) {
-    const now = new Date();
-    const d = new Date(ts);
-    const diffDays = Math.floor((Date.now() - ts) / 86400000);
-    if (diffDays === 0 && now.getDate() === d.getDate()) return "היום";
-    if (diffDays <= 1 && now.getDate() - d.getDate() === 1) return "אתמול";
-    if (diffDays < 7) return "השבוע";
-    if (diffDays < 30) return "החודש";
-    return "קודם";
-  }
-
-  const GROUP_ORDER = ["היום", "אתמול", "השבוע", "החודש", "קודם"];
-
-  function extractSnippet(text, q, fromIndex = 0) {
-    if (!text || !q) return null;
-    const haystack = text.toLowerCase();
-    const needle = q.toLowerCase();
-    const idx = haystack.indexOf(needle, fromIndex);
-    if (idx === -1) return null;
-    const start = Math.max(0, idx - 50);
-    const end = Math.min(text.length, idx + q.length + 50);
-    return {
-      idx,
-      prefix: start > 0 ? "…" : "",
-      before: text.slice(start, idx),
-      match: text.slice(idx, idx + q.length),
-      after: text.slice(idx + q.length, end),
-      suffix: end < text.length ? "…" : "",
-    };
-  }
-
-  function render() {
-    renderGeneralMemory();
-    renderContextList();
-    renderHistoryList();
-  }
-
-  function renderContextList() {
-    const items = Object.values(blocks)
-      .filter((b) => b.kind !== "conversation" && b.id !== GM_ID)
+  /**
+   * Renders the unified prompts list: general blocks (no projectId) plus the
+   * active project's own blocks (tagged with the project title so they're
+   * visually distinguishable). Blocks belonging to a *different* project stay
+   * hidden — switching the active project narrows the list, it never shows
+   * everything at once.
+   */
+  function renderUnifiedBlocksList() {
+    const currentProjectId = state.currentProjectId;
+    const items = Object.values(state.blocks)
+      .filter((b) => !b.kind && b.id !== GM_ID)
+      .filter((b) => !b.projectId || b.projectId === currentProjectId)
       .sort((a, b) => (b.updated || 0) - (a.updated || 0));
 
     const list = $el("list");
+    if (!list) return;
+    // No empty-state placeholder by design (2026-07-21): with nothing to show
+    // the list simply stays blank, and the loop below naturally renders
+    // nothing. The History tab keeps its own `.empty` states — that CSS class
+    // is still in use, so it was not removed from ui-styles.js.
     list.innerHTML = "";
-    if (!items.length) {
-      const div = document.createElement("div");
-      div.className = "empty";
-      div.textContent = "בנק ריק\nלחץ + להוספת בלוק ראשון";
-      list.appendChild(div);
-      return;
-    }
+
     for (const b of items) {
-      const isSelected = selected.has(b.id);
-      const row = document.createElement("div");
-      row.className = "block" + (isSelected ? " selected" : "");
-
-      const cbWrap = document.createElement("label");
-      cbWrap.className = "cb-wrap";
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.checked = isSelected;
-      cb.setAttribute("aria-label", b.title);
-      cbWrap.addEventListener("click", (e) => e.stopPropagation());
-      cb.addEventListener("change", () => {
-        if (cb.checked) selected.add(b.id);
-        else selected.delete(b.id);
-        row.classList.toggle("selected", cb.checked);
-        updateInjectBtn();
-      });
-      const cbBox = document.createElement("span");
-      cbBox.className = "cb-box";
-      cbBox.innerHTML =
-        '<svg class="cb-check" width="10" height="8" viewBox="0 0 10 8" fill="none"><polyline points="1,4 4,7 9,1" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      cbWrap.appendChild(cb);
-      cbWrap.appendChild(cbBox);
-
-      const main = document.createElement("div");
-      main.className = "block-main";
-      const head = document.createElement("div");
-      head.className = "block-head";
-      const title = document.createElement("div");
-      title.className = "block-title";
-      title.textContent = b.title;
-      head.appendChild(title);
-
-      const tagCount = (b.tags || []).length;
-      if (tagCount) {
-        const meta = document.createElement("span");
-        meta.className = "block-meta";
-        meta.textContent = tagCount + " תגים";
-        head.appendChild(meta);
-      }
-      main.appendChild(head);
-      if (tagCount) {
-        const tagsRow = document.createElement("div");
-        tagsRow.className = "block-tags";
-        for (const t of b.tags || []) {
-          const span = document.createElement("span");
-          span.className = "tag";
-          span.textContent = t;
-          tagsRow.appendChild(span);
-        }
-        main.appendChild(tagsRow);
-      }
-
-      row.addEventListener("click", () => openEdit(b.id));
-      row.appendChild(cbWrap);
-      row.appendChild(main);
-      list.appendChild(row);
+      const projTitle = b.projectId
+        ? window.__ccbHistoryView.getProjectById(b.projectId)?.title
+        : null;
+      list.appendChild(renderBlockRow(b, projTitle));
     }
   }
 
   // ============================================================
-  // History
+  // Project docs inject button (footer)
   // ============================================================
-  function formatTranscript(messages) {
-    return messages
-      .map((m) => (m.role === "user" ? "User: " : "Assistant: ") + m.text)
-      .join("\n\n");
-  }
-
-  let historyBubbleObserver = null;
-  let historyBubbleTimer = null;
-
-  function stopHistoryBubbleObserver() {
-    if (historyBubbleObserver) {
-      historyBubbleObserver.disconnect();
-      historyBubbleObserver = null;
-    }
-    if (historyBubbleTimer) {
-      clearTimeout(historyBubbleTimer);
-      historyBubbleTimer = null;
-    }
-  }
-
-  function buildHistoryMessages(b) {
-    if (Array.isArray(b.messages) && b.messages.length) return b.messages;
-    const text = (b.content || "").trim();
-    return text ? [{ role: "ai", text }] : [];
-  }
-
-  function injectHistoryBubbles(messages, { persist = false } = {}) {
-    const container = document.querySelector(MSG_SELECTORS.messageList);
-    if (!container) return false;
-
-    stopHistoryBubbleObserver();
-
-    const prev = container.querySelector("[data-ccb-history]");
-    if (prev) prev.remove();
-
-    const wrapper = document.createElement("div");
-    wrapper.dataset.ccbHistory = "1";
-    wrapper.style.cssText =
-      "padding:16px;border-bottom:1px solid rgba(0,0,0,.1);" +
-      "background:rgba(0,0,0,.02);font-family:system-ui,sans-serif;";
-
-    const label = document.createElement("div");
-    label.style.cssText =
-      "font-size:11px;color:#888;text-align:center;margin-bottom:12px;";
-    label.textContent = "— היסטוריית שיחה קודמת —";
-    wrapper.appendChild(label);
-
-    for (const m of messages) {
-      const bubble = document.createElement("div");
-      bubble.style.cssText =
-        "margin:6px 0;padding:10px 14px;border-radius:12px;" +
-        "font-size:14px;line-height:1.5;max-width:80%;word-break:break-word;" +
-        "white-space:pre-wrap;" +
-        (m.role === "user"
-          ? "background:#e3f2fd;margin-left:auto;text-align:right;"
-          : "background:#f5f5f5;margin-right:auto;");
-      bubble.textContent = m.text;
-      wrapper.appendChild(bubble);
-    }
-
-    container.prepend(wrapper);
-
-    if (persist) {
-      historyBubbleObserver = new MutationObserver(() => {
-        if (!container.contains(wrapper)) container.prepend(wrapper);
-      });
-      historyBubbleObserver.observe(container, { childList: true });
-      historyBubbleTimer = setTimeout(() => {
-        stopHistoryBubbleObserver();
-      }, 10000);
-    }
-
-    return true;
-  }
-
-  async function loadConversation(b, mode = null) {
-    const messages = buildHistoryMessages(b);
-
-    if (!mode) {
-      const choice = await showChoice({
-        title: "איך לטעון את השיחה?",
-        msg: 'בחר אם רק להציג את ההיסטוריה ב-DOM, או להזריק את תוכן השיחה לצ\'אט.',
-        primaryLabel: "הזרקה לצ'אט",
-        secondaryLabel: "רק צפייה בהיסטוריה",
-      });
-      if (choice === "primary") mode = "inject";
-      else if (choice === "secondary") mode = "view";
-      else return;
-    }
-
-    // סמן את השיחה הזו כמוזרקת/נבחרת כרגע (לעדכון בעתיד)
-    lastInjectedConversationId = b.id;
-
-    if (mode === "view") {
-      injectHistoryBubbles(messages, { persist: false });
+  // The footer "קבצים" button is the single, global entry point for
+  // injecting the currently open project's enabled documents (whether
+  // hand-picked in the code-project file tree or the flat regular-project
+  // document list — both live in #projectView, not duplicated here).
+  function syncInjectDocsBtn() {
+    const btn = $el("injectDocsBtn");
+    if (!btn) return;
+    const project = state.currentProjectId ? state.blocks[state.currentProjectId] : null;
+    const docs = project?.documents || [];
+    if (!docs.length) {
+      btn.style.display = "none";
       return;
     }
-
-    const transcript = messages.length ? formatTranscript(messages) : "";
-
-    const r = injectIntoInput(FRAMING + transcript, "replace");
-    if (r.ok) {
-      setTimeout(() => {
-        const btn = document.querySelector(CONFIG.SEND_BUTTON_SELECTOR);
-        if (btn) btn.click();
-      }, 100);
-    } else {
-      setStatus(r.error || "נכשל", true);
-    }
-
-    if (messages.length && MSG_SELECTORS.messageList) {
-      const stableAncestor =
-        document.querySelector("chat-window") ||
-        document.querySelector("chat-window-content") ||
-        document.body;
-      let injected = false;
-      const waitObs = new MutationObserver(() => {
-        const container = document.querySelector(MSG_SELECTORS.messageList);
-        if (container && container.children.length > 0 && !injected) {
-          injected = true;
-          waitObs.disconnect();
-          injectHistoryBubbles(messages, { persist: true });
-          // התחל שמירה אוטומטית כשהשיחה מוזרקת
-          setupAutoSave();
-        }
-      });
-      waitObs.observe(stableAncestor, { childList: true, subtree: true });
-      setTimeout(() => waitObs.disconnect(), 15000);
-    }
-  }
-
-  let hiDropdownCleanup = null;
-
-  function openHiDropdown(b, menuBtn) {
-    closeHiDropdown();
-    const dd = $el("hiDropdown");
-
-    const pinItem = document.createElement("div");
-    pinItem.className = "hd-item";
-    pinItem.innerHTML = b.pinned
-      ? '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="21" x2="21" y2="3"/><path d="M14 3l7 7-1.5 1.5"/><path d="M3 14l1.5-1.5"/></svg> בטל הצמדה'
-      : '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg> הצמד';
-    pinItem.addEventListener("click", async () => {
-      closeHiDropdown();
-      await loadBlocks();
-      blocks[b.id].pinned = !b.pinned;
-      await saveBlocks();
-      renderHistoryList();
-    });
-
-    const sep = document.createElement("div");
-    sep.className = "hd-sep";
-
-    const renameItem = document.createElement("div");
-    renameItem.className = "hd-item";
-    renameItem.innerHTML =
-      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> שנה שם';
-    renameItem.addEventListener("click", async () => {
-      closeHiDropdown();
-      const newName = await showPrompt({
-        title: "שנה שם השיחה",
-        defaultValue: b.title,
-      });
-      if (newName === null || newName.trim() === "") return;
-      await loadBlocks();
-      blocks[b.id].title = newName.trim();
-      await saveBlocks();
-      renderHistoryList();
-    });
-
-    const delItem = document.createElement("div");
-    delItem.className = "hd-item danger";
-    delItem.innerHTML =
-      '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> מחק';
-    delItem.addEventListener("click", async () => {
-      closeHiDropdown();
-      const ok = await showConfirm({
-        title: "מחיקת שיחה",
-        msg: 'למחוק את "' + b.title + '"? לא ניתן לשחזר.',
-        confirmLabel: "מחק",
-        danger: true,
-      });
-      if (!ok) return;
-      delete blocks[b.id];
-      await saveBlocks();
-      renderHistoryList();
-    });
-
-    dd.innerHTML = "";
-    dd.appendChild(pinItem);
-    dd.appendChild(sep);
-    dd.appendChild(renameItem);
-    dd.appendChild(delItem);
-
-    const rect = menuBtn.getBoundingClientRect();
-    dd.style.top = rect.top + "px";
-    dd.style.left = rect.right + 6 + "px";
-    dd.classList.add("open");
-
-    const onOutside = (e) => {
-      if (!dd.contains(e.target) && e.target !== menuBtn) closeHiDropdown();
-    };
-    document.addEventListener("click", onOutside, {
-      capture: true,
-      once: false,
-    });
-    hiDropdownCleanup = () =>
-      document.removeEventListener("click", onOutside, { capture: true });
-  }
-
-  function closeHiDropdown() {
-    const dd = $el("hiDropdown");
-    if (dd) dd.classList.remove("open");
-    if (hiDropdownCleanup) {
-      hiDropdownCleanup();
-      hiDropdownCleanup = null;
-    }
-  }
-
-  function renderHistoryList() {
-    closeHiDropdown();
-    const q = ($el("searchHistory")?.value || "").trim().toLowerCase();
-    const all = Object.values(blocks)
-      .filter((b) => b.kind === "conversation")
-      .sort((a, b) => (b.updated || 0) - (a.updated || 0));
-
-    const list = $el("historyList");
-    list.innerHTML = "";
-
-    if (!all.length) {
-      const div = document.createElement("div");
-      div.className = "empty";
-      div.textContent = q
-        ? "לא נמצא"
-        : 'אין סיכומי שיחה שמורים\nלחץ "סכם שיחה" לשמירה אוטומטית';
-      list.appendChild(div);
-      return;
-    }
-
-    const rows = [];
-    if (!q) {
-      for (const b of all) rows.push({ block: b, kind: "conversation" });
-    } else if (historySearchMode === "title") {
-      for (const b of all) {
-        if (b.title.toLowerCase().includes(q))
-          rows.push({ block: b, kind: "conversation" });
-      }
-    } else {
-      for (const b of all) {
-        for (const [index, m] of (b.messages || []).entries()) {
-          const text = (m?.text || "").trim();
-          if (!text) continue;
-          let fromIndex = 0;
-          while (true) {
-            const snippet = extractSnippet(text, q, fromIndex);
-            if (!snippet) break;
-            rows.push({
-              block: b,
-              kind: "message",
-              role: m.role || "user",
-              snippet,
-              messageIndex: index,
-            });
-            fromIndex = snippet.idx + Math.max(q.length, 1);
-          }
-        }
-      }
-    }
-
-    if (!rows.length) {
-      const div = document.createElement("div");
-      div.className = "empty";
-      div.textContent = "לא נמצא";
-      list.appendChild(div);
-      return;
-    }
-
-    const pinned = rows.filter((row) => row.block.pinned);
-    const rest = rows.filter((row) => !row.block.pinned);
-
-    function addItem(rowData) {
-      const b = rowData.block;
-      const row = document.createElement("div");
-      row.className =
-        "hi-item" +
-        (b.pinned ? " pinned" : "") +
-        (rowData.kind === "message" ? " search-content" : "");
-
-      const head = document.createElement("div");
-      head.className = "hi-head";
-      const title = document.createElement("div");
-      title.className = "hi-title";
-      title.textContent = b.title;
-
-      const menuBtn = document.createElement("button");
-      menuBtn.className = "hi-menu-btn";
-      menuBtn.innerHTML = "···";
-      menuBtn.title = "אפשרויות";
-      menuBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openHiDropdown(b, menuBtn);
-      });
-
-      row.addEventListener("click", () => loadConversation(b));
-
-      head.appendChild(title);
-      head.appendChild(menuBtn);
-      row.appendChild(head);
-
-      if (rowData.kind === "message") {
-        const snippetRow = document.createElement("div");
-        snippetRow.className = "hi-snippet-row";
-
-        const role = document.createElement("span");
-        role.className = "hi-match-role";
-        role.textContent = rowData.role === "ai" ? "ai" : "user";
-
-        const snippet = document.createElement("div");
-        snippet.className = "hi-snippet";
-        if (rowData.snippet.prefix)
-          snippet.appendChild(document.createTextNode(rowData.snippet.prefix));
-        snippet.appendChild(document.createTextNode(rowData.snippet.before));
-        const mark = document.createElement("mark");
-        mark.textContent = rowData.snippet.match;
-        snippet.appendChild(mark);
-        snippet.appendChild(document.createTextNode(rowData.snippet.after));
-        if (rowData.snippet.suffix)
-          snippet.appendChild(document.createTextNode(rowData.snippet.suffix));
-
-        snippetRow.appendChild(role);
-        snippetRow.appendChild(snippet);
-        row.appendChild(snippetRow);
-      }
-
-      list.appendChild(row);
-    }
-
-    if (pinned.length) {
-      const label = document.createElement("div");
-      label.className = "date-group-label";
-      label.textContent = "מוצמד";
-      list.appendChild(label);
-      pinned.forEach(addItem);
-    }
-
-    const groups = {};
-    for (const rowData of rest) {
-      const g = dateGroup(rowData.block.updated || 0);
-      if (!groups[g]) groups[g] = [];
-      groups[g].push(rowData);
-    }
-    for (const groupName of GROUP_ORDER) {
-      if (!groups[groupName]) continue;
-      const label = document.createElement("div");
-      label.className = "date-group-label";
-      label.textContent = groupName;
-      list.appendChild(label);
-      groups[groupName].forEach(addItem);
-    }
+    btn.style.display = "flex";
+    // A code project's auto-generated "structure" doc is always enabled and
+    // never exposed in the file tree to toggle off — it alone shouldn't
+    // count as "something is selected" and keep the button clickable.
+    const hasSelectable = docs.some((d) => d.type !== "structure" && d.enabled);
+    btn.disabled = !hasSelectable;
   }
 
   // ============================================================
   // Edit form
   // ============================================================
+  function hasUnsavedChanges() {
+    if (
+      !state.editingId &&
+      !$el("editTitle").value.trim() &&
+      !$el("editContent").value.trim()
+    )
+      return false;
+    const b = state.editingId ? state.blocks[state.editingId] : null;
+    if (!b)
+      return (
+        !!$el("editTitle").value.trim() || !!$el("editContent").value.trim()
+      );
+    return (
+      $el("editTitle").value.trim() !== (b.title || "") ||
+      $el("editContent").value.trim() !== (b.content || "")
+    );
+  }
+
   function openEdit(id, prefill) {
-    editingId = id;
-    const b = id ? blocks[id] : null;
+    state.editingId = id;
+    const b = id ? state.blocks[id] : null;
     $el("editTitle").value = b ? b.title : prefill?.title || "";
     $el("editTags").value = b ? (b.tags || []).join(", ") : prefill?.tags || "";
     $el("editContent").value = b ? b.content : prefill?.content || "";
-    $el("deleteBtn").style.display = id ? "block" : "none";
+    // Project blocks have their own delete flow (historyView.deleteProject,
+    // behind #projectEditBtn's dropdown) that also cleans up child blocks/
+    // conversation links — this generic delete doesn't, so it stays hidden
+    // for kind:"project".
+    $el("deleteBtn").style.display = id && b?.kind !== "project" ? "block" : "none";
+
+    // Show which project this block belongs to: an existing block's own
+    // projectId, or — for a brand-new block — the currently active project
+    // it's about to be created into.
+    const projectId = b ? b.projectId : state.currentProjectId;
+    const project = projectId ? window.__ccbHistoryView.getProjectById(projectId) : null;
+    const tag = $el("editProjectTag");
+    if (tag) {
+      tag.style.display = project ? "flex" : "none";
+      if (project) $el("editProjectTagText").textContent = project.title;
+    }
+
     $el("panel").classList.add("editing");
     $el("editTitle").focus();
   }
 
   function closeEdit() {
-    editingId = null;
+    state.editingId = null;
     if (!shadow) return;
     $el("panel").classList.remove("editing");
     setStatus("");
@@ -1053,29 +1052,34 @@
       return;
     }
     const id =
-      editingId ||
+      state.editingId ||
       "b_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
-    const existing = blocks[id];
-    blocks[id] = { id, title, content, tags, updated: Date.now() };
-    if (existing?.kind) blocks[id].kind = existing.kind;
-    if (existing?.autoLoad !== undefined)
-      blocks[id].autoLoad = existing.autoLoad;
+    const existing = state.blocks[id];
+    // Spread existing first so fields the form doesn't know about (kind,
+    // autoLoad, projectId, and — critically — a project's documents/
+    // isCodeProject/dirHandleId/lastScanned/depGraph) survive an edit
+    // instead of being silently dropped.
+    state.blocks[id] = { ...existing, id, title, content, tags, updated: Date.now() };
+    // A brand-new block is created into whichever project is currently
+    // active (or general, if none is); an existing block keeps its own.
+    if (!existing && state.currentProjectId)
+      state.blocks[id].projectId = state.currentProjectId;
     await saveBlocks();
     closeEdit();
     render();
   }
 
   async function deleteEdit() {
-    if (!editingId) return;
-    const ok = await showConfirm({
+    if (!state.editingId) return;
+    const ok = await window.__ccbModals.showConfirm({
       title: "מחיקת בלוק",
-      msg: 'למחוק את "' + blocks[editingId].title + '"? לא ניתן לשחזר.',
+      msg: 'למחוק את "' + state.blocks[state.editingId].title + '"? לא ניתן לשחזר.',
       confirmLabel: "מחק",
       danger: true,
     });
     if (!ok) return;
-    delete blocks[editingId];
-    selected.delete(editingId);
+    delete state.blocks[state.editingId];
+    state.selected.delete(state.editingId);
     await saveBlocks();
     closeEdit();
     render();
@@ -1084,293 +1088,19 @@
   function updateInjectBtn() {
     if (!shadow) return;
     const btn = $el("injectBtn");
-    const n = selected.size;
+    const n = state.selected.size;
     btn.disabled = n === 0;
     if (n > 0) {
       btn.innerHTML =
-        IC.upload + ' טען נבחרים <span class="count-pill">' + n + "</span>";
+        IC.upload + ' טען פרומפטים <span class="count-pill">' + n + "</span>";
     } else {
-      btn.innerHTML = IC.upload + " טען נבחרים";
+      btn.innerHTML = IC.upload + " טען פרומפטים";
     }
-  }
-
-  // ============================================================
-  // Inject selected context blocks
-  // ============================================================
-  function injectSelected() {
-    if (selected.size === 0) {
-      setStatus("בחר בלוקים תחילה", true);
-      return;
-    }
-    const orderedIds = selected.has(GM_ID)
-      ? [GM_ID, ...[...selected].filter((id) => id !== GM_ID)]
-      : [...selected];
-    const ordered = orderedIds
-      .map((id) => (id === GM_ID ? blocks[id] || getGM() : blocks[id]))
-      .filter(Boolean);
-    const text =
-      FRAMING +
-      ordered.map((b) => "## " + b.title + "\n" + b.content).join("\n\n") +
-      "\n\n---\n\n";
-    const r = injectIntoInput(text, "prepend");
-    if (r.ok) {
-      setStatus("הוזרק ✓");
-      setTimeout(() => {
-        const btn = document.querySelector(CONFIG.SEND_BUTTON_SELECTOR);
-        if (btn) btn.click();
-        else setStatus("לא נמצא כפתור שליחה", true);
-      }, 100);
-    } else {
-      setStatus(r.error || "נכשל", true);
-    }
-  }
-
-  // ============================================================
-  // Save chat
-  // ============================================================
-  function findScrollableAncestor() {
-    const isScrollable = (el) => {
-      const cs = getComputedStyle(el);
-      return (
-        (cs.overflowY === "auto" || cs.overflowY === "scroll") &&
-        el.scrollHeight - el.clientHeight > 50
-      );
-    };
-    let el = document.querySelector(MSG_SELECTORS.messageList);
-    while (el && el !== document.body) {
-      if (isScrollable(el)) return el;
-      el = el.parentElement;
-    }
-    for (const cand of document.querySelectorAll(
-      "main, [class*='scroll'], [class*='conversation']",
-    )) {
-      if (isScrollable(cand)) return cand;
-    }
-    return null;
-  }
-
-  function captureConversation() {
-    const container = document.querySelector(MSG_SELECTORS.messageList);
-    if (!container) return [];
-    const nodes = container.querySelectorAll(MSG_SELECTORS.message);
-    const messages = [];
-    for (const n of nodes) {
-      const text = MSG_SELECTORS.messageText(n) || "";
-      if (!text.trim()) continue;
-      if (text.includes("[[CCB:INJECTED]]")) continue;
-      // בדוק באמצעות userMessageMatch ו-aiMessageMatch אם זה קיים
-      let role = "user"; // ברירת מחדל
-      if (MSG_SELECTORS.aiMessageMatch && MSG_SELECTORS.aiMessageMatch(n)) {
-        role = "ai";
-      } else if (MSG_SELECTORS.userMessageMatch && MSG_SELECTORS.userMessageMatch(n)) {
-        role = "user";
-      }
-      messages.push({ role, text: text.trim() });
-    }
-    return messages;
-  }
-
-  function upsertConversationMessages(id, messages) {
-    const block = blocks[id];
-    if (!block) return false;
-    block.messages = messages;
-    block.updated = Date.now();
-    return true;
-  }
-
-  async function autoSaveConversation() {
-    const messages = captureConversation();
-    if (!messages.length) return;
-
-    await loadBlocks();
-
-    // אם יש שיחה מוזרקת כרגע, עדכן אותה במקום לפתוח חדשה
-    if (lastInjectedConversationId && blocks[lastInjectedConversationId]) {
-      upsertConversationMessages(lastInjectedConversationId, messages);
-      await saveBlocks();
-      lastSaveMessageCount = messages.length;
-      render(); // רענן את ההיסטוריה
-      return;
-    }
-
-    // אחרת, צור שיחה חדשה עם שם ברירת מחדל
-    const now = new Date();
-    const defaultTitle =
-      "שיחה — " +
-      now.toLocaleDateString("he-IL") +
-      " " +
-      now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
-
-    const id = "b_" + Date.now() + "_conv";
-    blocks[id] = {
-      id,
-      title: defaultTitle,
-      messages,
-      kind: "conversation",
-      updated: Date.now(),
-    };
-    lastInjectedConversationId = id;
-    await saveBlocks();
-    lastSaveMessageCount = messages.length;
-    render(); // רענן את ההיסטוריה להציג את השיחה החדשה
-  }
-
-  function setupAutoSave() {
-    if (!MSG_SELECTORS.messageList) return;
-
-    const attach = () => {
-      const container = document.querySelector(MSG_SELECTORS.messageList);
-      if (!container) {
-        if (!autoSaveAttachTimer) {
-          autoSaveAttachTimer = setTimeout(() => {
-            autoSaveAttachTimer = null;
-            setupAutoSave();
-          }, 500);
-        }
-        return;
-      }
-
-      if (autoSaveContainer === container && autoSaveObserver) return;
-
-      if (autoSaveObserver) autoSaveObserver.disconnect();
-      autoSaveContainer = container;
-
-      autoSaveObserver = new MutationObserver(() => {
-        clearTimeout(autoSaveTimeout);
-        autoSaveTimeout = setTimeout(async () => {
-          const currentMessages = captureConversation();
-          if (currentMessages.length > lastSaveMessageCount) {
-            await autoSaveConversation();
-          }
-        }, 500);
-      });
-
-      autoSaveObserver.observe(container, {
-        childList: true,
-        subtree: true,
-        characterData: true,
-      });
-
-      lastSaveMessageCount = captureConversation().length;
-    };
-
-    attach();
-  }
-
-  function stopAutoSave() {
-    if (autoSaveAttachTimer) {
-      clearTimeout(autoSaveAttachTimer);
-      autoSaveAttachTimer = null;
-    }
-    if (autoSaveObserver) {
-      autoSaveObserver.disconnect();
-      autoSaveObserver = null;
-    }
-    autoSaveContainer = null;
-    if (autoSaveTimeout) {
-      clearTimeout(autoSaveTimeout);
-      autoSaveTimeout = null;
-    }
-    lastSaveMessageCount = 0;
-  }
-
-  async function scrollAndCaptureAll() {
-    const scroller = findScrollableAncestor();
-    if (!scroller) return;
-    return new Promise((resolve) => {
-      let lastCount = 0;
-      let stable = 0;
-      const check = setInterval(() => {
-        scroller.scrollTo({ top: 0 });
-        scroller.scrollTop = 0;
-        const count = document.querySelectorAll(MSG_SELECTORS.message).length;
-        if (count === lastCount) {
-          if (++stable >= 3) {
-            clearInterval(check);
-            resolve();
-          }
-        } else {
-          lastCount = count;
-          stable = 0;
-        }
-      }, 300);
-      setTimeout(() => {
-        clearInterval(check);
-        resolve();
-      }, 8000);
-    });
-  }
-
-  async function saveChat() {
-    if (!inlineReady()) {
-      const r = injectIntoInput(SUMMARY_PROMPT, "replace");
-      if (r.ok) {
-        setTimeout(() => {
-          const btn = document.querySelector(CONFIG.SEND_BUTTON_SELECTOR);
-          if (btn) btn.click();
-          else setStatus("לא נמצא כפתור שליחה", true);
-        }, 100);
-      } else {
-        setStatus(r.error || "נכשל", true);
-      }
-      return;
-    }
-
-    setStatus("גולל לתחילה…");
-    await scrollAndCaptureAll();
-    const messages = captureConversation();
-    if (!messages.length) {
-      setStatus("לא נמצאו הודעות — ודא MSG_SELECTORS", true);
-      return;
-    }
-
-    await loadBlocks();
-
-    // אם יש שיחה מוזרקת כרגע, עדכן אותה במקום לבקש שם חדש
-    if (lastInjectedConversationId && blocks[lastInjectedConversationId]) {
-      upsertConversationMessages(lastInjectedConversationId, messages);
-      await saveBlocks();
-      setStatus("השיחה עודכנה ✓");
-      lastSaveMessageCount = messages.length;
-      render();
-      return;
-    }
-
-    // אחרת, צור שיחה חדשה
-    const now = new Date();
-    const defaultTitle =
-      "שיחה — " +
-      now.toLocaleDateString("he-IL") +
-      " " +
-      now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
-    const chosenTitle = await showPrompt({
-      title: "שם לשיחה",
-      defaultValue: defaultTitle,
-    });
-    if (chosenTitle === null) {
-      setStatus("");
-      return;
-    }
-
-    const id = "b_" + Date.now() + "_conv";
-    blocks[id] = {
-      id,
-      title: chosenTitle,
-      messages,
-      kind: "conversation",
-      updated: Date.now(),
-    };
-    lastInjectedConversationId = id;
-    await saveBlocks();
-    setStatus("השיחה נשמרה ✓");
-    lastSaveMessageCount = messages.length;
-    render();
   }
 
   // ============================================================
   // Toast / status
   // ============================================================
-  let toastTimer = null;
   function setStatus(msg, isError) {
     if (!shadow) return;
     if ($el("panel").classList.contains("editing")) {
@@ -1393,62 +1123,164 @@
   }
 
   // ============================================================
-  // Inline save button on AI messages
+  // Persistent progress indicator (#scanProgress)
+  //
+  // Unlike setStatus (a toast that auto-hides after 2.5s), this stays on
+  // screen for the whole operation and reports both how many files are done
+  // and which one is being handled right now. Long operations — scanning a
+  // code project, saving its files, loading them into the chat — are exactly
+  // the case where a vanished toast leaves the user unsure anything is
+  // happening.
+  //
+  // DOM writes are throttled to one animation frame: the scan calls this once
+  // per file with up to 12 reads in flight, and repainting a progress bar
+  // thousands of times a second would eat the very latency budget the
+  // concurrent scan exists to reclaim.
   // ============================================================
-  let msgObserver = null;
-  const SAVE_BTN_FLAG = "__ccbSaveBtn";
+  const PROGRESS_THROTTLE_MS = 80;
+  const PROGRESS_PHASE_LABELS = {
+    discover: "מאתר קבצים",
+    read: "קורא קבצים",
+    graph: "בונה מפת תלויות",
+    save: "שומר קבצים",
+    load: "טוען קבצים לצ'אט",
+  };
 
-  function inlineReady() {
-    return (
-      MSG_SELECTORS.messageList &&
-      MSG_SELECTORS.message &&
-      typeof MSG_SELECTORS.aiMessageMatch === "function" &&
-      typeof MSG_SELECTORS.messageText === "function"
-    );
+  let progressPending = null;
+  let progressTimer = 0;
+  // Bumped on every update so a held "done"/"error" hide scheduled by an
+  // earlier operation can't hide the indicator of one that started since.
+  let progressSeq = 0;
+
+  // Long paths are shortened from the LEFT — the file name matters more than
+  // the repo root it sits under.
+  function shortenPath(p, maxLen = 46) {
+    const text = String(p || "");
+    if (text.length <= maxLen) return text;
+    const parts = text.split("/");
+    let tail = parts.pop() || text;
+    while (parts.length && tail.length + parts[parts.length - 1].length + 1 < maxLen) {
+      tail = parts.pop() + "/" + tail;
+    }
+    return "…/" + tail;
   }
 
-  function decorateMessage(node) {
-    if (!node || node[SAVE_BTN_FLAG]) return;
-    if (!MSG_SELECTORS.aiMessageMatch(node)) return;
-    node[SAVE_BTN_FLAG] = true;
-    const btn = document.createElement("button");
-    btn.textContent = "💾 שמור לבנק";
-    btn.style.cssText =
-      "all:revert;margin:4px;padding:2px 8px;font-size:12px;" +
-      "border:1px solid #ccc;border-radius:4px;background:#fff;" +
-      "cursor:pointer;font-family:system-ui,sans-serif;";
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      await loadBlocks();
-      mountUI();
-      await setPanelOpen(true);
-      const text = MSG_SELECTORS.messageText(node) || "";
-      openEdit(null, { content: text });
+  function flushProgress() {
+    progressTimer = 0;
+    const p = progressPending;
+    progressPending = null;
+    if (!p || !shadow) return;
+
+    const box = $el("scanProgress");
+    if (!box) return;
+    box.style.display = "block";
+
+    const total = Number(p.total) || 0;
+    const done = Number(p.done) || 0;
+    $el("scanProgressPhase").textContent = p.label || PROGRESS_PHASE_LABELS[p.phase] || "";
+    $el("scanProgressCount").textContent = total ? `${done} / ${total}` : done ? String(done) : "";
+    $el("scanProgressCurrent").textContent = p.current ? shortenPath(p.current) : "";
+
+    const fill = $el("scanProgressFill");
+    fill.className = "scan-progress-fill" + (p.state === "done" ? " done" : p.state === "error" ? " error" : "");
+    if (total > 0) {
+      fill.style.width = Math.min(100, Math.round((done / total) * 100)) + "%";
+    } else if (p.state === "done" || p.state === "error") {
+      fill.style.width = "100%";
+    } else {
+      // No total known yet (still discovering) — sweep instead of sitting at 0%.
+      fill.className += " indeterminate";
+    }
+  }
+
+  // Throttled with setTimeout rather than requestAnimationFrame: rAF is
+  // suspended while the tab is backgrounded, and a scan the user left running
+  // in another tab would then show a frozen indicator when they came back.
+  function setProgress(payload) {
+    progressPending = payload;
+    progressSeq++;
+    if (progressTimer) return;
+    progressTimer = setTimeout(flushProgress, PROGRESS_THROTTLE_MS);
+  }
+
+  // `holdMs` keeps a final "done"/"error" state visible briefly so the user
+  // sees the outcome instead of the indicator just vanishing.
+  function clearProgress(holdMs = 0) {
+    const seq = progressSeq;
+    const hide = () => {
+      // A newer operation started during the hold — leave its indicator alone.
+      if (progressSeq !== seq) return;
+      if (progressTimer) { clearTimeout(progressTimer); progressTimer = 0; }
+      progressPending = null;
+      const box = $el("scanProgress");
+      if (box) box.style.display = "none";
+    };
+    if (holdMs > 0) setTimeout(hide, holdMs);
+    else hide();
+  }
+
+  // ============================================================
+  // Backup export/import (uses modals.showConfirm, mutates state.blocks)
+  // ============================================================
+  async function exportBackup() {
+    await loadBlocks();
+    const blob = new Blob([JSON.stringify(state.blocks, null, 2)], {
+      type: "application/json;charset=utf-8",
     });
-    node.appendChild(btn);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "context-bank-backup.json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    window.__ccbModals.closeSettings();
+    setStatus("הגיבוי יוצא ✓");
   }
 
-  function startMsgObserver() {
-    if (!inlineReady() || msgObserver) return;
-    const container = document.querySelector(MSG_SELECTORS.messageList);
-    if (!container) return;
-    container.querySelectorAll(MSG_SELECTORS.message).forEach(decorateMessage);
-    msgObserver = new MutationObserver((muts) => {
-      for (const m of muts) {
-        m.addedNodes.forEach((n) => {
-          if (n.nodeType !== 1) return;
-          if (n.matches?.(MSG_SELECTORS.message)) decorateMessage(n);
-          n.querySelectorAll?.(MSG_SELECTORS.message).forEach(decorateMessage);
-        });
-      }
+  async function importBackupFile(file) {
+    if (!file) return;
+    const text = await file.text();
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      setStatus("קובץ JSON לא תקין", true);
+      return;
+    }
+
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+      setStatus("מבנה קובץ לא תקין", true);
+      return;
+    }
+
+    const ok = await window.__ccbModals.showConfirm({
+      title: "ייבוא גיבוי",
+      msg: "הייבוא יחליף את כל הבלוקים הקיימים. להמשיך?",
+      confirmLabel: "ייבוא",
+      danger: true,
     });
-    msgObserver.observe(container, { childList: true, subtree: true });
+    if (!ok) return;
+
+    state.blocks = parsed;
+    state.blocksLoaded = true;
+    state.selected.clear();
+    state.editingId = null;
+    await saveBlocks();
+    closeEdit();
+    window.__ccbModals.closeSettings();
+    render();
+    updateInjectBtn();
+    setStatus("הייבוא הושלם ✓");
   }
 
+  // ============================================================
+  // Cleanup
+  // ============================================================
   window.addEventListener("beforeunload", () => {
-    stopAutoSave();
-    msgObserver?.disconnect();
-    msgObserver = null;
+    window.__ccbChat?.stopMsgObserver();
+    window.__ccbCtxMeter?.cleanup();
   });
 
   // ============================================================
@@ -1460,7 +1292,7 @@
         togglePanel();
         sendResponse({ ok: true });
       } else if (msg?.action === "inject") {
-        sendResponse(injectIntoInput(msg.text, msg.mode));
+        sendResponse(ccbInject.injectIntoInput(msg.text, msg.mode));
       } else {
         sendResponse({ ok: false, error: "unknown action" });
       }
@@ -1480,18 +1312,120 @@
   );
 
   // ============================================================
+  // URL change watcher (SPA navigation)
+  // ============================================================
+  let urlWatchInstalled = false;
+  function installUrlChangeWatcher() {
+    if (urlWatchInstalled) return;
+    urlWatchInstalled = true;
+
+    const notify = () => {
+      try {
+        window.dispatchEvent(new Event("ccb:urlchange"));
+      } catch {
+        // ignore
+      }
+    };
+
+    try {
+      const origPush = history.pushState;
+      const origReplace = history.replaceState;
+      history.pushState = function (...args) {
+        const r = origPush.apply(this, args);
+        notify();
+        return r;
+      };
+      history.replaceState = function (...args) {
+        const r = origReplace.apply(this, args);
+        notify();
+        return r;
+      };
+    } catch {
+      // ignore
+    }
+
+    window.addEventListener("popstate", notify, true);
+
+    window.addEventListener(
+      "ccb:urlchange",
+      () => {
+        if (!isActiveSitePage()) return;
+        state.gmAutoInjected = false;
+        // SPA navigation = new chat → unbind any auto-saved conversation
+        state.currentConversationId = null;
+        // Reattach msg observer in case the chat container was re-mounted
+        window.__ccbChat.startMsgObserver();
+        window.__ccbChat.tryAutoInject();
+        // Refresh the sidebar so the active-conversation marker clears.
+        render();
+      },
+      true,
+    );
+  }
+
+  // ============================================================
+  // New-chat button watcher
+  //
+  // Clicking the chat's "new chat" button should behave LOGICALLY like a
+  // refresh — without actually reloading the page. We do NOT preventDefault:
+  // the chat's own click handler clears its UI for us. We piggyback on the
+  // click to reset OUR in-memory state to match (active-conversation marker,
+  // GM auto-inject flag).
+  //
+  // Event delegation on document (capture phase) — survives re-renders.
+  // ============================================================
+  let _newChatDelegationInstalled = false;
+
+  function installNewChatBtnWatcher() {
+    if (!NEW_CHAT_BTN_SELECTOR) return;
+    if (_newChatDelegationInstalled) return;
+    _newChatDelegationInstalled = true;
+
+    document.addEventListener(
+      "click",
+      (e) => {
+        const target = e.target;
+        if (!target || !target.closest) return;
+        const btn = target.closest(NEW_CHAT_BTN_SELECTOR);
+        if (!btn) return;
+
+        console.debug("[ccb] new-chat button click → resetting state");
+
+        state.gmAutoInjected = false;
+        state.currentConversationId = null;
+        window.__ccbChat.startMsgObserver();
+        render();
+        window.__ccbChat.tryAutoInject();
+      },
+      true,
+    );
+  }
+
+  // ============================================================
   // Init
   // ============================================================
   function shouldAutoOpen() {
-    return CONFIG.AUTO_OPEN_URLS.some((u) => location.href.startsWith(u));
+    return CONFIG_PUBLIC.AUTO_OPEN_URLS.some((u) => location.href.startsWith(u));
   }
 
   async function init() {
     if (!isActiveSitePage()) return;
-    startMsgObserver();
+    await loadCtxWindow();
+    await loadDocMaxChars();
+    await loadScanSettings();
+    // mountUI must run before chat module touches shadow DOM
+    mountUI();
+    window.__ccbChat.startMsgObserver();
+    window.__ccbCtxMeter.watchFileInputs();
+    window.__ccbCtxMeter.watchConversation();
     await loadBlocks();
-    setupAutoSave();
-    tryAutoInject();
+    // Must resolve before the first tryAutoInject — "every" mode suppresses
+    // the conversation-start injection, and an unloaded mode would default to
+    // "start" for that first call.
+    await loadAutoInjectMode();
+    installUrlChangeWatcher();
+    installNewChatBtnWatcher();
+    window.__ccbChat.tryAutoInject();
     if (shouldAutoOpen()) setPanelOpen(true);
   }
 
@@ -1508,7 +1442,7 @@
   window.__ccb = {
     MSG_SELECTORS,
     get blocks() {
-      return blocks;
+      return state.blocks;
     },
     saveBlocks,
     loadBlocks,

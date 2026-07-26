@@ -25,14 +25,14 @@ window.__ccbInject = (() => {
 
   function setInputValue(el, value) {
     if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
-      const proto =
-        el.tagName === "TEXTAREA"
-          ? window.HTMLTextAreaElement.prototype
-          : window.HTMLInputElement.prototype;
+      const proto = el.tagName === "TEXTAREA"
+        ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
       const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
       setter.call(el, value);
-      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: value }));
+      el.dispatchEvent(new Event("input",  { bubbles: true }));
       el.dispatchEvent(new Event("change", { bubbles: true }));
+      el.focus();
     } else if (el.isContentEditable) {
       el.focus();
       try {
