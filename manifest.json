@@ -21,7 +21,7 @@
   "content_scripts": [
     {
       "matches": ["*://*/*"],
-      "js": ["config.js", "prompts.js", "storage.js", "inject.js", "push.js", "ui-styles.js", "ui-template.js", "ctx-meter.js", "ui-modals.js", "fs-handles.js", "document-handler.js", "dep-graph.js", "code-tree.js", "history-view.js", "chat-features.js", "content.js", "summarizer.js"],
+      "js": ["tokenizer.js", "config.js", "prompts.js", "storage.js", "inject.js", "push.js", "ui-styles.js", "ui-template.js", "ctx-meter.js", "ui-modals.js", "fs-handles.js", "document-handler.js", "dep-graph.js", "code-tree.js", "history-view.js", "chat-features.js", "content.js", "summarizer.js"],
       "run_at": "document_idle"
     }
   ],
@@ -38,7 +38,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["icon.png"],
+      "resources": ["icon.png", "tokenizer/o200k_base.tiktoken"],
       "matches": ["*://*/*", "<all_urls>"]
     }
   ]

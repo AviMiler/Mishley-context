@@ -1,0 +1,4 @@
+# Vendored BPE ranks — must stay byte-identical to the upstream download so it
+# can be re-verified against the source. Git's autocrlf would rewrite all
+# 199,998 line endings on checkout.
+tokenizer/*.tiktoken -text

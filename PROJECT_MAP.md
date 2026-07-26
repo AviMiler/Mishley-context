@@ -16,6 +16,7 @@ _Last updated: 2026-07-26_
 ├── popup.js
 ├── icon.png
 ├── icon.svg
+├── tokenizer.js                   # real BPE token counting (o200k_base) — loaded first, config.js delegates to it
 ├── config.js
 ├── prompts.js
 ├── storage.js
@@ -39,6 +40,8 @@ _Last updated: 2026-07-26_
 │   ├── tree-sitter.wasm
 │   ├── tree-sitter-c-sharp.wasm
 │   └── tree-sitter-javascript.wasm
+├── tokenizer/                     # vendored BPE ranks data, no library (see DEPENDENCIES.md)
+│   └── o200k_base.tiktoken
 └── mishley-test-projects/        # local scan/dep-graph test fixtures, not part of the extension
     ├── dotnet-demo/               # small C# fixture
     ├── dotnet-shop-api/           # larger C# fixture (controllers/services/repos)
@@ -53,7 +56,8 @@ _Last updated: 2026-07-26_
 |---|---|
 | `manifest.json` | MV3 manifest — permissions (`storage`, `unlimitedStorage`), host permissions, and the exact content-script load order. |
 | `popup.html` / `popup.js` | Toolbar popup — sends a `togglePanel` message to the active tab and closes itself. |
-| `config.js` | Site selectors (Gemini vs. internal chat) behind `ACTIVE_SITE`, plus `FRAMING_*`/`SUMMARY_PROMPT` defaults, other config constants, and the canonical Hebrew-aware chars→tokens estimator (`estimateTextTokens`). Exports `window.__ccbRawConfig`. |
+| `tokenizer.js` | Real BPE token counting (o200k_base) in pure JS over the vendored ranks in `tokenizer/`. Lazily loaded on active-site pages only. Exports `window.__ccbTokenizer`. |
+| `config.js` | Site selectors (Gemini vs. internal chat) behind `ACTIVE_SITE`, plus `FRAMING_*`/`SUMMARY_PROMPT` defaults, other config constants, and the canonical token counter (`estimateTextTokens` — delegates to `tokenizer.js`, falls back to the Hebrew-aware chars→tokens heuristic). Exports `window.__ccbRawConfig`. |
 | `prompts.js` | Loads user overrides for the editable parts of the framing/summary prompts from storage and patches `__ccbRawConfig`; keeps technical markers locked. Exports `window.__ccbPromptsAPI`. |
 | `storage.js` | Thin `loadBlocks`/`saveBlocks` wrapper over `chrome.storage.local["blocks"]`. Exports `window.__ccbStorage`. |
 | `inject.js` | Finds the page's chat input and injects text into it (prepend/append/replace). Exports `window.__ccbInject`. |

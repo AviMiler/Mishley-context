@@ -334,7 +334,14 @@
     // Markup & Code
     if (/\.(html?|xml|svg|yaml|yml|toml|ini|conf|cfg)$/i.test(name) || type === "application/xml" || type === "text/xml" || type === "image/svg+xml") {
       return file.text()
-        .then(text => Math.ceil(estimateTokensForContent(text) / 1.2))
+        .then(text => {
+          // הנחת ה-1.2 מתקנת הטיה של ספירת תווים בלבד: תגיות markup צפופות
+          // בתווים אך מתפרקות למעט טוקנים. לטוקנייזר האמיתי אין את ההטיה
+          // הזו, ולכן ההנחה חלה רק כשנפלנו חזרה להיוריסטיקה.
+          const exact = window.__ccbTokenizer?.countTokens(text);
+          if (typeof exact === "number") return exact;
+          return Math.ceil(estimateTokensForContent(text) / 1.2);
+        })
         .catch(() => Math.ceil(size / CHARS_PT));
     }
 

@@ -49,6 +49,7 @@ What killed it — four consequences, the first being decisive:
 
 | File              | Purpose                                                                       | Lines |
 | ----------------- | ----------------------------------------------------------------------------- | ----- |
+| `tokenizer.js`    | Real BPE token counting (o200k_base) → `window.__ccbTokenizer`. Loads first so `config.js` can delegate to it | ~200  |
 | `config.js`       | Site selectors + active site toggle + FRAMING defaults                        | ~180  |
 | `prompts.js`      | Loads prompt overrides (editable parts only) and patches `__ccbRawConfig`     | ~265  |
 | `storage.js`      | `loadBlocks` / `saveBlocks` → `window.__ccbStorage`                           | ~20   |
@@ -68,16 +69,18 @@ What killed it — four consequences, the first being decisive:
 | `summarizer.js`   | Watches DOM for `[[CCB:SAVE]]` trigger, auto-saves                            | ~130  |
 | `background.js`   | MV3 service worker hosting the tree-sitter WASM parsers (NOT a content script — see its own section) | ~250 |
 | `wasm/`           | Vendored tree-sitter runtime + grammar binaries (see DEPENDENCIES.md)          | 4 files |
+| `tokenizer/`      | Vendored `o200k_base.tiktoken` BPE ranks (see DEPENDENCIES.md)                  | 1 file |
 | `manifest.json`   | MV3 manifest — load order below                                                | —     |
 | `popup.html`      | Toolbar popup — sends `togglePanel` to the active tab                          | —     |
 | `popup.js`        | Popup script (calls chrome.tabs.sendMessage and closes)                        | ~15   |
 
-**Manifest load order:** `config.js` → `prompts.js` → `storage.js` → `inject.js` → `push.js` → `ui-styles.js` → `ui-template.js` → `ctx-meter.js` → `ui-modals.js` → `fs-handles.js` → `document-handler.js` → `dep-graph.js` → `code-tree.js` → `history-view.js` → `chat-features.js` → `content.js` → `summarizer.js`
+**Manifest load order:** `tokenizer.js` → `config.js` → `prompts.js` → `storage.js` → `inject.js` → `push.js` → `ui-styles.js` → `ui-template.js` → `ctx-meter.js` → `ui-modals.js` → `fs-handles.js` → `document-handler.js` → `dep-graph.js` → `code-tree.js` → `history-view.js` → `chat-features.js` → `content.js` → `summarizer.js`
 
 ## Global API surface (`window.__ccb*`)
 
 | Global               | Module             | Members                                                                                                       |
 | -------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `__ccbTokenizer`     | `tokenizer.js`     | `load()` (lazy, idempotent), `countTokens(text)` → `number\|null`, `isReady()`, `isFailed()`, `MAX_EXACT_CHARS` |
 | `__ccbRawConfig`     | `config.js`        | Site config + FRAMING strings (patched by prompts.js)                                                         |
 | `__ccbPromptsAPI`    | `prompts.js`       | `ready`, `getEditable`, `getLocked`, `save`, `reset`                                                          |
 | `__ccbStorage`       | `storage.js`       | `loadBlocks(key)`, `saveBlocks(key, blocks)`                                                                  |
@@ -85,7 +88,7 @@ What killed it — four consequences, the first being decisive:
 | `__ccbPush`          | `push.js`          | `pushPage(open)`                                                                                              |
 | `__ccbCSS`           | `ui-styles.js`     | CSS string                                                                                                    |
 | `__ccbTpl`           | `ui-template.js`   | `{ IC, PANEL_HTML }`                                                                                          |
-| `__ccbCtxMeter`      | `ctx-meter.js`     | `init`, `update`, `watchConversation`, `watchFileInputs`, `openFilesDropdown`, `cleanup`, `getUploadedFiles`, `queueFilesForInjection`  |
+| `__ccbCtxMeter`      | `ctx-meter.js`     | `init`, `update`, `resetTokenCache`, `watchConversation`, `watchFileInputs`, `openFilesDropdown`, `cleanup`, `getUploadedFiles`, `queueFilesForInjection`  |
 | `__ccbModals`        | `ui-modals.js`     | `init`, `show*`, `openSettings/closeSettings`, `openScanSettings/closeScanSettings/saveScanSettings/resetScanSettingsToDefaults`, `openPromptsEditor/...` |
 | `__ccbFsHandles`     | `fs-handles.js`    | `put(id, dirHandle)`, `get(id)`, `remove(id)`, `verifyPermission(dirHandle, mode?)`                            |
 | `__ccbDocHandler`    | `document-handler.js` | `init`, `addDocument`, `removeDocument`, `toggleDocument`, `getDocumentContent`, `getOrExtractContent`, `getCodeContents`, `getEnabledDocuments`, `injectFilesToChat`, `estimateTokens`, `estimateFileTokens`, `getFileType`, `isLikelyTextFile`, `scanCodeProject`, `getDefaultScanSettings`, `buildStructureMarkdown`, `syncCodeProjectDocuments`, `removeCodeContent` |
@@ -507,6 +510,31 @@ The extension's only MV3 background service worker, added 2026-07-23 solely to h
 - **Lifecycle:** Chrome kills idle service workers; every message re-wakes it and `Parser.init` re-runs (cached per worker instance via `_initPromise`, languages lazy-loaded per `lang`). Init is ~100–300ms, dwarfed by any real batch.
 - Verified end-to-end in Node (web-tree-sitter runs there too) by stubbing `chrome` and invoking the real message listener: 24 assertions on fact extraction (including the two historical regex bugs — `record struct` phantom symbol, string/comment immunity) plus a 14-assertion integration run of the real `buildGraph` against the real worker handler in both AST and worker-dead-fallback modes.
 
+## tokenizer.js — real BPE token counting (2026-07-26)
+
+Replaces the chars→tokens ratio as the *primary* token-counting policy. `config.js#estimateTextTokens` — still the single canonical entry point every module calls — now tries `window.__ccbTokenizer.countTokens(text)` first and falls back to the original Hebrew-aware heuristic whenever that returns `null`. **The heuristic is retained in full**, on the same "never break because of the new layer" principle as `dep-graph.js`'s regex fallback behind tree-sitter.
+
+`countTokens` returns `null` (→ heuristic) in exactly three cases: the ranks aren't loaded yet (loading is lazy and async), loading failed, or the text exceeds `MAX_EXACT_CHARS`.
+
+| Decision | Why |
+|---|---|
+| Pure JS, not WASM | A content script is subject to the **host page's** CSP, and chat sites block `'wasm-unsafe-eval'` — the same constraint that put tree-sitter in `background.js`. Routing counts through the worker would make every count async and break the synchronous chain in `ctx-meter.js#measureMessage` / the `WeakMap` memo built on top of it. |
+| `o200k_base`, not `cl100k_base` | Its multilingual vocabulary tokenizes Hebrew far more efficiently, and Hebrew accuracy is the whole reason the fallback heuristic has a separate Hebrew divisor in the first place. Costs 3.4 MB instead of 1.7 MB. |
+| Data vendored, algorithm hand-written | The BPE merge loop + split regex are ~60 lines. Vendoring a *library* would have required a bundler, which this project deliberately doesn't have (DEPENDENCIES.md, "Why no build tooling"). |
+| Lazy `load()`, fired from `content.js#init` | `init()` returns early on non-active sites, so only chat-site tabs ever fetch the 3.4 MB. The panel renders immediately on the heuristic and sharpens itself when the ranks resolve (~200–400 ms). |
+| `web_accessible_resources` entry | A content script's `fetch` is subject to the page's origin, so the ranks file must be web-accessible — unlike `wasm/`, which only the worker reads. |
+| `MAX_EXACT_CHARS = 500000` | Bounds a single synchronous call. Measured at ~5.4M chars/sec (1,346 files / 8.5M chars in 1.6s), so the cap ≈ 100 ms worst case. A full code-project scan adds ~1.6s — negligible against a scan already measured in minutes. |
+
+**Inline `(?i:…)` is expanded manually** in the split regex. The official o200k pattern uses inline case-insensitive groups for the English contraction suffixes (`'s`/`'t`/`'re`/…); JS support for regex modifiers is too recent to rely on, so each is written out as an explicit character-class alternation. Everything else in the pattern is character-for-character the upstream one.
+
+**Two caches, different lifetimes:** the module-level `_pieceCache` (`Map`, capped at 50,000 entries) memoizes per *split piece* — real text repeats heavily (whitespace runs, keywords, punctuation), so most BPE calls are cache hits. Separately, `ctx-meter.js`'s per-message `WeakMap` is keyed on content length, which does **not** change when the tokenizer finishes loading — hence `ctxMeter.resetTokenCache()`, called once from the load callback in `content.js#init`. Without it, a conversation already on screen at load time would keep its heuristic numbers for the rest of the session.
+
+**One heuristic-era correction had to be scoped down:** `document-handler.js#estimateTokensForFile`'s markup branch divided its estimate by 1.2, compensating for character-counting over-weighting HTML/XML tags. A real tokenizer has no such bias, so the discount now applies only on the fallback path — leaving it unconditional would have under-counted every markup file by ~17%.
+
+**Stored estimates are not retroactively recomputed.** `doc.estimatedTokens` is written at scan/add time; documents scanned before this change keep their heuristic numbers until the project is rescanned. Live displays (the conversation meter, the file-tree token sum) recompute from content and are exact immediately.
+
+**Verification** (Node, mirroring the tree-sitter harness): 427/427 exact matches against `gpt-tokenizer`'s `o200k_base` encoder — 400 randomized fuzz strings over a mixed Hebrew/English/CJK/emoji/code/punctuation alphabet, hand-picked edge cases (empty, whitespace-only, contractions, URLs, repeated tokens), and whole repo source files. Plus 18 integration assertions covering the fallback ladder: fetch failure, HTTP error, `tokenizer.js` absent entirely, and over-cap input — each must still yield a sane heuristic number rather than throwing or returning `null` upward.
+
 ## code-tree.js — inline file-tree picker
 
 `renderInline(project, mount)` renders an interactive checkbox tree (folders + files) over a code project's scanned documents **inline** into the open project's documents section (`#projectDocumentsList`, mounted by `history-view.js#renderProjectViewDocuments` when `project.isCodeProject`) — not a separate modal. It builds its own shell (path search + "בחר הכל"/"נקה הכל" + token count) plus the tree body. The search input carries `.code-tree-search-input` (shares the `#search`/`#searchHistory` rule set in `ui-styles.js`) rather than being an unstyled bare `<input type="search">` — it previously fell through both selector lists and rendered with default browser search-input chrome. Each file row has a "deps" button opening a small menu (`תלויות`/`תלויים`/`הקשר מלא`) that calls into `dep-graph.js` via `history-view.js#enableFilesForProject` to bulk-enable the resulting closure. Reuses the shared `#hiDropdown` host element for that menu (via `deps.getShadow()`) but manages its own outside-click cleanup. Per-view state (`_query`, `_collapsedPaths`) survives same-project re-renders and resets when switching projects. Only `type: "code"` docs appear in the tree; the `type: "structure"` doc is injected but not shown (parity with the former modal). The shell's token-count label counts **only enabled `type:"code"` docs** as "קבצים נבחרים" (2026-07-21 — the always-enabled structure doc used to make a fresh project read "1 קבצים נבחרים" with nothing ticked), while the token **sum** still spans every enabled doc including structure, because that is exactly what the footer inject sends. `loadWithDependencies` reports the count returned by `enableFilesForProject` (files that actually matched documents) and warns "סומנו X מתוך Y — ייתכן שנדרש רענון סריקה" when a stale graph made some closure paths miss.
@@ -616,6 +644,7 @@ Token math is not implemented here anymore (2026-07-21): the conversation meter 
 | ----------------------------- | ---------------------------------------------------------------------------- |
 | `init(deps)`                  | Wires up to content.js (shadow accessor, MSG_SELECTORS, ctxWindow getter, dropdown close/cleanup) |
 | `update()`                    | Recalculate + redraw the meter                                              |
+| `resetTokenCache()`           | Drops the per-message `WeakMap` memo. Called once from `content.js#init` when the lazy tokenizer finishes loading — the memo is keyed on content *length*, which doesn't change when the counting policy does, so an on-screen conversation would otherwise keep its heuristic numbers all session |
 | `watchConversation()`         | Start MutationObserver on the chat message list                              |
 | `watchFileInputs()`           | Track `<input type="file">` elements globally to estimate uploaded tokens   |
 | `openFilesDropdown(anchor)`   | Show per-file token breakdown dropdown (sets `dataset.menuType="files"`)    |

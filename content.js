@@ -1410,6 +1410,15 @@
 
   async function init() {
     if (!isActiveSitePage()) return;
+    // עצל ולא חוסם בכוונה: אוצר המילים שוקל 3.6MB, ורק דפי האתר הפעיל
+    // משלמים עליו. עד שהוא מוכן, estimateTextTokens מחזיר את האומדן
+    // ההיוריסטי — הפאנל עולה מיד ומדייק את עצמו כשהטעינה מסתיימת.
+    window.__ccbTokenizer?.load().then((ok) => {
+      if (!ok || !shadow) return;
+      window.__ccbCtxMeter.resetTokenCache();
+      if ($el("panel")?.classList.contains("open")) render();
+      else window.__ccbCtxMeter.update();
+    });
     await loadCtxWindow();
     await loadDocMaxChars();
     await loadScanSettings();

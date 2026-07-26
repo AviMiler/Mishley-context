@@ -97,12 +97,18 @@ const _ACTIVE = _SITE_CONFIG[ACTIVE_SITE] || _SITE_CONFIG.gemini;
     CHARS_PER_TOKEN: 3.5,
     HEBREW_CHARS_PER_TOKEN: 2,
 
-    // אומדן הטוקנים הקנוני לטקסט — סופר תווים עבריים (U+0590–U+05FF) בנפרד
-    // משאר התווים, כל קבוצה ביחס שלה. כל המודולים (ctx-meter, document-handler)
+    // ספירת הטוקנים הקנונית לטקסט. כל המודולים (ctx-meter, document-handler)
     // קוראים לפונקציה הזו דרך window.__ccbRawConfig במקום להחזיק עותקים
     // מקומיים של החישוב — עותקים כפולים הם שגרמו לסחיפה בין המודולים בעבר.
+    //
+    // מנסה קודם את הטוקנייזר האמיתי (tokenizer.js, BPE o200k_base), ונופל
+    // להיוריסטיקת התווים שמתחתיה כשהוא עדיין לא נטען (הטעינה עצלה), כשהיא
+    // נכשלה, או כשהטקסט ארוך מהתקרה שלו. ההיוריסטיקה נשארת כאן כמסלול
+    // גיבוי מלא — היא הייתה המדיניות היחידה עד להוספת הטוקנייזר.
     estimateTextTokens(text) {
       if (typeof text !== "string" || !text.length) return 0;
+      const exact = window.__ccbTokenizer?.countTokens(text);
+      if (typeof exact === "number") return exact;
       let hebrew = 0;
       for (let i = 0; i < text.length; i++) {
         const c = text.charCodeAt(i);
