@@ -2,6 +2,15 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-26 — CSS `@import` resolution added to the dependency graph
+
+Origin: follow-up question after explaining which languages "load with dependencies" supports — the user learned CSS/HTML files were leaf-only (no outgoing edges) and asked to add CSS. Scope: plain `.css` only (not `.scss`/`.sass`/`.less` — out of scope for now, same syntax could reuse this later); regex only, no tree-sitter grammar involved (CSS `@import` is deterministic syntax, unlike JS/C# reference resolution).
+
+- Added: `dep-graph.js` — `CSS_EXTENSIONS`, `CSS_IMPORT_PATTERNS` (`@import "x"`/`'x'`, `@import url(x)` quoted or bare), `findCssCandidate`/`resolveCssImport` (every path relative to the importing file — no bare-specifier/alias form like JS's `@/`/`~/`; a scheme-prefixed or protocol-relative URL resolves to `null`), `analyzeCssFile`, wired into `buildGraph` right after the C#/Razor block.
+- Changed: `dep-graph.js#scanRegions` — `lang === "css"` excluded from the generic `//` line-comment detection (CSS has no `//` comments; a URL inside `url(http://...)` would otherwise start a phantom comment and blank the rest of the declaration — same bug class as the 2026-07-21 Razor fix) and given minimal quote tracking so a `content: "/* ... */"` string value can't be misread as a real `/* */` comment. `[ccb-timing] dep-graph.buildGraph` gained `cssTotal`.
+- Verified: a 7-assertion Node harness (stubbed `window`/`chrome`, real module) — quoted/unquoted/`url()` import forms, a trailing media query, a commented-out `@import` ignored, an external URL `@import` unresolved, a `content:` string with `/*` not mistaken for a comment, relative `../` resolution from a nested file, a JS file's `import "./x.css"` still resolving (pre-existing generic resolver, unaffected), and `getTransitiveClosure`/`getDirectDependents` following the new CSS edges.
+- Pending: browser pass — scan a real code project with `.css` files, confirm "load with dependencies" resolves them correctly through the actual UI.
+
 ### 2026-07-23 — AST-first symbol extraction: tree-sitter (WASM) replaces regex for C# and JS/JSX
 
 Origin: the user reviewed the repomix source tree and asked to adopt its one relevant idea — grammar-level parsing via tree-sitter instead of the regex symbol layer whose edge-case bugs kept recurring (`record struct` phantom symbol 2026-07-21, Razor URL phantom comment 2026-07-21). Scope per user decision: C# + Razor (ASP.NET) + JS/React(JSX), explicitly **without** TypeScript.

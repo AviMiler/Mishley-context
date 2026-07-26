@@ -1,9 +1,18 @@
 // dep-graph.js — static, no-AI dependency graph for scanned code projects.
 // Resolves JS/TS/JSX import & require statements to files (deterministic,
-// high-confidence), and C# class/namespace references via a symbol table
-// (heuristic, best-effort — favors including too much over missing a file).
-// Neither is 100% — dynamic dispatch (computed member access, reflection,
-// eval, virtual/interface calls) can't be resolved statically. See CLAUDE.md.
+// high-confidence), C# class/namespace references via a symbol table
+// (heuristic, best-effort — favors including too much over missing a file),
+// and plain CSS @import statements to files (deterministic — CSS @import has
+// no dynamic form). Neither JS/CS resolver is 100% — dynamic dispatch
+// (computed member access, reflection, eval, virtual/interface calls) can't
+// be resolved statically. See CLAUDE.md.
+//
+// CSS (2026-07-26): .css only — @import "x"/'x', @import url(x) (quoted or
+// not), always resolved relative to the importing file (no bare-specifier/
+// alias convention like JS has). A scheme-prefixed or protocol-relative URL
+// (CDN stylesheet, web font service) is left unresolved — it isn't a
+// scanned project file. .scss/.sass/.less use the same @import syntax and
+// could reuse this if ever asked for, but are out of scope for now.
 //
 // SYMBOL EXTRACTION IS AST-FIRST (2026-07-23): .cs and .js/.jsx/.mjs/.cjs
 // files are parsed by tree-sitter (real grammar-level AST) in the background
@@ -84,13 +93,15 @@
       const c = text[i];
       const c2 = text[i + 1];
 
-      // C#-style comments are NOT scanned in Razor: the razor "code" mode is
-      // mostly HTML markup with no string detection, so a URL in an attribute
-      // ("https://...", src="//cdn...") would start a phantom // comment and
-      // blank every type reference on the rest of that line. Razor keeps only
-      // @* *@ and <!-- --> (below); a commented-out type name inside an @{ }
+      // C#-style comments are NOT scanned in Razor or CSS: Razor's "code"
+      // mode is mostly HTML markup with no string detection, and CSS has no
+      // `//` comment syntax at all — in both, a URL ("https://...",
+      // url(http://cdn...)) would otherwise start a phantom // comment and
+      // blank the rest of that line/declaration. Razor keeps only @* *@ and
+      // <!-- --> (below); CSS keeps only /* */ (still handled next, since
+      // that syntax is real CSS). A commented-out type name inside an @{ }
       // block may over-include, which is the documented bias direction.
-      if (lang !== "razor" && (mode === "code" || mode === "templateExpr" || mode === "interpExpr") && c === "/" && c2 === "/") {
+      if (lang !== "razor" && lang !== "css" && (mode === "code" || mode === "templateExpr" || mode === "interpExpr") && c === "/" && c2 === "/") {
         const s = i; i += 2;
         while (i < n && text[i] !== "\n") i++;
         comments.push([s, i]);
@@ -212,6 +223,18 @@
         if (mode === "interpExpr") {
           if (c === "{") { stack.push("interpExpr"); i++; continue; }
           if (c === "}") { stack.pop(); i++; continue; }
+        }
+      } else if (lang === "css" && mode === "code") {
+        // Only quote tracking — CSS has no // comments (excluded above) and
+        // no template/interpolation syntax. This exists so a quoted value
+        // containing "/*" (rare, e.g. a content: property) can't be misread
+        // as starting a real comment by the generic /* */ check above.
+        if (c === "'" || c === '"') {
+          const q = c, s = i; i++;
+          while (i < n && text[i] !== q) { if (text[i] === "\\") i++; i++; }
+          i = Math.min(i + 1, n);
+          strings.push([s, i]);
+          continue;
         }
       }
 
@@ -400,6 +423,57 @@
   // Extensions eligible for tree-sitter JS parsing. The javascript grammar
   // includes JSX; .ts/.tsx are excluded by scope decision (see header).
   const JS_AST_EXTENSIONS = new Set(["js", "jsx", "mjs", "cjs"]);
+
+  // ============================================================
+  // CSS — @import resolution (regex only, no tree-sitter grammar involved).
+  // Scope decision: plain .css only. .scss/.sass/.less use the same @import
+  // syntax and could reuse this verbatim if ever needed, but weren't asked
+  // for, so are left as plain leaf files for now (same as document-handler.js
+  // scans them, just with no outgoing edges).
+  // ============================================================
+  const CSS_EXTENSIONS = new Set(["css"]);
+
+  const CSS_IMPORT_PATTERNS = [
+    /@import\s+url\(\s*["']([^"']+)["']\s*\)/g, // @import url("x") / url('x')
+    /@import\s+url\(\s*([^"')\s]+)\s*\)/g, // @import url(x) — unquoted
+    /@import\s+["']([^"']+)["']/g, // @import "x" / 'x' (with or without trailing media query)
+  ];
+
+  function findCssCandidate(base, resolver) {
+    const candidates = [base, `${base}.css`];
+    for (const c of candidates) {
+      if (resolver.pathIndex.has(c)) return c;
+    }
+    for (const c of candidates) {
+      const hit = resolver.lowerIndex.get(c.toLowerCase());
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  // Unlike JS, plain CSS @import has no bare-specifier/alias convention —
+  // every path (quoted or not) is resolved relative to the importing file.
+  // A scheme-prefixed or protocol-relative URL (CDN stylesheet, web font
+  // service) targets something outside the project, not a scanned file.
+  function resolveCssImport(fromPath, importPath, resolver) {
+    if (/^([a-z][a-z0-9+.-]*:)?\/\//i.test(importPath)) return null;
+    const joined = joinRelative(fromPath, importPath);
+    return joined === null ? null : findCssCandidate(joined, resolver);
+  }
+
+  function analyzeCssFile(file, resolver, stripped) {
+    const cleaned = stripped(file, "css", "comments");
+    const deps = new Set();
+    for (const re of CSS_IMPORT_PATTERNS) {
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(cleaned))) {
+        const resolved = resolveCssImport(file.relativePath, m[1], resolver);
+        if (resolved && resolved !== file.relativePath) deps.add(resolved);
+      }
+    }
+    return Array.from(deps);
+  }
 
   // ============================================================
   // C# — namespace/class symbol table + best-effort reference scan
@@ -614,6 +688,12 @@
       }
     }
 
+    const cssFiles = included.filter((f) => CSS_EXTENSIONS.has(ext(f.relativePath)));
+    for (const file of cssFiles) {
+      graph[file.relativePath] = analyzeCssFile(file, resolver, stripped);
+      await maybeYield();
+    }
+
     // Code-behind pairing: Foo.cshtml<->Foo.cshtml.cs / Foo.razor<->Foo.razor.cs
     // are one logical unit split across two files — link them regardless of
     // whether either side textually references the other's types.
@@ -641,6 +721,7 @@
       csTotal: csFiles.length,
       jsAst,
       jsTotal: jsFiles.length,
+      cssTotal: cssFiles.length,
       ms: Date.now() - startedAt,
     });
     return graph;
