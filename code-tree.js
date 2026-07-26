@@ -19,6 +19,9 @@
   let _mountEl = null;
   let _bodyEl = null;
   let _tokenEl = null;
+  let _budgetEl = null;
+  let _budgetFillEl = null;
+  let _budgetPctEl = null;
   let _query = "";
   let _collapsedPaths = new Set();
 
@@ -188,6 +191,27 @@
     const codeCount = enabled.filter((d) => d.type === "code").length;
     const tokens = enabled.reduce((sum, d) => sum + (d.estimatedTokens || 0), 0);
     _tokenEl.textContent = `${codeCount} קבצים נבחרים · ${tokens.toLocaleString("he-IL")} tokens`;
+    updateBudgetBar(tokens);
+  }
+
+  // פס התקציב מציג את הבחירה הנוכחית מול חלון ההקשר, לפני ההזרקה — אותן
+  // מחלקות ורמות סף בדיוק כמו מד ההקשר הראשי (ctx-meter.js), כדי ששני
+  // המקומות שמדברים על "כמה נשאר בחלון" ייראו ויתנהגו זהה.
+  function updateBudgetBar(tokens) {
+    if (!_budgetEl) return;
+    const windowTokens = _deps.getCtxWindow?.() || 0;
+    if (!windowTokens) {
+      _budgetEl.style.display = "none";
+      return;
+    }
+    _budgetEl.style.display = "";
+    const pct = Math.min(100, (tokens / windowTokens) * 100);
+    _budgetFillEl.style.width = pct.toFixed(1) + "%";
+    _budgetFillEl.className =
+      "ctx-bar-fill" +
+      (pct > 90 ? " crit" : pct > 75 ? " high" : pct > 50 ? " warn" : "");
+    _budgetPctEl.textContent = `${pct.toFixed(1).replace(/\.0$/, "")}%`;
+    _budgetEl.title = `${tokens.toLocaleString("he-IL")} מתוך ${windowTokens.toLocaleString("he-IL")} טוקנים בחלון ההקשר`;
   }
 
   // Re-renders only the tree body (folders/files) from the current _project +
@@ -266,6 +290,19 @@
     actions.appendChild(clearAll);
     actions.appendChild(_tokenEl);
     _mountEl.appendChild(actions);
+
+    _budgetEl = document.createElement("div");
+    _budgetEl.className = "code-tree-budget";
+    _budgetFillEl = document.createElement("div");
+    _budgetFillEl.className = "ctx-bar-fill";
+    const track = document.createElement("div");
+    track.className = "ctx-bar-track";
+    track.appendChild(_budgetFillEl);
+    _budgetPctEl = document.createElement("span");
+    _budgetPctEl.className = "ctx-pct";
+    _budgetEl.appendChild(track);
+    _budgetEl.appendChild(_budgetPctEl);
+    _mountEl.appendChild(_budgetEl);
 
     _bodyEl = document.createElement("div");
     _bodyEl.className = "code-tree-body";

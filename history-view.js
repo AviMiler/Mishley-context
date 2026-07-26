@@ -1657,6 +1657,41 @@
       item.appendChild(deleteBtn);
       docsList.appendChild(item);
     });
+
+    appendDocsBudgetBar(docsList, docs);
+  }
+
+  // אותו פס תקציב שעץ הקבצים של פרויקט קוד מציג (code-tree.js), כאן עבור
+  // רשימת הקבצים השטוחה של פרויקט רגיל — אותן מחלקות ורמות סף כמו מד
+  // ההקשר הראשי, כדי שכל שלושת המקומות ייראו זהה.
+  function appendDocsBudgetBar(mount, docs) {
+    const windowTokens = _deps.getCtxWindow?.() || 0;
+    if (!windowTokens) return;
+    const tokens = docs
+      .filter((d) => d.enabled)
+      .reduce((sum, d) => sum + (d.estimatedTokens || 0), 0);
+    const pct = Math.min(100, (tokens / windowTokens) * 100);
+
+    const wrap = document.createElement("div");
+    wrap.className = "code-tree-budget";
+    wrap.title = `${tokens.toLocaleString("he-IL")} מתוך ${windowTokens.toLocaleString("he-IL")} טוקנים בחלון ההקשר`;
+
+    const track = document.createElement("div");
+    track.className = "ctx-bar-track";
+    const fill = document.createElement("div");
+    fill.className =
+      "ctx-bar-fill" +
+      (pct > 90 ? " crit" : pct > 75 ? " high" : pct > 50 ? " warn" : "");
+    fill.style.width = pct.toFixed(1) + "%";
+    track.appendChild(fill);
+
+    const pctEl = document.createElement("span");
+    pctEl.className = "ctx-pct";
+    pctEl.textContent = `${pct.toFixed(1).replace(/\.0$/, "")}%`;
+
+    wrap.appendChild(track);
+    wrap.appendChild(pctEl);
+    mount.appendChild(wrap);
   }
 
   function getDocumentIcon(type) {

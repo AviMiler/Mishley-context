@@ -382,6 +382,7 @@
       historyView,
       setStatus,
       render,
+      getCtxWindow: () => state.ctxWindow,
     });
 
     historyView.init({
@@ -400,6 +401,7 @@
       openEdit,
       updateInjectBtn,
       getDocMaxChars: () => state.docMaxChars,
+      getCtxWindow: () => state.ctxWindow,
       getAutoInjectMode,
       setAutoInjectMode,
       // Never null: falls back to the built-in defaults if a scan somehow

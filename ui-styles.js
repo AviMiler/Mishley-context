@@ -1860,6 +1860,11 @@ window.__ccbCSS = (() => {
     }
     .code-tree-link-btn:hover { color: var(--text-strong); }
     .code-tree-token-count { color: var(--text-ghost); }
+    .code-tree-budget {
+      display: flex; align-items: center; gap: 8px;
+      direction: ltr; padding: 0 4px 6px;
+    }
+    .code-tree-budget .ctx-bar-track { cursor: default; }
 
     /* ── Context tab: project's own text-block list (inside project view) ── */
     .ctx-proj-empty {

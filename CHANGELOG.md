@@ -26,6 +26,18 @@ User reported file loading got slower after the tokenizer landed. Confirmed and 
 - Why an explicit flag rather than a second local heuristic: the codebase has been bitten before by parallel copies of the same estimation drifting apart (that is why `estimateTextTokens` was made canonical in the first place). The caller now states its intent; there is still exactly one implementation.
 - Verified: 4 new assertions in the fallback-ladder suite (`fast:true` bypasses the tokenizer *even when loaded*, `fast:false`/no-opts stay exact, empty string safe), plus the pre-existing 427-assertion tokenizer suite and 18-assertion integration suite still pass.
 
+### 2026-07-26 — Live token-budget bar under the file/document lists
+
+Origin: feature 2 of the same 9-feature batch. The file tree showed a raw token sum with nothing to judge it against — the user had to mentally compare it to the context-window size they set in Advanced Options.
+
+- Added: `code-tree.js#updateBudgetBar(tokens)` + the shell elements for it (`.code-tree-budget` wrapper, reusing `.ctx-bar-track`/`.ctx-bar-fill`/`.ctx-pct`). Renders the current selection as a percentage of the context window, directly below the existing "N קבצים נבחרים · X tokens" label, with a tooltip spelling out `used / window`.
+- Added: `history-view.js#appendDocsBudgetBar(mount, docs)` — the same bar for a *regular* project's flat document list, so both project kinds read identically.
+- Changed: `content.js#initModules` — `getCtxWindow` added to both `__ccbCodeTree.init` (which had no access to it at all) and `historyView.init` deps.
+- Changed: `ui-styles.js` — `.code-tree-budget` layout rule only; the bar deliberately **reuses the context meter's existing classes and its exact severity thresholds** (>50% warn, >75% high, >90% crit) rather than defining a parallel palette, so all three places that talk about context-window usage look and behave the same.
+- Non-obvious: the bar hides itself when the context window is 0/unset rather than dividing by zero, and clamps at 100% so an over-budget selection can't overflow the track. The file *count* still excludes the always-on structure doc while the token *sum* includes it — matching what the footer inject actually sends, per the existing 2026-07-21 rule.
+- Verified: 17-assertion Node harness driving the real `code-tree.js` through a minimal DOM stub — threshold boundaries (64000 → none, 64100 → warn, 96100 → high, 115300 → crit), over-budget clamping, disabled docs excluded from the sum, structure-doc counting rules, zero-window hiding, and empty selection at 0%.
+- Pending: browser pass — confirm the bar tracks live as files are ticked and that its color matches the top meter at equivalent fill.
+
 ### 2026-07-26 — Real BPE token counting (o200k_base) replaces the chars→tokens heuristic
 
 Origin: first item of a 9-feature batch the user requested after a brainstorm on making the extension feel like a more advanced AI chat and deepening the file-loading/dependency experience. Asked for "ספירת טוקנים לפי טוקנייזר אמיתי" — token counts from a real tokenizer rather than a character ratio.
