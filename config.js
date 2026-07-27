@@ -105,10 +105,19 @@ const _ACTIVE = _SITE_CONFIG[ACTIVE_SITE] || _SITE_CONFIG.gemini;
     // להיוריסטיקת התווים שמתחתיה כשהוא עדיין לא נטען (הטעינה עצלה), כשהיא
     // נכשלה, או כשהטקסט ארוך מהתקרה שלו. ההיוריסטיקה נשארת כאן כמסלול
     // גיבוי מלא — היא הייתה המדיניות היחידה עד להוספת הטוקנייזר.
-    estimateTextTokens(text) {
+    // opts.fast — דלג על הטוקנייזר האמיתי והשתמש בהיוריסטיקה. מיועד
+    // לחישובים בתפזורת (סריקת פרויקט: קריאה אחת לכל קובץ), שם BPE אמיתי
+    // איטי פי ~240 ואינו קונה דבר: הסכום המצטבר של ההיוריסטיקה נמדד
+    // כסוטה ב-1.8% בלבד, והמספרים האלה מוצגים ממילא כאומדן. ספירות
+    // בודדות ואינטראקטיביות (מונה השיחה, תצוגה מקדימה, סך ההזרקה)
+    // ממשיכות להיות מדויקות. הדגל מועבר במפורש כדי שתישאר מדיניות אחת
+    // ולא יצוצו מימושים מקבילים של אותו חישוב.
+    estimateTextTokens(text, opts) {
       if (typeof text !== "string" || !text.length) return 0;
-      const exact = window.__ccbTokenizer?.countTokens(text);
-      if (typeof exact === "number") return exact;
+      if (!opts || !opts.fast) {
+        const exact = window.__ccbTokenizer?.countTokens(text);
+        if (typeof exact === "number") return exact;
+      }
       let hebrew = 0;
       for (let i = 0; i < text.length; i++) {
         const c = text.charCodeAt(i);

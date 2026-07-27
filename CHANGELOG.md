@@ -2,6 +2,19 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-27 — Fix: the real tokenizer made project scanning much slower
+
+User reported file loading got slower after the tokenizer landed. Confirmed and measured: replacing the char heuristic with real BPE made per-file token estimation **238× slower**, and `scanCodeProject` calls it once per scanned file. On an 8.65M-char / 1,343-file corpus that is +3.4s; extrapolated, ~+20s on a 50MB project.
+
+**The earlier "negligible" claim in the tokenizer entry below was wrong.** That benchmark compared the tokenizer's cost against *total* scan time and never against the heuristic it replaced, which is the only comparison that answers "did this get slower".
+
+- Changed: `config.js#estimateTextTokens(text, opts)` accepts `{ fast: true }` to skip the tokenizer and use the heuristic. `document-handler.js#estimateTokensForContent(content, opts)` passes it through.
+- Changed: `scanCodeProject`'s per-file estimate — the one call that runs once per file in the project — now passes `{ fast: true }`. Measured back to heuristic speed (3405ms → 28ms on the same corpus).
+- **Deliberately still exact:** the conversation meter, `addDocument`, the injection total, and the structure doc. Those are single, interactive counts where precision is visible and the cost is one call.
+- Why this is acceptable: the aggregate error of the heuristic over that corpus is **1.81%** (2,482,211 vs 2,438,087 tokens). Per-file error is larger but the sum converges, and these stored numbers are only ever shown as an approximate size in the tree and summed into the budget bar.
+- Why an explicit flag rather than a second local heuristic: the codebase has been bitten before by parallel copies of the same estimation drifting apart (that is why `estimateTextTokens` was made canonical in the first place). The caller now states its intent; there is still exactly one implementation.
+- Verified: 4 new assertions in the fallback-ladder suite (`fast:true` bypasses the tokenizer *even when loaded*, `fast:false`/no-opts stay exact, empty string safe), plus the pre-existing 427-assertion tokenizer suite and 18-assertion integration suite still pass.
+
 ### 2026-07-26 — Real BPE token counting (o200k_base) replaces the chars→tokens heuristic
 
 Origin: first item of a 9-feature batch the user requested after a brainstorm on making the extension feel like a more advanced AI chat and deepening the file-loading/dependency experience. Asked for "ספירת טוקנים לפי טוקנייזר אמיתי" — token counts from a real tokenizer rather than a character ratio.
@@ -14,7 +27,7 @@ Origin: first item of a 9-feature batch the user requested after a brainstorm on
 - Changed: `ctx-meter.js` — new `resetTokenCache()`, called from the load callback. Its per-message `WeakMap` memo is keyed on content *length*, which doesn't change when the counting policy does, so a conversation already on screen at load time would otherwise keep its heuristic numbers for the whole session.
 - Fixed: `document-handler.js#estimateTokensForFile` — the markup branch's `/1.2` discount now applies **only** on the heuristic path. It corrected character-counting over-weighting HTML/XML tags; a real tokenizer has no such bias, so leaving it unconditional would have under-counted every markup file by ~17%.
 - Decisions: `o200k_base` over `cl100k_base` (much better Hebrew tokenization — the very reason the fallback heuristic has a separate Hebrew divisor; costs 3.4 MB instead of 1.7 MB). Pure JS over WASM (a content script runs under the host page's CSP, which blocks `wasm-unsafe-eval` — the constraint that put tree-sitter in `background.js`; routing through the worker would make every count async and break the synchronous chain in `ctx-meter.js#measureMessage`). Inline `(?i:…)` groups in the official split pattern expanded manually to character-class alternations, since JS regex-modifier support is too recent to rely on. `MAX_EXACT_CHARS = 500000` bounds one synchronous call to ~100 ms at the measured ~5.4M chars/sec.
-- Known/accepted: stored `doc.estimatedTokens` values are not retroactively recomputed — documents scanned before this change keep their heuristic numbers until the project is rescanned. Live displays (conversation meter, file-tree token sum) recompute from content and are exact immediately. A full code-project scan gains ~1.6s (1,346 files / 8.5M chars), negligible against a scan already measured in minutes.
+- Known/accepted: stored `doc.estimatedTokens` values are not retroactively recomputed — documents scanned before this change keep their heuristic numbers until the project is rescanned. Live displays (conversation meter, file-tree token sum) recompute from content and are exact immediately. **Update:** the original scan-cost estimate here (+1.6s, "negligible") was wrong — see the entry above this one for the measured +3.4s / ~238× regression and its fix (`{ fast: true }` on the scan's per-file call).
 - Verified: Node harness mirroring the tree-sitter one — 427/427 exact matches against `gpt-tokenizer`'s `o200k_base` encoder (400 randomized fuzz strings over a mixed Hebrew/English/CJK/emoji/code alphabet, hand-picked edge cases, whole repo source files), plus 18 integration assertions on the fallback ladder (fetch failure, HTTP 404, `tokenizer.js` absent entirely, over-cap input — each must still return a sane heuristic number rather than throwing or leaking `null` upward).
 - Pending: browser pass — load unpacked, confirm `[ccb-timing] tokenizer.load` reports ~199,998 ranks and that the meter/file-tree numbers shift when it resolves.
 

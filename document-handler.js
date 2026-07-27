@@ -277,10 +277,10 @@
   // and it is Hebrew-aware (Hebrew runs ~2 chars/token vs ~3.5 for
   // English/code — a flat 3.5 divisor undercounted Hebrew by ~40%).
   // ============================================================
-  function estimateTokensForContent(content) {
+  function estimateTokensForContent(content, opts) {
     if (typeof content !== "string") return 0;
     const shared = window.__ccbRawConfig?.estimateTextTokens;
-    return shared ? shared(content) : Math.ceil(content.length / CHARS_PT);
+    return shared ? shared(content, opts) : Math.ceil(content.length / CHARS_PT);
   }
 
   function estimateTokensForFile(file) {
@@ -883,7 +883,11 @@
           relativePath: relPath,
           content,
           size: file.size,
-          tokens: estimateTokensForContent(content),
+          // fast: זו הקריאה היחידה שרצה פעם לכל קובץ בפרויקט. טוקנייזר
+          // אמיתי כאן הוסיף ~240x לשלב האומדן (נמדד: +3.6 שניות על 8.6M
+          // תווים, ~20 שניות על פרויקט 50MB) תמורת 1.8% דיוק בסכום —
+          // והמספר הזה מוצג רק כאומדן גודל בעץ ובפס התקציב.
+          tokens: estimateTokensForContent(content, { fast: true }),
         });
         counts.included++;
       } catch (e) {

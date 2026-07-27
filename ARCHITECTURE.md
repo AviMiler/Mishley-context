@@ -514,7 +514,9 @@ The extension's only MV3 background service worker, added 2026-07-23 solely to h
 
 Replaces the chars→tokens ratio as the *primary* token-counting policy. `config.js#estimateTextTokens` — still the single canonical entry point every module calls — now tries `window.__ccbTokenizer.countTokens(text)` first and falls back to the original Hebrew-aware heuristic whenever that returns `null`. **The heuristic is retained in full**, on the same "never break because of the new layer" principle as `dep-graph.js`'s regex fallback behind tree-sitter.
 
-`countTokens` returns `null` (→ heuristic) in exactly three cases: the ranks aren't loaded yet (loading is lazy and async), loading failed, or the text exceeds `MAX_EXACT_CHARS`.
+`countTokens` returns `null` (→ heuristic) in exactly three cases: the ranks aren't loaded yet (loading is lazy and async), loading failed, or the text exceeds `MAX_EXACT_CHARS`. A fourth, caller-driven bypass exists: `estimateTextTokens(text, { fast: true })` skips the tokenizer outright.
+
+**Exact where it shows, fast where it's bulk (2026-07-27).** Real BPE is ~240× slower than the heuristic, and `scanCodeProject` estimates once per scanned file — enough to add ~20s to a 50MB project. The scan's per-file call therefore passes `{ fast: true }`; the conversation meter, `addDocument`, and the structure doc stay exact, being single interactive counts. The heuristic's **aggregate** error over a real 8.65M-char corpus is 1.81%, and scan estimates are only ever shown as an approximate file size in the tree, so the trade is one-sided. The flag is passed explicitly rather than letting each bulk caller keep its own copy of the heuristic — parallel copies drifting apart is the exact bug that made `estimateTextTokens` canonical in the first place.
 
 | Decision | Why |
 |---|---|
@@ -523,7 +525,8 @@ Replaces the chars→tokens ratio as the *primary* token-counting policy. `confi
 | Data vendored, algorithm hand-written | The BPE merge loop + split regex are ~60 lines. Vendoring a *library* would have required a bundler, which this project deliberately doesn't have (DEPENDENCIES.md, "Why no build tooling"). |
 | Lazy `load()`, fired from `content.js#init` | `init()` returns early on non-active sites, so only chat-site tabs ever fetch the 3.4 MB. The panel renders immediately on the heuristic and sharpens itself when the ranks resolve (~200–400 ms). |
 | `web_accessible_resources` entry | A content script's `fetch` is subject to the page's origin, so the ranks file must be web-accessible — unlike `wasm/`, which only the worker reads. |
-| `MAX_EXACT_CHARS = 500000` | Bounds a single synchronous call. Measured at ~5.4M chars/sec (1,346 files / 8.5M chars in 1.6s), so the cap ≈ 100 ms worst case. A full code-project scan adds ~1.6s — negligible against a scan already measured in minutes. |
+| `MAX_EXACT_CHARS = 500000` | Bounds a single synchronous call to roughly 100–200 ms. |
+| Bulk callers pass `{ fast: true }` | **Real BPE is ~240× slower than the heuristic it replaced** (measured: 8.65M chars in 3.4s vs 15–56ms). `scanCodeProject` estimates once per file, so on a 50MB project the tokenizer alone added ~20s. Bulk scan estimates therefore take the heuristic path explicitly; single interactive counts stay exact. The aggregate error over a real corpus is **1.81%**, and those numbers are only shown as an approximate size in the tree and summed into the budget bar. |
 
 **Inline `(?i:…)` is expanded manually** in the split regex. The official o200k pattern uses inline case-insensitive groups for the English contraction suffixes (`'s`/`'t`/`'re`/…); JS support for regex modifiers is too recent to rely on, so each is written out as an explicit character-class alternation. Everything else in the pattern is character-for-character the upstream one.
 
