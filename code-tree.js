@@ -367,6 +367,21 @@
   // כדי לתת מקום אמיתי לקרוא קובץ שלם לפני החלטה אם לכלול אותו.
   const FP_MAX_CHARS = 20000;
 
+  // בונה את שורת ה-meta כרצף span-ים, כל אחד מבודד bidi (ראה .fp-meta-item
+  // ב-ui-styles.js), במקום מחרוזת textContent שטוחה אחת — כך שקטע כמו
+  // "700 תווים" לא יכול "לזחול" ולהחליף מקום עם הקטע שלפניו.
+  function renderMetaLine(container, parts) {
+    if (!container) return;
+    container.textContent = "";
+    parts.forEach((text, i) => {
+      if (i > 0) container.appendChild(document.createTextNode(" · "));
+      const span = document.createElement("span");
+      span.className = "fp-meta-item";
+      span.textContent = text;
+      container.appendChild(span);
+    });
+  }
+
   async function openPreview(doc) {
     if (!doc) return;
     const shadow = _deps.getShadow?.();
@@ -393,16 +408,17 @@
       // user's own project, must never be parsed as markup.
       shadow.getElementById("fpBody").textContent = shown;
 
-      // ‎ (LRM, בלתי-נראה) מיד אחרי כל מספר: בלי זה, מספר שאחריו
-      // מילה עברית (למשל "683 תווים") בהקשר bidi מתחלף מקום עם המילה
-      // מבחינה חזותית — נדגם ישירות בדפדפן אמיתי, לא ב-Node. ה-LRM מעגן
-      // את המספר כ-LTR חזק כך שהוא לא נגרר לפי הריצה החזקה-RTL שאחריו.
-      const fmt = (n) => n.toLocaleString("he-IL") + "‎";
+      // ניסיון קודם עיגן כל מספר ב-LRM בלתי-נראה — נבדק בדפדפן אמיתי
+      // ולא פתר את זה בפועל ("700 תווים" עדיין הוצג הפוך). renderMetaLine
+      // מבודד כל קטע (מספר+תווית) כ-span עם unicode-bidi:isolate משלו,
+      // כך שהרצת ה-RTL (המילה העברית) לא יכולה "לזחול" ולהחליף מקום עם
+      // מה שלפניה, בלי תלות בפרטים עדינים של סימני bidi בתוך מחרוזת אחת.
+      const fmt = (n) => n.toLocaleString("he-IL");
       const parts = [`${fmt(tokens)} tokens`, `${fmt(full.length)} תווים`];
       if (full.length > FP_MAX_CHARS) {
         parts.push(`מוצגים ${fmt(FP_MAX_CHARS)} תווים ראשונים`);
       }
-      shadow.getElementById("fpMeta").textContent = parts.join(" · ");
+      renderMetaLine(shadow.getElementById("fpMeta"), parts);
 
       // Both this view and the conversation preview are full-pane takeovers
       // of the same area — closing one before opening the other avoids two

@@ -2,6 +2,15 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-27 — Fix: the bidi fix didn't hold up — number/Hebrew-word swap fixed with real per-segment isolation
+
+User reported the token/char line was still showing "תווים 700" instead of "700 תווים" after the earlier LRM-based fix — confirming the invisible-mark approach (documented at the time as unverified in a real browser) didn't actually work.
+
+- Root cause reconsidered: a single invisible Left-to-Right Mark right after the digits wasn't enough to reliably pin a short numeric run against an adjacent strong-RTL (Hebrew) run within the larger meta line — the whole line was still one bidi paragraph, and the two segments could still reorder relative to each other under the browser's resolution.
+- Changed: `code-tree.js` — new `renderMetaLine(container, parts)` builds the meta line out of real DOM nodes instead of one flat `textContent` string: each segment ("N tokens", "N תווים", the truncation note) becomes its own `<span class="fp-meta-item">`, joined by plain `" · "` text nodes. Removed the LRM appended in `fmt()` — superseded by this stronger fix.
+- Added: `ui-styles.js` — `.fp-meta-item { unicode-bidi: isolate; }`. A real CSS bidi isolate boundary is unicode-bidi's actual purpose-built tool for exactly this problem (an isolated segment's internal ordering can't be influenced by, or influence, its surroundings), unlike an embedded invisible character within one text run.
+- Verified: `file-preview.mjs`'s Node DOM mock was upgraded to properly aggregate `textContent` recursively from child text nodes/elements (matching real DOM — the previous mock stored a flat string and couldn't observe a node built from several `appendChild` calls), and gained `document.createTextNode`. Replaced the LRM-count assertion with one confirming exactly 2 `.fp-meta-item` spans exist; adjusted the "no HTML parsing" assertion to check for zero *element* children specifically (a text node from a plain `textContent =` assignment is expected and fine). All 28 assertions pass; re-ran `deps-menu.mjs`/`verify.mjs`/`integration.mjs`/`budget.mjs`, all still pass. **Still flagging honestly**: `unicode-bidi: isolate` is the textbook-correct fix for this exact bug and far more robust than the LRM attempt, but given the LRM attempt was also expected to work and didn't, this specifically needs real-browser confirmation before being trusted as fully resolved.
+
 ### 2026-07-27 — File preview header: close (X) icon, full path below the file name, bidi fix for the token/char line
 
 Follow-up user feedback on the file preview header, from a screenshot: the back-chevron should be an X (close) instead; the path line should show the FULL path (including the file name itself), placed BELOW the bold file name rather than above it as a directory-only line; and the token/char meta line had a visible RTL bug — a number immediately followed by a Hebrew word ("683 תווים") visually swapped positions ("תווים 683").

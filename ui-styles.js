@@ -1133,6 +1133,11 @@ window.__ccbCSS = (() => {
       font-size: 11px; color: var(--text-ghost); direction: ltr;
       margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
+    /* Each "N tokens"/"N תווים" segment gets its own bidi isolate — an
+       invisible LRM after the number (tried first) didn't reliably stop a
+       number+Hebrew-word segment from visually swapping places; a real
+       isolate boundary per segment does. */
+    .fp-meta-item { unicode-bidi: isolate; }
 
     /* Search */
     .cv-search-wrap {
