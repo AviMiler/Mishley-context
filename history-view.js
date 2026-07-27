@@ -1533,8 +1533,16 @@
         : content;
       // Token label is computed on what is actually injected (post-truncation),
       // not the stored full-content estimate — the two disagreed whenever a
-      // long non-code doc was cut at maxChars.
-      body += `\n**${doc.name}** (${_deps.docHandler.estimateTokens(injected)} tokens)\n---\n`;
+      // long non-code doc was cut at maxChars. Uses { fast: true } — this is
+      // the same "one estimate per file" shape as scanCodeProject's per-file
+      // pass (document-handler.js), and a code project can have hundreds of
+      // enabled files: running the exact BPE tokenizer per file here was
+      // measured as the actual cause of "loading files into chat is slow"
+      // (2026-07-27) — synchronous, un-yielding, ~240x the heuristic cost,
+      // unlike scanCodeProject which was already fixed. The final injection
+      // total below stays exact by design; only this per-file label is an
+      // approximation.
+      body += `\n**${doc.name}** (${_deps.docHandler.estimateTokens(injected, { fast: true })} tokens)\n---\n`;
       body += injected;
       body += "\n";
     }

@@ -2,6 +2,14 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-27 — Fix: "טען קבצים" still paid exact BPE per file, not just at scan time
+
+User reported loading a code project's files into the chat box is very slow. The scan-speed fix above (same day) added `{ fast: true }` to `scanCodeProject`'s per-file estimate but missed the **other** per-file loop with the identical shape: `history-view.js#runProjectDocumentsInjection` computes a token-count label for every enabled document while building the injected text — for a code project that can be hundreds of files, each label call ran the exact (and un-yielding, ~240× slower) BPE tokenizer synchronously on the full file content.
+
+- Changed: `history-view.js#runProjectDocumentsInjection`'s per-file token label now calls `estimateTokens(injected, { fast: true })`, matching `scanCodeProject`'s existing bulk-caller convention.
+- Deliberately left exact: the final injection-total estimate (used for the success toast) — that's the one single, interactive count this flow shows, per the existing "exact where it shows, fast where it's bulk" rule.
+- Verified: `node --check history-view.js`; manual reasoning only — no existing Node harness covers this function's timing, so a browser pass is the real confirmation (see AGENT_CONTEXT.md Next Steps).
+
 ### 2026-07-27 — Fix: loading files then prompts (or messages) hung the tab
 
 User reported that after "טען קבצים", loading prompts or conversation messages froze the tab. Root cause was **not** the tokenizer — `inject.js` is untouched by any of the reintroduced features, and this bug has existed since before it. Diagnosed live: `document.activeElement.tagName` on the active site is a contenteditable `DIV`, not the configured `CHAT_INPUT_SELECTOR` textarea (that selector isn't matching, so `findInput()` falls back to `document.activeElement`).
