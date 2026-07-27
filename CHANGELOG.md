@@ -2,6 +2,17 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-27 — Fix: loading files then prompts (or messages) hung the tab
+
+User reported that after "טען קבצים", loading prompts or conversation messages froze the tab. Root cause was **not** the tokenizer — `inject.js` is untouched by any of the reintroduced features, and this bug has existed since before it. Diagnosed live: `document.activeElement.tagName` on the active site is a contenteditable `DIV`, not the configured `CHAT_INPUT_SELECTOR` textarea (that selector isn't matching, so `findInput()` falls back to `document.activeElement`).
+
+Every injection therefore went through `inject.js`'s contenteditable path, which did two things unconditionally regardless of how much was already in the box: `getCurrentValue()` read `el.innerText` (layout-dependent — forces a synchronous reflow of the whole field), and `setInputValue()` called `sel.selectAllChildren(el)` + `execCommand("insertText", ...)`, which selects and replaces **all** existing content. After loading files the field holds hundreds of KB; the next injection (prompts, messages) paid for reading and fully replacing all of it.
+
+- Changed: `inject.js` — for contenteditable elements, `prepend`/`append` modes now insert **only the new text** at a collapsed caret (start or end) via `document.createRange()` + `execCommand("insertText", ...)`, instead of reading `innerText` and replacing the whole field. Emptiness is checked via `textContent` (cheap) rather than `innerText`. `replace` mode (and the empty-field case) still selects-all, since there's nothing to preserve there.
+- This is the same `innerText`-is-layout-dependent bug class already documented in `ctx-meter.js`'s perf section, now found in `inject.js` too.
+- Honest limitation: **the dominant cost is the forced layout and full-selection DOM replace, neither of which a Node harness can measure.** The fix is verified for correctness (identical final content across every mode/emptiness combination) and for *not invoking* the expensive operations on the hot path (zero `innerText` reads, zero `selectAllChildren` calls for non-empty `prepend`/`append`) — not for the actual time saved. Browser confirmation still needed.
+- Verified: 14 new Node assertions — final content matches the old string-concatenation semantics exactly across all 6 mode/emptiness combinations; zero `innerText` reads and zero full-selection replaces on the non-empty `prepend`/`append` path; `replace` and empty-field cases still correctly use select-all; the rare `execCommand`-unavailable fallback still produces correct content.
+
 ### 2026-07-27 — Fix: the real tokenizer made project scanning much slower
 
 User reported file loading got slower after the tokenizer landed. Confirmed and measured: replacing the char heuristic with real BPE made per-file token estimation **238× slower**, and `scanCodeProject` calls it once per scanned file. On an 8.65M-char / 1,343-file corpus that is +3.4s; extrapolated, ~+20s on a 50MB project.

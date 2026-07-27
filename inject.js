@@ -23,27 +23,54 @@ window.__ccbInject = (() => {
     return el.isContentEditable ? el.innerText || "" : el.value || "";
   }
 
-  function setInputValue(el, value) {
-    if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
-      const proto = el.tagName === "TEXTAREA"
-        ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-      const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
-      setter.call(el, value);
-      el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: value }));
-      el.dispatchEvent(new Event("input",  { bubbles: true }));
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-      el.focus();
-    } else if (el.isContentEditable) {
-      el.focus();
-      try {
-        const sel = window.getSelection();
-        sel.selectAllChildren(el);
-        const ok = document.execCommand("insertText", false, value);
-        if (!ok) throw new Error("execCommand failed");
-      } catch {
-        el.textContent = value;
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-      }
+  function setNativeValue(el, value) {
+    const proto = el.tagName === "TEXTAREA"
+      ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
+    setter.call(el, value);
+    el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: value }));
+    el.dispatchEvent(new Event("input",  { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    el.focus();
+  }
+
+  function replaceContentEditable(el, value) {
+    el.focus();
+    try {
+      const sel = window.getSelection();
+      sel.selectAllChildren(el);
+      const ok = document.execCommand("insertText", false, value);
+      if (!ok) throw new Error("execCommand failed");
+    } catch {
+      el.textContent = value;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  }
+
+  // מכניס טקסט בנקודה אחת (תחילת/סוף השדה) בלי לקרוא או להחליף את כל
+  // התוכן הקיים. אחרי "טען קבצים" השדה יכול להכיל מאות KB — select-all
+  // + insertText מעבד את כל זה (מחיקה והחלפה מלאה), ו-getCurrentValue
+  // (innerText) כופה layout סינכרוני עליו. הכנסה בנקודה קבועה היא
+  // O(טקסט חדש) בלבד, לא O(כל השדה) — זה מה שגרם לתקיעה כשטוענים
+  // פרומפטים/הודעות אחרי טעינת קבצים.
+  function insertAtEdge(el, text, atStart) {
+    el.focus();
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(atStart);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      const ok = document.execCommand("insertText", false, text);
+      if (!ok) throw new Error("execCommand failed");
+    } catch {
+      // נתיב גיבוי נדיר בלבד (למשל אין Selection API) — כאן כן צריך
+      // לקרוא את התוכן הקיים, במחיר שהפונקציה הזו קיימת כדי להימנע ממנו.
+      const current = el.innerText || "";
+      const next = atStart ? text + current : current + text;
+      el.textContent = next;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
     }
   }
 
@@ -67,13 +94,22 @@ window.__ccbInject = (() => {
   function injectIntoInput(text, mode) {
     const el = findInput();
     if (!el) return { ok: false, error: "לא נמצא שדה קלט" };
+
+    if (el.isContentEditable) {
+      // ריקנות נבדקת דרך textContent (לא innerText) — אינה תלוית-פריסה.
+      const empty = !el.textContent;
+      if (mode === "replace" || empty) replaceContentEditable(el, text);
+      else if (mode === "prepend") insertAtEdge(el, text, true);
+      else insertAtEdge(el, "\n\n" + text, false);
+      return { ok: true };
+    }
+
     const current = getCurrentValue(el);
     let next;
     if (mode === "replace" || !current) next = text;
     else if (mode === "prepend") next = text + current;
     else next = current + "\n\n" + text;
-    setInputValue(el, next);
-    el.focus();
+    setNativeValue(el, next);
     return { ok: true };
   }
 
