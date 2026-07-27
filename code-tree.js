@@ -214,6 +214,34 @@
     _budgetEl.title = `${tokens.toLocaleString("he-IL")} מתוך ${windowTokens.toLocaleString("he-IL")} טוקנים בחלון ההקשר`;
   }
 
+  /**
+   * התאמת קובץ לשאילתת החיפוש, מודעת-תיקיות.
+   *
+   * חיפוש שם תיקייה מעלה את כל הקבצים שבתוכה: אם סגמנט תיקייה כלשהו
+   * בנתיב מכיל את השאילתה, כל צאצאיו תואמים. בנוסף נשמרת ההתנהגות
+   * הישנה של חיפוש חופשי בנתיב המלא, כדי שחיפוש חלקי של שם קובץ
+   * (או של נתיב עם "/") ימשיך לעבוד בדיוק כמו קודם.
+   *
+   * @param {string} path נתיב יחסי, מופרד ב-"/"
+   * @param {string} q שאילתה, כבר trimmed ו-lowercase
+   */
+  function matchesQuery(path, q) {
+    const lower = path.toLowerCase();
+    if (lower.includes(q)) return true;
+    // "src/utils" — משווים סגמנט-מול-סגמנט, בכל היסט אפשרי בנתיב.
+    // כל סגמנט נבדק ב-startsWith ולא ב-includes בכוונה: includes היה גורם
+    // ל-"src/utils" לתפוס גם את "src/myUtilsHelper.js", בעוד startsWith
+    // עדיין מאפשר הקלדה חלקית ("areas/adm" → "Areas/Admin/...").
+    if (q.includes("/")) {
+      const qParts = q.split("/").filter(Boolean);
+      const parts = lower.split("/");
+      for (let i = 0; i + qParts.length <= parts.length; i++) {
+        if (qParts.every((qp, j) => parts[i + j].startsWith(qp))) return true;
+      }
+    }
+    return false;
+  }
+
   // Re-renders only the tree body (folders/files) from the current _project +
   // _query, leaving the shell (search/actions) in place.
   function render() {
@@ -222,7 +250,7 @@
 
     const docs = (_project.documents || []).filter((d) => d.type === "code");
     const q = _query.trim().toLowerCase();
-    const filtered = q ? docs.filter((d) => d.name.toLowerCase().includes(q)) : docs;
+    const filtered = q ? docs.filter((d) => matchesQuery(d.name, q)) : docs;
 
     if (!filtered.length) {
       const empty = document.createElement("div");
@@ -384,10 +412,21 @@
     if (!dd) return;
     const ic = window.__ccbTpl.IC;
 
-    const mkItem = (icon, label, mode) => {
+    // הספירה מוצגת כאן — בתפריט הפעולה עצמו, לא כתג על שורת העץ — כי כאן
+    // המשתמש בפועל מחליט מה להזריק, ולא רק סוקר את העץ. ללא גרף (טרם
+    // נסרק) לא מציגים מספר בדוי; loadWithDependencies כבר יודע לסרוק
+    // מחדש בעצמו במקרה הזה.
+    const graph = _project.depGraph;
+    const countLabel = (n) => (graph ? ` (${n})` : "");
+    const dg = window.__ccbDepGraph;
+    const depsCount = graph ? dg.getTransitiveClosure(graph, doc.name).size - 1 : 0;
+    const dependentsCount = graph ? dg.getDirectDependents(graph, doc.name).size : 0;
+    const fullCount = graph ? dg.getFullContext(graph, doc.name).size - 1 : 0;
+
+    const mkItem = (icon, label, mode, count) => {
       const item = document.createElement("div");
       item.className = "hd-item";
-      item.innerHTML = `${icon} ${label}`;
+      item.innerHTML = `${icon} ${label}${countLabel(count)}`;
       item.addEventListener("click", () => {
         closeDepsMenu();
         loadWithDependencies(doc, mode);
@@ -396,9 +435,9 @@
     };
 
     dd.innerHTML = "";
-    dd.appendChild(mkItem(ic.link, "תלויות", "dependencies"));
-    dd.appendChild(mkItem(ic.download, "תלויים", "dependents"));
-    dd.appendChild(mkItem(ic.context, "הקשר מלא", "full"));
+    dd.appendChild(mkItem(ic.link, "תלויות", "dependencies", depsCount));
+    dd.appendChild(mkItem(ic.download, "תלויים", "dependents", dependentsCount));
+    dd.appendChild(mkItem(ic.context, "הקשר מלא", "full", fullCount));
 
     const rect = btn.getBoundingClientRect();
     dd.style.top = rect.top + "px";

@@ -2,6 +2,15 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-27 — Dependency counts in the per-file menu + folder-aware search
+
+Origin: features 3–4 of the batch, with a scope change from the original design. The original implementation showed a `↓N ↑M` badge on every file row in the tree. **User asked for the counts to live inside the per-file "תלויות/תלויים/הקשר מלא" menu instead** (the one that injects into the chat) — not as a permanent badge cluttering the main tree view.
+
+- Added: `code-tree.js#matchesQuery(path, q)` (unchanged from the original design) — a folder name in the search box now surfaces every file beneath it by intent, and a slash-bearing query (`src/utils`) matches path segments at any offset via `startsWith` (not `includes`, which would also match `src/myUtilsHelper.js`). Plain full-path substring is still tried first, so every query that worked before still works.
+- Added: each item in `code-tree.js#openDepsMenu` now shows a live count — "תלויות (N)", "תלויים (M)", "הקשר מלא (K)" — computed **only when that specific menu opens**, using the dep graph functions that already existed (`getTransitiveClosure`, `getDirectDependents`, `getFullContext`); no new `dep-graph.js` function was needed for this, since counting per-file on demand is cheap and the batch-computation helper (`getAllEdgeCounts`, for a project-wide table) belongs with the not-yet-reintroduced dependency-management screen (feature 6), where it's actually used.
+- Non-obvious: when the project hasn't been scanned yet (no `depGraph`), the menu shows plain labels with **no parenthesized count** rather than a fabricated `(0)` — `loadWithDependencies` already knows how to scan on demand in that case, and showing `(0)` would misleadingly imply "confirmed no dependencies" instead of "unknown".
+- Verified: 18-assertion Node harness over the real modules — the 9 original folder-search cases; per-item counts matching hand-computed transitive/direct/full-context sizes for two different files in a small graph (including a leaf file and a heavily-depended-on one); confirmation that no `.code-tree-dep-badge` class or per-render edge-count batch exists anywhere in the module; and the no-graph-yet case showing no fabricated counts.
+
 ### 2026-07-27 — Fix: "טען קבצים" still paid exact BPE per file, not just at scan time
 
 User reported loading a code project's files into the chat box is very slow. The scan-speed fix above (same day) added `{ fast: true }` to `scanCodeProject`'s per-file estimate but missed the **other** per-file loop with the identical shape: `history-view.js#runProjectDocumentsInjection` computes a token-count label for every enabled document while building the injected text — for a code project that can be hundreds of files, each label call ran the exact (and un-yielding, ~240× slower) BPE tokenizer synchronously on the full file content.
