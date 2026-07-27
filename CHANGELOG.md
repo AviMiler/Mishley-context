@@ -2,6 +2,16 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-27 — Read-only file preview from the code-project tree (scope changed at user's request)
+
+Feature 5 of the 9-feature batch. The original plan called for a small `ui-modals.js` dialog overlay (~720px, centered). **User explicitly asked for it to open across the whole chat area instead, the same way the History tab's conversation preview does** — not a small dialog.
+
+- Added: `code-tree.js` — each file row gains a second action button (eye icon, `.code-tree-preview-btn` — deliberately a distinct class from the existing `.code-tree-deps-btn`, so the two remain unambiguously selectable) opening `openPreview(doc)`.
+- Added: `ui-template.js`/`ui-styles.js` — a new full-pane view `#filePreviewView`, placed right after `#conversationView` and sharing its exact CSS (positioning, `.cv-open` toggle, `.cv-shell`/`.cv-header` structure) rather than the dialog-overlay pattern used elsewhere in the panel (scan settings, backup import). Body is a monospace, LTR, scrollable `<pre>` (`.fp-body`).
+- Content is read through the existing batched `docHandler.getCodeContents([id])` — no new storage path. Token count is measured **live** via `estimateTextTokens`, not read from `doc.estimatedTokens` (which can still carry a stale pre-tokenizer estimate). Display capped at 20,000 chars (display-only, never affects injection); the meta line always reports the file's true length, plus a truncation note when capped. Body set via `.textContent` only, never `.innerHTML`.
+- Added: since this view and the conversation-preview view are both fixed, same-z-index takeovers of the same screen area, each now closes the other before opening (`openPreview` → `historyView.closeConversationView()`; `history-view.js#openConversationView` → `window.__ccbCodeTree.closeFilePreview()`). `closeFilePreview()` is also wired alongside every existing `closeConversationView()` call in `content.js` (Escape, tab switch, panel close) plus its own back button (`#fpBack`), and clears the body's `textContent` on close so a large file doesn't stay pinned in the DOM.
+- Verified: 24-assertion Node harness over the real `code-tree.js` — button rendering with a distinct class from the deps button; live token measurement beating a stale stored estimate; truncation at 20,000 chars with the true length/count still reported; content written verbatim via `textContent` (zero child elements, even for `<script>`-looking input); the cross-close guard with the conversation view; both failure paths (missing content, thrown error) surfacing an error toast without opening the view; close clearing the body. Browser pass pending.
+
 ### 2026-07-27 — Fix: "טען קבצים" still hung — execCommand("insertText") was the real bottleneck
 
 User reported the file-injection hang persisted even after the same-day point-insertion fix (below). That fix only changed *where* the range pointed; it still called `document.execCommand("insertText", false, text)` to perform the actual insert.

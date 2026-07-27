@@ -956,6 +956,9 @@
   function openConversationView(b, { openedFromProject = false } = {}) {
     if (!b) return;
 
+    // Both this view and the file-preview full-pane view (code-tree.js) are
+    // fixed, same-z-index takeovers of the same area — never show both.
+    window.__ccbCodeTree?.closeFilePreview?.();
     _deps.state.cvOpenedFromProject = !!openedFromProject;
 
     const messages = buildHistoryMessages(b);

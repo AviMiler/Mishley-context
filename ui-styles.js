@@ -1032,8 +1032,9 @@ window.__ccbCSS = (() => {
       transition: background var(--t-fast);
     }
 
-    /* ── Conversation Preview Panel ── */
-    #conversationView {
+    /* ── Conversation Preview Panel (also hosts the file-preview full-pane
+       view, #filePreviewView — same takeover layout, different body) ── */
+    #conversationView, #filePreviewView {
       position: fixed;
       top: 0;
       left: ${w}px;
@@ -1049,7 +1050,16 @@ window.__ccbCSS = (() => {
       flex-direction: column;
       pointer-events: auto;
     }
-    #conversationView.cv-open { display: flex; }
+    #conversationView.cv-open, #filePreviewView.cv-open { display: flex; }
+    /* File preview body — read-only file content, monospace, LTR regardless
+       of the panel's own RTL (source code direction, not UI language). */
+    .fp-body-wrap { flex: 1; min-height: 0; overflow: auto; padding: 14px 18px; }
+    .fp-body {
+      margin: 0; direction: ltr; text-align: left;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px; line-height: 1.55; color: var(--text-body);
+      white-space: pre; tab-size: 2;
+    }
     .cv-shell {
       display: flex;
       flex-direction: column;
@@ -1843,14 +1853,14 @@ window.__ccbCSS = (() => {
     .code-tree-icon { color: var(--text-faint); flex-shrink: 0; display: flex; }
     .code-tree-icon svg { width: 13px; height: 13px; }
     .code-tree-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-body); }
-    .code-tree-deps-btn {
+    .code-tree-deps-btn, .code-tree-preview-btn {
       width: 18px; height: 18px; flex-shrink: 0; border: none; background: none;
       color: var(--text-faint); cursor: pointer; border-radius: 4px;
       display: flex; align-items: center; justify-content: center;
       opacity: 0.55; transition: opacity var(--t-fast), background var(--t-fast), color var(--t-fast);
     }
-    .code-tree-row:hover .code-tree-deps-btn { opacity: 1; }
-    .code-tree-deps-btn:hover { background: var(--bg-clear); color: var(--text-strong); }
+    .code-tree-row:hover .code-tree-deps-btn, .code-tree-row:hover .code-tree-preview-btn { opacity: 1; }
+    .code-tree-deps-btn:hover, .code-tree-preview-btn:hover { background: var(--bg-clear); color: var(--text-strong); }
     .code-tree-children { display: flex; flex-direction: column; }
     .code-tree-children.collapsed { display: none; }
     .code-tree-link-btn {

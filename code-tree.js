@@ -6,9 +6,13 @@
 // Exposes: window.__ccbCodeTree
 //
 // Public API:
-//   init(deps)                  — { docHandler, getShadow, historyView, setStatus, render }
+//   init(deps)                  — { docHandler, getShadow, historyView, setStatus,
+//                                    render, getCtxWindow }
 //   renderInline(project, mount) — (re)build the file tree inside `mount`
 //                                  (an element inside #projectDocumentsList)
+//   closeFilePreview()           — close the full-pane file preview if open
+//                                  (wired to its back button + the panel's
+//                                  Escape handler in content.js)
 
 (() => {
   if (window.__ccbCodeTreeInstalled) return;
@@ -159,6 +163,18 @@
         row.appendChild(label);
         row.title = child.path;
 
+        const previewBtn = document.createElement("button");
+        previewBtn.type = "button";
+        previewBtn.className = "code-tree-preview-btn";
+        previewBtn.innerHTML = IC().eye;
+        previewBtn.title = "תצוגה מקדימה";
+        previewBtn.setAttribute("aria-label", "תצוגה מקדימה");
+        previewBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          void openPreview(child.doc);
+        });
+        row.appendChild(previewBtn);
+
         const depsBtn = document.createElement("button");
         depsBtn.type = "button";
         depsBtn.className = "code-tree-deps-btn";
@@ -172,7 +188,7 @@
         row.appendChild(depsBtn);
 
         row.addEventListener("click", (e) => {
-          if (e.target === checkbox || e.target === depsBtn) return;
+          if (e.target === checkbox || e.target === depsBtn || e.target === previewBtn) return;
           checkbox.checked = !checkbox.checked;
           checkbox.dispatchEvent(new Event("change"));
         });
@@ -337,6 +353,64 @@
     _mountEl.appendChild(_bodyEl);
   }
 
+  // תצוגה מקדימה של קובץ — קריאה בלבד, נפתחת על כל שטח הצ'אט (כמו תצוגת
+  // שיחה היסטורית ב-history-view.js#openConversationView) ולא כדיאלוג קטן,
+  // כדי לתת מקום אמיתי לקרוא קובץ שלם לפני החלטה אם לכלול אותו.
+  const FP_MAX_CHARS = 20000;
+
+  async function openPreview(doc) {
+    if (!doc) return;
+    const shadow = _deps.getShadow?.();
+    if (!shadow) return;
+    try {
+      const map = await _deps.docHandler.getCodeContents([doc.id]);
+      const content = map.get(doc.id);
+      if (typeof content !== "string") {
+        _deps.setStatus("לא נמצא תוכן לקובץ — ייתכן שנדרש רענון סריקה", true);
+        return;
+      }
+      // נמדד כאן ולא נלקח מ-doc.estimatedTokens: אומדנים שנשמרו לפני מעבר
+      // לטוקנייזר האמיתי עדיין נושאים את הערך ההיוריסטי הישן.
+      const tokens = window.__ccbRawConfig.estimateTextTokens(content);
+      const full = content;
+      const shown = full.slice(0, FP_MAX_CHARS);
+
+      shadow.getElementById("fpTitle").textContent = doc.name;
+      // textContent, never innerHTML — arbitrary file content from the
+      // user's own project, must never be parsed as markup.
+      shadow.getElementById("fpBody").textContent = shown;
+
+      const fmt = (n) => n.toLocaleString("he-IL");
+      const parts = [`${fmt(tokens)} tokens`, `${fmt(full.length)} תווים`];
+      if (full.length > FP_MAX_CHARS) {
+        parts.push(`מוצגים ${fmt(FP_MAX_CHARS)} תווים ראשונים`);
+      }
+      shadow.getElementById("fpMeta").textContent = parts.join(" · ");
+
+      // Both this view and the conversation preview are full-pane takeovers
+      // of the same area — closing one before opening the other avoids two
+      // fixed, same-z-index panels being open together.
+      _deps.historyView?.closeConversationView?.();
+      const view = shadow.getElementById("filePreviewView");
+      view?.classList.add("cv-open");
+      view?.setAttribute("aria-hidden", "false");
+    } catch (e) {
+      console.error("[ccb] file preview failed:", e);
+      _deps.setStatus("שגיאה בטעינת הקובץ", true);
+    }
+  }
+
+  function closeFilePreview() {
+    const shadow = _deps.getShadow?.();
+    if (!shadow) return;
+    const view = shadow.getElementById("filePreviewView");
+    view?.classList.remove("cv-open");
+    view?.setAttribute("aria-hidden", "true");
+    // הקובץ עשוי להיות גדול — לא משאירים אותו תלוי ב-DOM אחרי סגירה.
+    const body = shadow.getElementById("fpBody");
+    if (body) body.textContent = "";
+  }
+
   // Static dependency graph (built at scan time, see dep-graph.js) — follows
   // this file's detected imports/references and enables every file reached,
   // in one bulk save. `mode` picks the direction:
@@ -474,5 +548,6 @@
   window.__ccbCodeTree = {
     init(deps) { _deps = deps; },
     renderInline,
+    closeFilePreview,
   };
 })();

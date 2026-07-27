@@ -487,6 +487,7 @@
       if (e.key === "Escape") {
         modals.closeSettings();
         modals.closeScanSettings();
+        window.__ccbCodeTree?.closeFilePreview?.();
       }
     });
     $el("scanSettingsOverlay")?.addEventListener("click", (e) => {
@@ -697,6 +698,7 @@
 
     // Conversation View
     $el("cvBack")?.addEventListener("click", historyView.closeConversationView);
+    $el("fpBack")?.addEventListener("click", () => window.__ccbCodeTree?.closeFilePreview?.());
 
     let cvSearchTimer = null;
     $el("cvSearch")?.addEventListener("input", () => {
@@ -754,6 +756,7 @@
     shadow.querySelectorAll(".tab").forEach((tab) => {
       tab.addEventListener("click", async () => {
         historyView.closeConversationView();
+        window.__ccbCodeTree?.closeFilePreview?.();
         historyView.closeProjectSelectDropdown();
         resetTabDefaults(tab.dataset.tab);
         if ($el("panel").classList.contains("editing")) {
@@ -808,6 +811,7 @@
       }
     } else {
       window.__ccbHistoryView.closeConversationView();
+      window.__ccbCodeTree?.closeFilePreview?.();
       window.__ccbHistoryView.closeProjectSelectDropdown();
       $el("panel").classList.remove("open");
       $el("fab").classList.remove("hidden");

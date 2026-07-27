@@ -22,6 +22,7 @@ window.__ccbTpl = (() => {
     refresh: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>`,
     link: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
     ban: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`,
+    eye: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`,
   };
 
   const PANEL_HTML = `
@@ -528,6 +529,19 @@ window.__ccbTpl = (() => {
         <div class="cv-footer">
           <button id="cvLoadBtn" type="button" class="cv-load-btn" disabled>${IC.upload} טען נבחרים</button>
         </div>
+      </div>
+    </div>
+
+    <div id="filePreviewView" aria-hidden="true">
+      <div class="cv-shell">
+        <div class="cv-header">
+          <button id="fpBack" type="button" aria-label="חזרה">${IC.chevronRight}</button>
+          <div class="cv-title-wrap">
+            <div id="fpTitle"></div>
+            <div id="fpMeta" class="cv-meta"></div>
+          </div>
+        </div>
+        <div class="fp-body-wrap"><pre class="fp-body" id="fpBody"></pre></div>
       </div>
     </div>
   `;
