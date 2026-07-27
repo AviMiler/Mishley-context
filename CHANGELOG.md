@@ -2,6 +2,15 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-27 — Fix (3rd attempt): meta line ordering forced via flexbox, not text bidi resolution
+
+User reported the CSS-isolate fix (previous entry, itself a replacement for an even earlier LRM attempt) STILL didn't fix the number/Hebrew-word ordering, and specified the exact wanted layout: "100 תווים · 350 tokens" — the chars count first, then the tokens count, each number immediately before its own label.
+
+- Both previous attempts (invisible LRM, then a `unicode-bidi: isolate` span around each flat "N תווים" string) still relied on the Unicode bidi *text* algorithm to decide the number's position relative to the Hebrew word — and evidently something about how this particular line renders keeps producing the swapped order regardless.
+- This attempt sidesteps bidi text resolution entirely: `code-tree.js#renderMetaLine` now builds each metric as a **flex box** — `.fp-meta-item` (`display: inline-flex; direction: ltr`) containing individual `.fp-meta-piece` spans (the number, then its label, as separate DOM children). Visual left-to-right order of flex children is decided by CSS box layout in DOM order, not by character-level bidi reordering — this is the same technique used to lay out RTL-safe price tags, counters, etc. in real-world Hebrew/Arabic UIs specifically *because* it isn't subject to the ambiguity that broke both earlier attempts.
+- Changed the group order to match what the user specified: chars/תווים first, tokens second (was: tokens first).
+- Verified: extended `file-preview.mjs` to 31 assertions — confirms each group's pieces appear in the exact DOM order [number, label] (which is what now determines the visual order), and that the chars group is the first of the two top-level groups. Re-ran `deps-menu.mjs`/`verify.mjs`/`integration.mjs`/`budget.mjs`, all still pass. **This is the third attempt at the same visual bug** — flex-based ordering is structurally a stronger guarantee than either text-bidi approach (it isn't interpretable two ways), but given the track record on this specific line, treat it as unconfirmed until actually seen correct in a reloaded browser.
+
 ### 2026-07-27 — Fix: the bidi fix didn't hold up — number/Hebrew-word swap fixed with real per-segment isolation
 
 User reported the token/char line was still showing "תווים 700" instead of "700 תווים" after the earlier LRM-based fix — confirming the invisible-mark approach (documented at the time as unverified in a real browser) didn't actually work.

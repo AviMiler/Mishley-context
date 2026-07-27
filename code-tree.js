@@ -367,18 +367,27 @@
   // כדי לתת מקום אמיתי לקרוא קובץ שלם לפני החלטה אם לכלול אותו.
   const FP_MAX_CHARS = 20000;
 
-  // בונה את שורת ה-meta כרצף span-ים, כל אחד מבודד bidi (ראה .fp-meta-item
-  // ב-ui-styles.js), במקום מחרוזת textContent שטוחה אחת — כך שקטע כמו
-  // "700 תווים" לא יכול "לזחול" ולהחליף מקום עם הקטע שלפניו.
-  function renderMetaLine(container, parts) {
+  // בונה את שורת ה-meta כרצף "קבוצות" (למשל [מספר, "תווים"]) — שני ניסיונות
+  // קודמים (LRM בלתי-נראה, ואז span עם unicode-bidi:isolate סביב המחרוזת
+  // כמקשה אחת) לא פתרו בפועל את ה"700 תווים" שמוצג הפוך; שניהם עדיין
+  // הסתמכו על אלגוריתם ה-bidi הטקסטואלי לסדר את המספר מול המילה העברית.
+  // כאן כל קבוצה היא inline-flex עם direction:ltr מפורש — סדר התצוגה
+  // נקבע ע"י ה-flex box layout (סדר ה-DOM, ממש כמו רשימה), לא ע"י ניתוח
+  // bidi של הטקסט, כך שאין יותר מה"לנחש" איך הדפדפן יפרש את הריצות.
+  function renderMetaLine(container, groups) {
     if (!container) return;
     container.textContent = "";
-    parts.forEach((text, i) => {
+    groups.forEach((pieces, i) => {
       if (i > 0) container.appendChild(document.createTextNode(" · "));
-      const span = document.createElement("span");
-      span.className = "fp-meta-item";
-      span.textContent = text;
-      container.appendChild(span);
+      const group = document.createElement("span");
+      group.className = "fp-meta-item";
+      pieces.forEach((text) => {
+        const piece = document.createElement("span");
+        piece.className = "fp-meta-piece";
+        piece.textContent = text;
+        group.appendChild(piece);
+      });
+      container.appendChild(group);
     });
   }
 
@@ -408,17 +417,17 @@
       // user's own project, must never be parsed as markup.
       shadow.getElementById("fpBody").textContent = shown;
 
-      // ניסיון קודם עיגן כל מספר ב-LRM בלתי-נראה — נבדק בדפדפן אמיתי
-      // ולא פתר את זה בפועל ("700 תווים" עדיין הוצג הפוך). renderMetaLine
-      // מבודד כל קטע (מספר+תווית) כ-span עם unicode-bidi:isolate משלו,
-      // כך שהרצת ה-RTL (המילה העברית) לא יכולה "לזחול" ולהחליף מקום עם
-      // מה שלפניה, בלי תלות בפרטים עדינים של סימני bidi בתוך מחרוזת אחת.
+      // סדר קבוצות: מספר התווים קודם, טוקנים אחריו (כמו "100 תווים ·
+      // 350 tokens" — הסדר שהמשתמש ביקש במפורש).
       const fmt = (n) => n.toLocaleString("he-IL");
-      const parts = [`${fmt(tokens)} tokens`, `${fmt(full.length)} תווים`];
+      const groups = [
+        [fmt(full.length), "תווים"],
+        [fmt(tokens), "tokens"],
+      ];
       if (full.length > FP_MAX_CHARS) {
-        parts.push(`מוצגים ${fmt(FP_MAX_CHARS)} תווים ראשונים`);
+        groups.push(["מוצגים", fmt(FP_MAX_CHARS), "תווים ראשונים"]);
       }
-      renderMetaLine(shadow.getElementById("fpMeta"), parts);
+      renderMetaLine(shadow.getElementById("fpMeta"), groups);
 
       // Both this view and the conversation preview are full-pane takeovers
       // of the same area — closing one before opening the other avoids two

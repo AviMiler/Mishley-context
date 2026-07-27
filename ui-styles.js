@@ -1133,11 +1133,18 @@ window.__ccbCSS = (() => {
       font-size: 11px; color: var(--text-ghost); direction: ltr;
       margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    /* Each "N tokens"/"N תווים" segment gets its own bidi isolate — an
-       invisible LRM after the number (tried first) didn't reliably stop a
-       number+Hebrew-word segment from visually swapping places; a real
-       isolate boundary per segment does. */
-    .fp-meta-item { unicode-bidi: isolate; }
+    /* Two earlier attempts (an invisible LRM after the number, then a plain
+       unicode-bidi:isolate span around the whole "700 תווים" string) both
+       still relied on the Unicode bidi text algorithm to order the number
+       against the Hebrew word, and neither held up in a real browser. This
+       instead sidesteps bidi text resolution entirely: each group is a real
+       flex box (inline-flex + explicit direction:ltr), so its children's
+       visual left-to-right order is decided by CSS box layout — exactly
+       like a flex list — not by character-level bidi reordering. */
+    .fp-meta-item {
+      display: inline-flex; align-items: baseline; direction: ltr; gap: 3px;
+      unicode-bidi: isolate;
+    }
 
     /* Search */
     .cv-search-wrap {
