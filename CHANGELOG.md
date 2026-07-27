@@ -2,6 +2,18 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-27 — Per-file dependency manager (feature 6 of the 9-feature batch, scope changed mid-build at the user's request)
+
+First attempt built a project-wide table screen (a new `dep-manager.js` module: every scanned file listed with dependency/dependent counts, sortable, click-through to a per-file editor). The user redirected mid-build: each file's own existing "אפשרויות תלויות" menu should instead gain a "ניהול תלויות" item opening a screen scoped to just that file — no project-wide table. The first attempt was fully reverted (`git checkout --` + deleting the new file) before rebuilding to spec.
+
+- Added: `code-tree.js#openDepsManager(doc)` — a new full-pane view (`#depManagerView`, same takeover pattern as `#conversationView`/`#filePreviewView`) listing the clicked file's outgoing dependencies as removable rows plus an add-dependency input with filtered suggestions from the project's own code files, and its incoming dependents as a read-only list.
+- Added: a 4th item, "ניהול תלויות", in the existing per-file `openDepsMenu` dropdown (below a separator, under "תלויות"/"תלויים"/"הקשר מלא").
+- Added: `dep-graph.js#applyOverrides(graph, overrides)` — merges manual per-file edits onto a graph copy without mutating the input.
+- Added: `history-view.js#setFileDependencyOverride(projectId, path, override)` — persists an edit to `project.depGraphOverrides` (kept separate from `project.depGraph`, which `rescanCodeProject` overwrites wholesale every scan, so a manual choice survives and keeps overriding the freshly-scanned default).
+- Changed: `code-tree.js`'s existing "load with dependencies" menu (`openDepsMenu`/`loadWithDependencies`) now reads through a new `effectiveGraph()` helper (raw graph + overrides applied) instead of the raw graph directly, so a manual edit is reflected there too.
+- Changed: `history-view.js#openConversationView` and `code-tree.js#openPreview` now also close the new manager view, so at most one full-pane view is ever open at once.
+- Verified: a dedicated `verify-agent` static-review pass (no Node harness — pure DOM/UI logic with no isolable unit) confirmed the old attempt is fully gone, the override-delta math (add/remove relative to the raw graph) is symmetric in all four cases, `applyOverrides` doesn't mutate its input, the override survives `rescanCodeProject` by tracing it line-by-line, and the mutual-exclusion closes are exhaustive. Browser pass pending.
+
 ### 2026-07-27 — Meta line: per-group direction (RTL for the Hebrew label, LTR for the English one), per user's explicit instruction
 
 Follow-up to the flexbox fix (previous entry): the user gave a direct, specific instruction rather than another "still broken" report — the "תווים" (chars) group should be `direction: rtl` (its actual language), and the "tokens" group should be `direction: ltr` (its actual language), instead of forcing `ltr` uniformly on both as the previous fix did.

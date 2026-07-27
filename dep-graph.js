@@ -55,6 +55,10 @@
 //   getFullContext(graph, startPath) — getTransitiveClosure(startPath) plus
 //     getDirectDependents(startPath): everything the file needs, plus who
 //     uses it. Returns Set<string> including startPath itself.
+//   applyOverrides(graph, overrides) — merges manual per-file edits (added/
+//     removed edges, from code-tree.js's dependency manager) on top of the
+//     scanned graph, without mutating it. overrides:
+//     { [path]: { added: string[], removed: string[] } }.
 
 (() => {
   if (window.__ccbDepGraphInstalled) return;
@@ -768,10 +772,34 @@
     return closure;
   }
 
+  // Merges manual per-file edits (code-tree.js's dependency manager) on top
+  // of the scanned graph WITHOUT mutating it — rescanCodeProject overwrites
+  // project.depGraph wholesale on every scan, so overrides are kept separate
+  // (project.depGraphOverrides) and re-applied at read time by every
+  // consumer, rather than baked into the graph once. That's also why this
+  // must return a fresh object when overrides exist: callers keep a
+  // reference to the raw project.depGraph and compute deltas against it
+  // (see code-tree.js's addDep/removeDep), which would break if this
+  // mutated the input in place.
+  function applyOverrides(graph, overrides) {
+    if (!overrides || !Object.keys(overrides).length) return graph;
+    const result = {};
+    for (const file in graph) result[file] = graph[file].slice();
+    for (const path in overrides) {
+      const o = overrides[path] || {};
+      const deps = new Set(result[path] || []);
+      for (const removed of o.removed || []) deps.delete(removed);
+      for (const added of o.added || []) deps.add(added);
+      result[path] = Array.from(deps);
+    }
+    return result;
+  }
+
   window.__ccbDepGraph = {
     buildGraph,
     getTransitiveClosure,
     getDirectDependents,
     getFullContext,
+    applyOverrides,
   };
 })();

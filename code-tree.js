@@ -13,6 +13,9 @@
 //   closeFilePreview()           — close the full-pane file preview if open
 //                                  (wired to its back button + the panel's
 //                                  Escape handler in content.js)
+//   closeDepsManager()           — close the full-pane dependency manager if
+//                                  open (same wiring pattern, via #dmBack +
+//                                  Escape)
 
 (() => {
   if (window.__ccbCodeTreeInstalled) return;
@@ -428,10 +431,12 @@
       }
       renderMetaLine(shadow.getElementById("fpMeta"), groups);
 
-      // Both this view and the conversation preview are full-pane takeovers
-      // of the same area — closing one before opening the other avoids two
-      // fixed, same-z-index panels being open together.
+      // This view, the conversation preview, and the dependency manager are
+      // all full-pane takeovers of the same area — closing the others before
+      // opening this one avoids two fixed, same-z-index panels being open
+      // together.
       _deps.historyView?.closeConversationView?.();
+      closeDepsManager();
       const view = shadow.getElementById("filePreviewView");
       view?.classList.add("cv-open");
       view?.setAttribute("aria-hidden", "false");
@@ -461,22 +466,33 @@
   //     transitive dependents of a low-level file would often pull in most
   //     of the project).
   //   "full"         — both: closure of dependencies plus direct dependents.
+  // Bookmarks scanned before this feature existed have no depGraph yet —
+  // build it now instead of silently behaving like a no-op. rescanCodeProject
+  // reloads `blocks` from storage, which replaces the project object in
+  // memory, so `_project` must be re-fetched afterward or it'd point at an
+  // orphaned copy that never receives the new depGraph.
+  async function ensureDepGraph() {
+    if (_project.depGraph) return;
+    _deps.setStatus?.("בונה גרף תלויות...");
+    await _deps.historyView.rescanCodeProject(_project.id);
+    const refreshed = _deps.historyView.getProjectById(_project.id);
+    if (refreshed) _project = refreshed;
+  }
+
+  // The graph with any manual per-file edits (dependency manager, below)
+  // applied on top — every reader of the graph (this menu's counts, "load
+  // with dependencies", the manager itself) must go through this, not
+  // _project.depGraph directly, or a user's manual edit would silently not
+  // show up outside the screen that made it.
+  function effectiveGraph() {
+    return window.__ccbDepGraph.applyOverrides(_project.depGraph || {}, _project.depGraphOverrides);
+  }
+
   async function loadWithDependencies(doc, mode = "dependencies") {
     if (!_project || !doc) return;
+    await ensureDepGraph();
 
-    // Bookmarks scanned before this feature existed have no depGraph yet —
-    // build it now instead of silently behaving like a no-op. rescanCodeProject
-    // reloads `blocks` from storage, which replaces the project object in
-    // memory, so `_project` must be re-fetched afterward or it'd point at an
-    // orphaned copy that never receives the new depGraph.
-    if (!_project.depGraph) {
-      _deps.setStatus?.("בונה גרף תלויות...");
-      await _deps.historyView.rescanCodeProject(_project.id);
-      const refreshed = _deps.historyView.getProjectById(_project.id);
-      if (refreshed) _project = refreshed;
-    }
-
-    const graph = _project.depGraph || {};
+    const graph = effectiveGraph();
     let closure, label;
     if (mode === "dependents") {
       closure = window.__ccbDepGraph.getDirectDependents(graph, doc.name);
@@ -531,28 +547,29 @@
     // המשתמש בפועל מחליט מה להזריק, ולא רק סוקר את העץ. ללא גרף (טרם
     // נסרק) לא מציגים מספר בדוי; loadWithDependencies כבר יודע לסרוק
     // מחדש בעצמו במקרה הזה.
-    const graph = _project.depGraph;
+    const graph = _project.depGraph ? effectiveGraph() : null;
     const countLabel = (n) => (graph ? ` (${n})` : "");
     const dg = window.__ccbDepGraph;
     const depsCount = graph ? dg.getTransitiveClosure(graph, doc.name).size - 1 : 0;
     const dependentsCount = graph ? dg.getDirectDependents(graph, doc.name).size : 0;
     const fullCount = graph ? dg.getFullContext(graph, doc.name).size - 1 : 0;
 
-    const mkItem = (icon, label, mode, count) => {
+    const mkItem = (icon, label, onClick) => {
       const item = document.createElement("div");
       item.className = "hd-item";
-      item.innerHTML = `${icon} ${label}${countLabel(count)}`;
-      item.addEventListener("click", () => {
-        closeDepsMenu();
-        loadWithDependencies(doc, mode);
-      });
+      item.innerHTML = `${icon} ${label}`;
+      item.addEventListener("click", onClick);
       return item;
     };
 
     dd.innerHTML = "";
-    dd.appendChild(mkItem(ic.link, "תלויות", "dependencies", depsCount));
-    dd.appendChild(mkItem(ic.download, "תלויים", "dependents", dependentsCount));
-    dd.appendChild(mkItem(ic.context, "הקשר מלא", "full", fullCount));
+    dd.appendChild(mkItem(ic.link, `תלויות${countLabel(depsCount)}`, () => { closeDepsMenu(); loadWithDependencies(doc, "dependencies"); }));
+    dd.appendChild(mkItem(ic.download, `תלויים${countLabel(dependentsCount)}`, () => { closeDepsMenu(); loadWithDependencies(doc, "dependents"); }));
+    dd.appendChild(mkItem(ic.context, `הקשר מלא${countLabel(fullCount)}`, () => { closeDepsMenu(); loadWithDependencies(doc, "full"); }));
+    const sep = document.createElement("div");
+    sep.className = "hd-sep";
+    dd.appendChild(sep);
+    dd.appendChild(mkItem(ic.pencil, "ניהול תלויות", () => { closeDepsMenu(); openDepsManager(doc); }));
 
     const rect = btn.getBoundingClientRect();
     dd.style.top = rect.top + "px";
@@ -564,6 +581,179 @@
     };
     document.addEventListener("click", onOutside, { capture: true });
     _depsMenuCleanup = () => document.removeEventListener("click", onOutside, { capture: true });
+  }
+
+  // ============================================================
+  // Dependency manager — per-file editor for a single file's dependency
+  // edges. Opened from that file's own "אפשרויות תלויות" menu above
+  // ("ניהול תלויות"), full-pane like the file preview view (#depManagerView,
+  // same cv-shell takeover pattern). Outgoing dependencies are editable
+  // (remove an existing edge, add a new one via a filtered picker over the
+  // project's own code files); incoming dependents are read-only — they're
+  // derived from other files' outgoing edges, so editing them only makes
+  // sense at the source file. Edits persist via
+  // historyView.setFileDependencyOverride to project.depGraphOverrides,
+  // which rescanCodeProject never touches, so a manual choice here survives
+  // (and keeps overriding the scanned default after) every future rescan.
+  // ============================================================
+  let _dmDoc = null;
+
+  function codeDocPaths() {
+    return (_project.documents || []).filter((d) => d.type === "code").map((d) => d.name);
+  }
+
+  function dmEmptyRow(text) {
+    const e = document.createElement("div");
+    e.className = "project-view-label";
+    e.style.cssText = "color:var(--text-faint);padding:4px 0;";
+    e.textContent = text;
+    return e;
+  }
+
+  function renderDepsManager() {
+    const shadow = _deps.getShadow?.();
+    if (!shadow || !_dmDoc) return;
+    const titleEl = shadow.getElementById("dmTitle");
+    const pathEl = shadow.getElementById("dmPath");
+    const body = shadow.getElementById("dmBody");
+    if (!body) return;
+    titleEl.textContent = _dmDoc.name.split("/").pop();
+    pathEl.textContent = _dmDoc.name;
+    body.innerHTML = "";
+
+    const graph = effectiveGraph();
+    const path = _dmDoc.name;
+    const deps = graph[path] || [];
+
+    const outHeader = document.createElement("div");
+    outHeader.className = "dm-section-label";
+    outHeader.textContent = "תלויות יוצאות (ניתן לערוך)";
+    body.appendChild(outHeader);
+
+    const outList = document.createElement("div");
+    outList.className = "dm-dep-list";
+    if (!deps.length) outList.appendChild(dmEmptyRow("אין תלויות"));
+    for (const dep of deps) {
+      const row = document.createElement("div");
+      row.className = "dm-dep-row";
+      const label = document.createElement("span");
+      label.className = "dm-dep-name";
+      label.textContent = dep;
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "dm-dep-remove";
+      removeBtn.innerHTML = IC().x;
+      removeBtn.title = "הסר תלות";
+      removeBtn.setAttribute("aria-label", "הסר תלות");
+      removeBtn.addEventListener("click", () => removeDepEdge(dep));
+      row.appendChild(label);
+      row.appendChild(removeBtn);
+      outList.appendChild(row);
+    }
+    body.appendChild(outList);
+
+    const addWrap = document.createElement("div");
+    addWrap.className = "dm-add-wrap";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "code-tree-search-input";
+    input.placeholder = "הוסף תלות — הקלד לחיפוש קובץ...";
+    const suggestions = document.createElement("div");
+    suggestions.className = "dm-add-suggestions";
+    input.addEventListener("input", () => {
+      const q = input.value.trim().toLowerCase();
+      suggestions.innerHTML = "";
+      if (!q) return;
+      const candidates = codeDocPaths()
+        .filter((n) => n !== path && !deps.includes(n) && n.toLowerCase().includes(q))
+        .slice(0, 20);
+      for (const c of candidates) {
+        const item = document.createElement("div");
+        item.className = "hd-item";
+        item.textContent = c;
+        item.addEventListener("click", async () => {
+          input.value = "";
+          suggestions.innerHTML = "";
+          await addDepEdge(c);
+        });
+        suggestions.appendChild(item);
+      }
+    });
+    addWrap.appendChild(input);
+    addWrap.appendChild(suggestions);
+    body.appendChild(addWrap);
+
+    const inHeader = document.createElement("div");
+    inHeader.className = "dm-section-label";
+    inHeader.textContent = "תלויים נכנסים — מחושב אוטומטית (לעריכה יש לגשת לקובץ המקורי)";
+    body.appendChild(inHeader);
+
+    const dependents = Array.from(window.__ccbDepGraph.getDirectDependents(graph, path));
+    const inList = document.createElement("div");
+    inList.className = "dm-dep-list";
+    if (!dependents.length) inList.appendChild(dmEmptyRow("אין תלויים"));
+    for (const dep of dependents) {
+      const row = document.createElement("div");
+      row.className = "dm-dep-row dm-dep-readonly";
+      row.textContent = dep;
+      inList.appendChild(row);
+    }
+    body.appendChild(inList);
+  }
+
+  // A manual edit is stored relative to the RAW scanned graph, not the
+  // effective one: removing an edge that only exists via an earlier "added"
+  // override just un-adds it; removing a real scanned edge records it in
+  // "removed". Symmetric for adding — so re-adding a scanned edge the user
+  // had removed just clears the removal instead of double-recording it.
+  async function removeDepEdge(target) {
+    const path = _dmDoc.name;
+    const raw = (_project.depGraph || {})[path] || [];
+    const ov = (_project.depGraphOverrides && _project.depGraphOverrides[path]) || { added: [], removed: [] };
+    if (raw.includes(target)) {
+      if (!ov.removed.includes(target)) ov.removed = [...ov.removed, target];
+    } else {
+      ov.added = ov.added.filter((p) => p !== target);
+    }
+    await _deps.historyView.setFileDependencyOverride(_project.id, path, ov);
+    renderDepsManager();
+  }
+
+  async function addDepEdge(target) {
+    const path = _dmDoc.name;
+    if (!target || target === path) return;
+    const raw = (_project.depGraph || {})[path] || [];
+    const ov = (_project.depGraphOverrides && _project.depGraphOverrides[path]) || { added: [], removed: [] };
+    if (raw.includes(target)) {
+      ov.removed = ov.removed.filter((p) => p !== target);
+    } else if (!ov.added.includes(target)) {
+      ov.added = [...ov.added, target];
+    }
+    await _deps.historyView.setFileDependencyOverride(_project.id, path, ov);
+    renderDepsManager();
+  }
+
+  async function openDepsManager(doc) {
+    if (!_project || !doc) return;
+    await ensureDepGraph();
+    _dmDoc = doc;
+    _deps.historyView?.closeConversationView?.();
+    closeFilePreview();
+    const shadow = _deps.getShadow?.();
+    if (!shadow) return;
+    const view = shadow.getElementById("depManagerView");
+    view?.classList.add("cv-open");
+    view?.setAttribute("aria-hidden", "false");
+    renderDepsManager();
+  }
+
+  function closeDepsManager() {
+    _dmDoc = null;
+    const shadow = _deps.getShadow?.();
+    if (!shadow) return;
+    const view = shadow.getElementById("depManagerView");
+    view?.classList.remove("cv-open");
+    view?.setAttribute("aria-hidden", "true");
   }
 
   // ============================================================
@@ -590,5 +780,6 @@
     init(deps) { _deps = deps; },
     renderInline,
     closeFilePreview,
+    closeDepsManager,
   };
 })();

@@ -545,6 +545,19 @@ window.__ccbTpl = (() => {
         <div class="fp-body-wrap"><pre class="fp-body" id="fpBody"></pre></div>
       </div>
     </div>
+
+    <div id="depManagerView" aria-hidden="true">
+      <div class="cv-shell">
+        <div class="cv-header">
+          <button id="dmBack" type="button" aria-label="סגור">${IC.x}</button>
+          <div class="cv-title-wrap fp-title-wrap">
+            <div id="dmTitle" class="fp-title"></div>
+            <div id="dmPath" class="fp-path"></div>
+          </div>
+        </div>
+        <div class="fp-body-wrap dm-body-wrap" id="dmBody"></div>
+      </div>
+    </div>
   `;
 
   return { IC, PANEL_HTML };

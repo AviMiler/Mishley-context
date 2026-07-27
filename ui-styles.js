@@ -1033,8 +1033,9 @@ window.__ccbCSS = (() => {
     }
 
     /* ── Conversation Preview Panel (also hosts the file-preview full-pane
-       view, #filePreviewView — same takeover layout, different body) ── */
-    #conversationView, #filePreviewView {
+       view, #filePreviewView, and the per-file dependency manager,
+       #depManagerView — same takeover layout, different body) ── */
+    #conversationView, #filePreviewView, #depManagerView {
       position: fixed;
       top: 0;
       left: ${w}px;
@@ -1050,7 +1051,28 @@ window.__ccbCSS = (() => {
       flex-direction: column;
       pointer-events: auto;
     }
-    #conversationView.cv-open, #filePreviewView.cv-open { display: flex; }
+    #conversationView.cv-open, #filePreviewView.cv-open, #depManagerView.cv-open { display: flex; }
+    /* Dependency manager body — Hebrew section labels stay RTL (inherited),
+       file paths within rows are forced LTR (source paths, not UI text). */
+    .dm-body-wrap { direction: rtl; }
+    .dm-section-label {
+      font-size: 11px; color: var(--text-ghost); margin: 14px 0 6px; font-weight: 600;
+    }
+    .dm-dep-list { display: flex; flex-direction: column; gap: 4px; }
+    .dm-dep-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; padding: 6px 8px; border-radius: 6px; background: var(--bg-tag);
+      direction: ltr; text-align: left; font-size: 12px;
+    }
+    .dm-dep-row.dm-dep-readonly { color: var(--text-mute); }
+    .dm-dep-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dm-dep-remove {
+      border: none; background: none; cursor: pointer; color: var(--text-faint);
+      display: flex; align-items: center; flex-shrink: 0;
+    }
+    .dm-dep-remove:hover { color: #c53030; }
+    .dm-add-wrap { margin-top: 8px; position: relative; }
+    .dm-add-suggestions { max-height: 160px; overflow-y: auto; margin-top: 4px; direction: ltr; text-align: left; }
     /* File preview body — read-only file content, monospace, LTR regardless
        of the panel's own RTL (source code direction, not UI language). */
     .fp-body-wrap { flex: 1; min-height: 0; overflow: auto; padding: 14px 18px; }

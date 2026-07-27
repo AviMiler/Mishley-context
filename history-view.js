@@ -729,6 +729,23 @@
     _deps.render();
   }
 
+  // Persists a manual per-file dependency edit made in code-tree.js's
+  // dependency manager. Stored on project.depGraphOverrides, SEPARATE from
+  // project.depGraph — rescanCodeProject overwrites depGraph wholesale on
+  // every scan, so a user's manual add/remove must live somewhere the scan
+  // never touches in order to survive a rescan. Deliberately does not call
+  // loadBlocks() first (unlike rescanCodeProject) — `project` is already the
+  // live in-memory object (same reference code-tree.js holds), and reloading
+  // from storage here would swap that reference out from under it.
+  async function setFileDependencyOverride(projectId, path, override) {
+    const project = getProjectById(projectId);
+    if (!project) return;
+    if (!project.depGraphOverrides) project.depGraphOverrides = {};
+    project.depGraphOverrides[path] = override;
+    project.updated = Date.now();
+    await _deps.saveBlocks();
+  }
+
   // ============================================================
   // Project rename / delete — direct actions (no dropdown/menu). Rename
   // works identically for regular and code projects; delete branches since
@@ -956,9 +973,11 @@
   function openConversationView(b, { openedFromProject = false } = {}) {
     if (!b) return;
 
-    // Both this view and the file-preview full-pane view (code-tree.js) are
-    // fixed, same-z-index takeovers of the same area — never show both.
+    // This view, the file-preview full-pane view, and the dependency
+    // manager (all code-tree.js) are fixed, same-z-index takeovers of the
+    // same area — never show more than one at a time.
     window.__ccbCodeTree?.closeFilePreview?.();
+    window.__ccbCodeTree?.closeDepsManager?.();
     _deps.state.cvOpenedFromProject = !!openedFromProject;
 
     const messages = buildHistoryMessages(b);
@@ -1993,5 +2012,6 @@
     enableFilesForProject,
     setAllCodeDocsEnabled,
     openIgnorePatternsDialog,
+    setFileDependencyOverride,
   };
 })();
