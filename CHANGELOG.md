@@ -2,6 +2,16 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-27 — File preview header: close (X) icon, full path below the file name, bidi fix for the token/char line
+
+Follow-up user feedback on the file preview header, from a screenshot: the back-chevron should be an X (close) instead; the path line should show the FULL path (including the file name itself), placed BELOW the bold file name rather than above it as a directory-only line; and the token/char meta line had a visible RTL bug — a number immediately followed by a Hebrew word ("683 תווים") visually swapped positions ("תווים 683").
+
+- Changed: `ui-template.js` — `#fpBack` now renders `IC.x` (a close icon) instead of `IC.chevronRight`, with `aria-label="סגור"` instead of `"חזרה"` (it's a close action now, not directional back-navigation). Reordered the header markup so `#fpTitle` (file name) comes first, `#fpPath` second.
+- Changed: `ui-styles.js` — scoped the chevron-flip rotation (`transform: rotate(180deg)`) back down to `#cvBack` only, since an X icon doesn't need it (harmless either way since X is rotationally symmetric, but incorrect to leave on an element it no longer describes). Swapped which of `.fp-title`/`.fp-path` carries the top margin to match the new order.
+- Changed: `code-tree.js#openPreview` — `fpPath` is now set to the file's full `doc.name` (was: only the directory portion, with the file name stripped).
+- Fixed: the token/char line's Unicode bidi bug. Root cause: a plain digit sequence (a "European Number," a weak bidi type) immediately followed by an RTL Hebrew word can visually reorder relative to that word even inside an LTR-direction container — `direction: ltr` on `.fp-meta` controls paragraph-level ordering but doesn't fully pin a weak run's position next to a strong RTL run. Fixed by appending an invisible Left-to-Right Mark (U+200E) directly after every formatted number in `code-tree.js`'s `fmt()` helper, anchoring it as a strong LTR run so it can no longer be pulled toward the following Hebrew word's position — a well-known, standard technique for exactly this Hebrew/number-ordering bidi bug, but **not yet confirmed in a real browser** (a Node harness can assert the invisible mark is present in the string, not that it actually fixes the rendering — see Next Steps).
+- Verified: extended `file-preview.mjs` to 28 assertions — path now includes the file name for both a nested and a root-level file, plus a new assertion counting exactly 2 LRM marks in the meta line (one per formatted number) — on top of everything previously covered. Re-ran `deps-menu.mjs`/`verify.mjs`/`integration.mjs`/`budget.mjs`, all still pass. Browser pass still pending for the whole header (X icon, header order, and specifically whether the LRM fix actually resolves the visual reordering — that can only be confirmed by looking at a real rendered page).
+
 ### 2026-07-27 — Fix: file preview header was unstyled (wrong IDs), file name now shown separately from its path
 
 User reported the file preview's back button "isn't styled nicely and the whole area is a mess," and asked for the bare file name to appear separately, emphasized, apart from the full path.

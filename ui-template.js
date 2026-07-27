@@ -535,10 +535,10 @@ window.__ccbTpl = (() => {
     <div id="filePreviewView" aria-hidden="true">
       <div class="cv-shell">
         <div class="cv-header">
-          <button id="fpBack" type="button" aria-label="חזרה">${IC.chevronRight}</button>
+          <button id="fpBack" type="button" aria-label="סגור">${IC.x}</button>
           <div class="cv-title-wrap fp-title-wrap">
-            <div id="fpPath" class="fp-path"></div>
             <div id="fpTitle" class="fp-title"></div>
+            <div id="fpPath" class="fp-path"></div>
             <div id="fpMeta" class="fp-meta"></div>
           </div>
         </div>

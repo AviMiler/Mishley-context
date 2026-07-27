@@ -384,17 +384,20 @@
       const full = content;
       const shown = full.slice(0, FP_MAX_CHARS);
 
-      // הכותרת מפוצלת לשם הקובץ הבודד (מודגש, במרכז) + נתיב התיקייה שלו
-      // (שורה קטנה ועמומה מעליו) — לא הנתיב המלא כמקשה אחת כמו קודם.
-      const segments = doc.name.split("/");
-      const fileName = segments.pop();
-      shadow.getElementById("fpPath").textContent = segments.join("/");
+      // הכותרת: שם הקובץ הבודד (מודגש, במרכז, למעלה) + הנתיב המלא שלו
+      // (כולל שם הקובץ עצמו, לא רק התיקייה) כשורה קטנה ועמומה מתחתיו.
+      const fileName = doc.name.split("/").pop();
       shadow.getElementById("fpTitle").textContent = fileName;
+      shadow.getElementById("fpPath").textContent = doc.name;
       // textContent, never innerHTML — arbitrary file content from the
       // user's own project, must never be parsed as markup.
       shadow.getElementById("fpBody").textContent = shown;
 
-      const fmt = (n) => n.toLocaleString("he-IL");
+      // ‎ (LRM, בלתי-נראה) מיד אחרי כל מספר: בלי זה, מספר שאחריו
+      // מילה עברית (למשל "683 תווים") בהקשר bidi מתחלף מקום עם המילה
+      // מבחינה חזותית — נדגם ישירות בדפדפן אמיתי, לא ב-Node. ה-LRM מעגן
+      // את המספר כ-LTR חזק כך שהוא לא נגרר לפי הריצה החזקה-RTL שאחריו.
+      const fmt = (n) => n.toLocaleString("he-IL") + "‎";
       const parts = [`${fmt(tokens)} tokens`, `${fmt(full.length)} תווים`];
       if (full.length > FP_MAX_CHARS) {
         parts.push(`מוצגים ${fmt(FP_MAX_CHARS)} תווים ראשונים`);
