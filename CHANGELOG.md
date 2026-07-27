@@ -2,6 +2,17 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-27 — Fix: "טען קבצים" still hung — execCommand("insertText") was the real bottleneck
+
+User reported the file-injection hang persisted even after the same-day point-insertion fix (below). That fix only changed *where* the range pointed; it still called `document.execCommand("insertText", false, text)` to perform the actual insert.
+
+Measured directly in a real browser tab (Node has no DOM/`execCommand` to test this with): `document.execCommand("insertText", false, text)` on a `contenteditable` did not return within 60+ seconds for a ~300,000-character code-shaped string (many short, repetitive lines) — it wedged the tab's main thread entirely. The same insertion via `Range.insertNode` on a manually built `DocumentFragment` measured linear: 100K chars ~100ms, 500K ~326ms, 2M ~2s, 5M ~5.3s.
+
+- Changed: `inject.js` — new `buildLineFragment(text)`/`insertRangeText(range, sel, text)` build a `DocumentFragment` of `Text` nodes alternating with real `<br>` elements (split on `"\n"`) and insert it via `Range.insertNode`, then move the caret to just after the last inserted node. Real `<br>` elements are used rather than embedding raw `"\n"` in one text node, since a `contenteditable` isn't guaranteed `white-space: pre-wrap` and a literal newline can render as nothing more than a collapsed space.
+- Changed: `insertAtEdge` (`prepend`/`append`) and `replaceContentEditable` (`replace` + empty-field) both now go through `insertRangeText` instead of `execCommand`; `replaceContentEditable` clears existing content via `el.replaceChildren()` first.
+- Unchanged: the non-contenteditable (`<textarea>`/`<input>`) path (`setNativeValue`) — not touched by this fix.
+- Verified: 14 assertions run in an actual browser tab, not a Node mock — exact content-equivalence across empty/prepend/append/replace (including `<br>` count matching the input's newline count), textarea path unaffected, and a 3,000,000-character `replace` completing in ~1.4s. A Node mock could not have caught this bug in the first place, since `execCommand`'s real-world cost only exists in an actual renderer.
+
 ### 2026-07-27 — Dependency counts in the per-file menu + folder-aware search
 
 Origin: features 3–4 of the batch, with a scope change from the original design. The original implementation showed a `↓N ↑M` badge on every file row in the tree. **User asked for the counts to live inside the per-file "תלויות/תלויים/הקשר מלא" menu instead** (the one that injects into the chat) — not as a permanent badge cluttering the main tree view.

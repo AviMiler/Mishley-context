@@ -34,13 +34,67 @@ window.__ccbInject = (() => {
     el.focus();
   }
 
+  // בונה טקסט רב-שורות כ-DocumentFragment של text-node-ים מופרדים ב-<br>,
+  // ולא כמחרוזת גולמית עם "\n" בתוך node אחד — contenteditable לא בהכרח
+  // מוגדר עם white-space:pre-wrap, כך ש-"\n" גולמי בתוך text node יכול
+  // להיקרס לרווח בודד במקום לשבור שורה. <br> אמיתי לכל מעבר שורה נכון
+  // בלי תלות ב-CSS של השדה — אותה תוצאה ש-execCommand("insertText") היה
+  // מייצר בעצמו פנימית.
+  function buildLineFragment(text) {
+    const frag = document.createDocumentFragment();
+    const lines = text.split("\n");
+    let last = null;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i]) {
+        const node = document.createTextNode(lines[i]);
+        frag.appendChild(node);
+        last = node;
+      }
+      if (i < lines.length - 1) {
+        const br = document.createElement("br");
+        frag.appendChild(br);
+        last = br;
+      }
+    }
+    return { frag, last };
+  }
+
+  // מכניס את ה-fragment בטווח הנתון ומשאיר את הסמן (caret) מיד אחריו —
+  // אותה התנהגות ש-execCommand("insertText") היה נותן, בלי execCommand.
+  //
+  // למה לא execCommand: נמדד בפועל (benchmark בדפדפן אמיתי, לא Node) —
+  // document.execCommand("insertText", false, text) על contenteditable
+  // כבר על ~300,000 תווים לא הסתיים תוך יותר מדקה (חוסם את ה-thread
+  // הראשי לגמרי, תקוע). הכנסת DOM ישירה דרך Range.insertNode סקיילת
+  // לינארית: 100K תווים ~100ms, 2M תווים ~2s, 5M תווים ~5.3s — פער
+  // של סדרי גודל, לא שיפור שולי. זו הסיבה האמיתית לתקיעת "טען קבצים"
+  // שדווחה ב-2026-07-27 — התיקון הקודם (הכנסה בנקודה קבועה במקום
+  // קריאה-והחלפה מלאה) שינה איפה מכניסים אבל לא את המנגנון עצמו, ו-
+  // execCommand על טקסט גדול נשאר איטי/תקוע גם כשמכניסים רק את הטקסט
+  // החדש בלבד.
+  function insertRangeText(range, sel, text) {
+    const { frag, last } = buildLineFragment(text);
+    range.insertNode(frag);
+    if (last) {
+      range.setStartAfter(last);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  }
+
   function replaceContentEditable(el, value) {
     el.focus();
     try {
+      el.replaceChildren();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(true);
       const sel = window.getSelection();
-      sel.selectAllChildren(el);
-      const ok = document.execCommand("insertText", false, value);
-      if (!ok) throw new Error("execCommand failed");
+      sel.removeAllRanges();
+      sel.addRange(range);
+      insertRangeText(range, sel, value);
+      el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: value }));
     } catch {
       el.textContent = value;
       el.dispatchEvent(new Event("input", { bubbles: true }));
@@ -51,8 +105,7 @@ window.__ccbInject = (() => {
   // התוכן הקיים. אחרי "טען קבצים" השדה יכול להכיל מאות KB — select-all
   // + insertText מעבד את כל זה (מחיקה והחלפה מלאה), ו-getCurrentValue
   // (innerText) כופה layout סינכרוני עליו. הכנסה בנקודה קבועה היא
-  // O(טקסט חדש) בלבד, לא O(כל השדה) — זה מה שגרם לתקיעה כשטוענים
-  // פרומפטים/הודעות אחרי טעינת קבצים.
+  // O(טקסט חדש) בלבד, לא O(כל השדה).
   function insertAtEdge(el, text, atStart) {
     el.focus();
     try {
@@ -62,10 +115,10 @@ window.__ccbInject = (() => {
       const sel = window.getSelection();
       sel.removeAllRanges();
       sel.addRange(range);
-      const ok = document.execCommand("insertText", false, text);
-      if (!ok) throw new Error("execCommand failed");
+      insertRangeText(range, sel, text);
+      el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: text }));
     } catch {
-      // נתיב גיבוי נדיר בלבד (למשל אין Selection API) — כאן כן צריך
+      // נתיב גיבוי נדיר בלבד (למשל אין Selection/Range API) — כאן כן צריך
       // לקרוא את התוכן הקיים, במחיר שהפונקציה הזו קיימת כדי להימנע ממנו.
       const current = el.innerText || "";
       const next = atStart ? text + current : current + text;
