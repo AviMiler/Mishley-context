@@ -2,6 +2,14 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-27 — Meta line: per-group direction (RTL for the Hebrew label, LTR for the English one), per user's explicit instruction
+
+Follow-up to the flexbox fix (previous entry): the user gave a direct, specific instruction rather than another "still broken" report — the "תווים" (chars) group should be `direction: rtl` (its actual language), and the "tokens" group should be `direction: ltr` (its actual language), instead of forcing `ltr` uniformly on both as the previous fix did.
+
+- Changed: `code-tree.js`'s meta groups now carry an explicit `dir` (`"rtl"` for the chars/`תווים` group and the truncation note, `"ltr"` for the tokens group) alongside their `pieces`; `renderMetaLine` adds a `fp-meta-${dir}` modifier class to each group's `<span>`.
+- Changed: `ui-styles.js` — `.fp-meta-item` keeps `unicode-bidi: isolate` (so a group's direction can't leak into/out of the rest of the line) but no longer hardcodes `direction: ltr`; two new modifiers, `.fp-meta-item.fp-meta-rtl` and `.fp-meta-item.fp-meta-ltr`, set it per group instead.
+- Verified: extended `file-preview.mjs` to 33 assertions — confirms the chars group carries `fp-meta-rtl` (and not `fp-meta-ltr`), the tokens group carries `fp-meta-ltr` (and not `fp-meta-rtl`), on top of everything previously covered (group order, piece order per group). Re-ran `deps-menu.mjs`/`verify.mjs`/`integration.mjs`/`budget.mjs`, all still pass. This is the fourth pass at this one line's rendering — implemented per the user's explicit, specific direction rather than another guess, but still needs the user's own confirmation in a reloaded browser before being considered settled.
+
 ### 2026-07-27 — Fix (3rd attempt): meta line ordering forced via flexbox, not text bidi resolution
 
 User reported the CSS-isolate fix (previous entry, itself a replacement for an even earlier LRM attempt) STILL didn't fix the number/Hebrew-word ordering, and specified the exact wanted layout: "100 תווים · 350 tokens" — the chars count first, then the tokens count, each number immediately before its own label.

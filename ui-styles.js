@@ -1133,18 +1133,17 @@ window.__ccbCSS = (() => {
       font-size: 11px; color: var(--text-ghost); direction: ltr;
       margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    /* Two earlier attempts (an invisible LRM after the number, then a plain
-       unicode-bidi:isolate span around the whole "700 תווים" string) both
-       still relied on the Unicode bidi text algorithm to order the number
-       against the Hebrew word, and neither held up in a real browser. This
-       instead sidesteps bidi text resolution entirely: each group is a real
-       flex box (inline-flex + explicit direction:ltr), so its children's
-       visual left-to-right order is decided by CSS box layout — exactly
-       like a flex list — not by character-level bidi reordering. */
+    /* Each metric ("N תווים", "N tokens") is its own isolated flex group so
+       its direction can't leak into/out of the rest of the line. Direction
+       is set per group to match its actual language — rtl for the Hebrew
+       "תווים" label, ltr for the English "tokens" label — rather than
+       forcing ltr on both (an earlier attempt that didn't hold up). */
     .fp-meta-item {
-      display: inline-flex; align-items: baseline; direction: ltr; gap: 3px;
+      display: inline-flex; align-items: baseline; gap: 3px;
       unicode-bidi: isolate;
     }
+    .fp-meta-item.fp-meta-rtl { direction: rtl; }
+    .fp-meta-item.fp-meta-ltr { direction: ltr; }
 
     /* Search */
     .cv-search-wrap {

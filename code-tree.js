@@ -367,20 +367,18 @@
   // כדי לתת מקום אמיתי לקרוא קובץ שלם לפני החלטה אם לכלול אותו.
   const FP_MAX_CHARS = 20000;
 
-  // בונה את שורת ה-meta כרצף "קבוצות" (למשל [מספר, "תווים"]) — שני ניסיונות
-  // קודמים (LRM בלתי-נראה, ואז span עם unicode-bidi:isolate סביב המחרוזת
-  // כמקשה אחת) לא פתרו בפועל את ה"700 תווים" שמוצג הפוך; שניהם עדיין
-  // הסתמכו על אלגוריתם ה-bidi הטקסטואלי לסדר את המספר מול המילה העברית.
-  // כאן כל קבוצה היא inline-flex עם direction:ltr מפורש — סדר התצוגה
-  // נקבע ע"י ה-flex box layout (סדר ה-DOM, ממש כמו רשימה), לא ע"י ניתוח
-  // bidi של הטקסט, כך שאין יותר מה"לנחש" איך הדפדפן יפרש את הריצות.
+  // בונה את שורת ה-meta כרצף "קבוצות" — כל קבוצה מקבלת את כיוון ה-bidi
+  // הנכון לשפה שלה במפורש (עברית="תווים" → rtl, אנגלית="tokens" → ltr),
+  // לפי הנחיה מפורשת של המשתמש, במקום לכפות ltr אחיד על שתיהן כמו בניסיון
+  // הקודם. .fp-meta-item שם unicode-bidi:isolate כך שכיוון הקבוצה לא דולף
+  // מחוץ לה ולא מושפע מהשורה כולה.
   function renderMetaLine(container, groups) {
     if (!container) return;
     container.textContent = "";
-    groups.forEach((pieces, i) => {
+    groups.forEach(({ dir, pieces }, i) => {
       if (i > 0) container.appendChild(document.createTextNode(" · "));
       const group = document.createElement("span");
-      group.className = "fp-meta-item";
+      group.className = `fp-meta-item fp-meta-${dir}`;
       pieces.forEach((text) => {
         const piece = document.createElement("span");
         piece.className = "fp-meta-piece";
@@ -418,14 +416,15 @@
       shadow.getElementById("fpBody").textContent = shown;
 
       // סדר קבוצות: מספר התווים קודם, טוקנים אחריו (כמו "100 תווים ·
-      // 350 tokens" — הסדר שהמשתמש ביקש במפורש).
+      // 350 tokens"). כל קבוצה מתויגת עם כיוון ה-bidi השייך לשפתה בפועל —
+      // rtl לעברית ("תווים"), ltr לאנגלית ("tokens") — ולא ltr כפוי על שתיהן.
       const fmt = (n) => n.toLocaleString("he-IL");
       const groups = [
-        [fmt(full.length), "תווים"],
-        [fmt(tokens), "tokens"],
+        { dir: "rtl", pieces: [fmt(full.length), "תווים"] },
+        { dir: "ltr", pieces: [fmt(tokens), "tokens"] },
       ];
       if (full.length > FP_MAX_CHARS) {
-        groups.push(["מוצגים", fmt(FP_MAX_CHARS), "תווים ראשונים"]);
+        groups.push({ dir: "rtl", pieces: ["מוצגים", fmt(FP_MAX_CHARS), "תווים ראשונים"] });
       }
       renderMetaLine(shadow.getElementById("fpMeta"), groups);
 
