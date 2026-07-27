@@ -2,6 +2,15 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-27 — File-row action buttons: bigger icons, grouped tighter, more room for the filename
+
+User feedback on the preview/deps buttons: the icons should be a bit bigger, sit closer together, and the row should free up more width for the filename text.
+
+- Changed: `ui-styles.js` — `.code-tree-deps-btn`/`.code-tree-preview-btn` grew 18px → 20px, with their SVGs explicitly sized to 14px (up from the icon's own default ~12–13px) via a scoped `.code-tree-deps-btn svg, .code-tree-preview-btn svg` rule — the shared `IC.link`/`IC.eye` SVG strings themselves are untouched, since `IC.link` is also reused (at its original size) by the deps dropdown menu's own icon.
+- Added: `code-tree.js` now wraps both buttons in a `.code-tree-file-actions` span instead of appending them as separate row children — a different name from the pre-existing `.code-tree-actions` (the "בחר הכל"/"נקה הכל" toolbar above the tree) to avoid colliding with it.
+- Changed: `.code-tree-file-actions` uses its own tight `gap: 3px` (down from the row's general `gap: 6px`) and a `margin-inline-end: -4px` that cancels the row's own edge padding, pulling the pair flush to the row's far edge — freeing that reclaimed space for `.code-tree-label`'s `flex: 1` box. No other row spacing (checkbox/icon/label) was touched.
+- Verified: re-ran `file-preview.mjs` (24) and `deps-menu.mjs` (18), which locate and click these buttons by class name — both still pass with the new wrapper in place. `node --check` on both touched files.
+
 ### 2026-07-27 — Read-only file preview from the code-project tree (scope changed at user's request)
 
 Feature 5 of the 9-feature batch. The original plan called for a small `ui-modals.js` dialog overlay (~720px, centered). **User explicitly asked for it to open across the whole chat area instead, the same way the History tab's conversation preview does** — not a small dialog.

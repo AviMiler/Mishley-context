@@ -173,7 +173,6 @@
           e.stopPropagation();
           void openPreview(child.doc);
         });
-        row.appendChild(previewBtn);
 
         const depsBtn = document.createElement("button");
         depsBtn.type = "button";
@@ -185,7 +184,17 @@
           e.stopPropagation();
           openDepsMenu(child.doc, depsBtn);
         });
-        row.appendChild(depsBtn);
+
+        // שני כפתורי הפעולה מקובצים יחד (לא כל אחד ישירות בשורה), כדי
+        // שיוכלו להידחק זה לזה יותר מריווח ה-gap הרגיל של השורה, ולפנות
+        // רוחב נוסף לטקסט השם — ראה .code-tree-file-actions ב-ui-styles.js.
+        // שם מחלקה שונה בכוונה מ-.code-tree-actions הקיים (שורת "בחר
+        // הכל"/"נקה הכל" מעל העץ) כדי לא להתנגש איתו.
+        const fileActions = document.createElement("span");
+        fileActions.className = "code-tree-file-actions";
+        fileActions.appendChild(previewBtn);
+        fileActions.appendChild(depsBtn);
+        row.appendChild(fileActions);
 
         row.addEventListener("click", (e) => {
           if (e.target === checkbox || e.target === depsBtn || e.target === previewBtn) return;

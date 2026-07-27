@@ -1853,12 +1853,22 @@ window.__ccbCSS = (() => {
     .code-tree-icon { color: var(--text-faint); flex-shrink: 0; display: flex; }
     .code-tree-icon svg { width: 13px; height: 13px; }
     .code-tree-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-body); }
+    /* Groups the preview + deps buttons on a file row together, tighter than
+       the row's own 6px gap, and flush past its 4px inline padding (negative
+       margin cancels it out on that one side only) — reclaims width for the
+       label. Distinct name from .code-tree-actions (the "בחר הכל"/"נקה הכל"
+       toolbar above the tree) so the two rules don't collide. */
+    .code-tree-file-actions {
+      display: flex; align-items: center; gap: 3px; flex-shrink: 0;
+      margin-inline-end: -4px;
+    }
     .code-tree-deps-btn, .code-tree-preview-btn {
-      width: 18px; height: 18px; flex-shrink: 0; border: none; background: none;
+      width: 20px; height: 20px; flex-shrink: 0; border: none; background: none;
       color: var(--text-faint); cursor: pointer; border-radius: 4px;
       display: flex; align-items: center; justify-content: center;
       opacity: 0.55; transition: opacity var(--t-fast), background var(--t-fast), color var(--t-fast);
     }
+    .code-tree-deps-btn svg, .code-tree-preview-btn svg { width: 14px; height: 14px; }
     .code-tree-row:hover .code-tree-deps-btn, .code-tree-row:hover .code-tree-preview-btn { opacity: 1; }
     .code-tree-deps-btn:hover, .code-tree-preview-btn:hover { background: var(--bg-clear); color: var(--text-strong); }
     .code-tree-children { display: flex; flex-direction: column; }
