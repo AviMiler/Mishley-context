@@ -536,9 +536,10 @@ window.__ccbTpl = (() => {
       <div class="cv-shell">
         <div class="cv-header">
           <button id="fpBack" type="button" aria-label="חזרה">${IC.chevronRight}</button>
-          <div class="cv-title-wrap">
-            <div id="fpTitle"></div>
-            <div id="fpMeta" class="cv-meta"></div>
+          <div class="cv-title-wrap fp-title-wrap">
+            <div id="fpPath" class="fp-path"></div>
+            <div id="fpTitle" class="fp-title"></div>
+            <div id="fpMeta" class="fp-meta"></div>
           </div>
         </div>
         <div class="fp-body-wrap"><pre class="fp-body" id="fpBody"></pre></div>

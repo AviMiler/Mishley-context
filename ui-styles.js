@@ -1077,7 +1077,7 @@ window.__ccbCSS = (() => {
       border-bottom: 1px solid var(--border-subtle);
       flex-shrink: 0;
     }
-    #cvBack {
+    #cvBack, #fpBack {
       width: 30px;
       height: 30px;
       border: none;
@@ -1090,8 +1090,8 @@ window.__ccbCSS = (() => {
       justify-content: center;
       flex-shrink: 0;
     }
-    #cvBack:hover { background: rgba(0,0,0,.04); color: var(--text-strong); }
-    #cvBack svg { transform: rotate(180deg); }
+    #cvBack:hover, #fpBack:hover { background: rgba(0,0,0,.04); color: var(--text-strong); }
+    #cvBack svg, #fpBack svg { transform: rotate(180deg); }
     .cv-title-wrap { flex: 1; min-width: 0; }
     #cvTitle {
       font-size: 15px;
@@ -1110,6 +1110,25 @@ window.__ccbCSS = (() => {
       overflow: hidden;
       text-overflow: ellipsis;
       direction: rtl;
+    }
+    /* File preview header — distinct from the conversation view's #cvTitle:
+       the bare filename is the emphasized, centered focal point, with its
+       directory path (if any) as a small dim line above it. Both are LTR —
+       file paths/names read left-to-right regardless of the panel's own
+       RTL, same reasoning as .fp-body below. */
+    .fp-title-wrap { text-align: center; }
+    .fp-path {
+      font-size: 11px; color: var(--text-ghost); direction: ltr;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .fp-title {
+      font-size: 15px; font-weight: 700; color: var(--text-strong);
+      direction: ltr; white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; margin-top: 1px;
+    }
+    .fp-meta {
+      font-size: 11px; color: var(--text-ghost); direction: ltr;
+      margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
 
     /* Search */

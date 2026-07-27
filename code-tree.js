@@ -384,7 +384,12 @@
       const full = content;
       const shown = full.slice(0, FP_MAX_CHARS);
 
-      shadow.getElementById("fpTitle").textContent = doc.name;
+      // הכותרת מפוצלת לשם הקובץ הבודד (מודגש, במרכז) + נתיב התיקייה שלו
+      // (שורה קטנה ועמומה מעליו) — לא הנתיב המלא כמקשה אחת כמו קודם.
+      const segments = doc.name.split("/");
+      const fileName = segments.pop();
+      shadow.getElementById("fpPath").textContent = segments.join("/");
+      shadow.getElementById("fpTitle").textContent = fileName;
       // textContent, never innerHTML — arbitrary file content from the
       // user's own project, must never be parsed as markup.
       shadow.getElementById("fpBody").textContent = shown;

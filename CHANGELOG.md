@@ -2,6 +2,15 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-27 — Fix: file preview header was unstyled (wrong IDs), file name now shown separately from its path
+
+User reported the file preview's back button "isn't styled nicely and the whole area is a mess," and asked for the bare file name to appear separately, emphasized, apart from the full path.
+
+- Root cause of the styling bug: `#filePreviewView`'s back button and title were given NEW ids (`#fpBack`, `#fpTitle`) when the view was built, but the existing conversation-preview CSS for those elements (`#cvBack`, `#cvTitle`) is written against the OLD ids specifically — those rules never matched `#fpBack`/`#fpTitle` at all, so the back button rendered as a bare unstyled `<button>` and the title had no font-weight/ellipsis/overflow handling. (The shared *class*-based rules — `.cv-shell`, `.cv-header`, `.cv-title-wrap`, `.cv-meta` — did apply correctly; only the two ID-specific rules were missed.) Fixed by extending `#cvBack`/`#cvBack:hover`/`#cvBack svg` to also match `#fpBack`.
+- Separately, `.cv-meta`'s `direction: rtl` scrambled the meta line's mixed English/Hebrew content ("X tokens · Y תווים") — visually reordered as reported. Gave the file-preview meta its own `.fp-meta` class (LTR, like the file-content body below it) instead of reusing `.cv-meta`.
+- Added: the header now shows the file name and its directory separately — `code-tree.js#openPreview` splits `doc.name` on `/`, writing the last segment to `#fpTitle` (bold, centered, new `.fp-title` class) and the remaining directory portion to a new `#fpPath` line above it (small, dim, `.fp-path`, empty for a root-level file with no directory).
+- Verified: extended `file-preview.mjs` to 27 assertions — file name vs. directory split correctly for both a nested and a root-level file, plus all prior assertions (button rendering, truncation, live token count, textContent-only body, cross-close guard, both failure paths). Re-ran `deps-menu.mjs`/`verify.mjs`/`integration.mjs`/`budget.mjs` — all still pass. Browser pass still pending (this is a visual/CSS fix a Node harness can assert content for but not actually render).
+
 ### 2026-07-27 — Fix: file-row action buttons still left too much space before the tree border
 
 Follow-up to the button regrouping below: the user pointed out (with a screenshot) that a visible strip of empty space remained between the icon cluster and the tree's left border.
