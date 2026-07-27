@@ -2,6 +2,14 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-27 — Fix: file-row action buttons still left too much space before the tree border
+
+Follow-up to the button regrouping below: the user pointed out (with a screenshot) that a visible strip of empty space remained between the icon cluster and the tree's left border.
+
+- Root cause: `.code-tree-file-actions`'s `margin-inline-end: -4px` only canceled the row's own 4px inline padding — it didn't account for the containing `.code-tree-body`'s separate 6px padding, leaving a 6px gap before the border.
+- Changed: `ui-styles.js` — `margin-inline-end` on `.code-tree-file-actions` changed from `-4px` to `-10px` (4px row padding + 6px body padding), pulling the button cluster fully flush against the tree's border.
+- Verified: re-ran `file-preview.mjs` (24) and `deps-menu.mjs` (18) — pure CSS change, no logic touched, both still pass.
+
 ### 2026-07-27 — File-row action buttons: bigger icons, grouped tighter, more room for the filename
 
 User feedback on the preview/deps buttons: the icons should be a bit bigger, sit closer together, and the row should free up more width for the filename text.

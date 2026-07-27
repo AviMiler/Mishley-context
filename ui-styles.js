@@ -1854,13 +1854,16 @@ window.__ccbCSS = (() => {
     .code-tree-icon svg { width: 13px; height: 13px; }
     .code-tree-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-body); }
     /* Groups the preview + deps buttons on a file row together, tighter than
-       the row's own 6px gap, and flush past its 4px inline padding (negative
-       margin cancels it out on that one side only) — reclaims width for the
-       label. Distinct name from .code-tree-actions (the "בחר הכל"/"נקה הכל"
-       toolbar above the tree) so the two rules don't collide. */
+       the row's own 6px gap, and pulled flush past BOTH the row's own 4px
+       inline padding AND the containing .code-tree-body's 6px padding (-10px
+       total — canceling only the row's padding left a visible 6px strip of
+       unused space before the tree's border, reported as still too much) —
+       reclaims that width for the label. Distinct name from .code-tree-actions
+       (the "בחר הכל"/"נקה הכל" toolbar above the tree) so the two rules don't
+       collide. */
     .code-tree-file-actions {
       display: flex; align-items: center; gap: 3px; flex-shrink: 0;
-      margin-inline-end: -4px;
+      margin-inline-end: -10px;
     }
     .code-tree-deps-btn, .code-tree-preview-btn {
       width: 20px; height: 20px; flex-shrink: 0; border: none; background: none;
