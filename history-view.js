@@ -200,12 +200,13 @@
   }
 
   // Renders the project-instructions card exactly like chat-features.js#renderGeneralMemory:
-  // a select-for-inject checkbox + autoLoad toggle + title header, an
-  // "auto-badge" below when on, and the WHOLE card clickable to open the shared
-  // block-edit form (openEdit) — no dedicated edit button, no inline
-  // accordion/textarea, and (since 2026-07-19) no separate "load instructions"
-  // button in the section header: ticking the checkbox and pressing the footer
-  // "טען פרומפטים" is the manual-load path, same as for GM.
+  // a select-for-inject checkbox + autoLoad toggle + title + (when on) an
+  // "auto-badge" all sharing one header row, and the WHOLE card clickable
+  // to open the shared block-edit form (openEdit) — no dedicated edit
+  // button, no inline accordion/textarea, and (since 2026-07-19) no
+  // separate "load instructions" button in the section header: ticking the
+  // checkbox and pressing the footer "טען פרומפטים" is the manual-load
+  // path, same as for GM.
   function renderProjectInstructionsCard(project) {
     const card = $el("projectInstructionsCard");
     if (!card) return;
@@ -279,12 +280,14 @@
     });
     if (!on) badge.style.display = "none";
 
+    // Badge sits inline in the header, beside the title — not on a row of
+    // its own below (2026-07-28) — so the card is always exactly one
+    // title-row tall regardless of autoLoad state.
     header.appendChild(selectLabel);
     header.appendChild(toggleLabel);
     header.appendChild(title);
+    header.appendChild(badge);
     wrap.appendChild(header);
-
-    if (on) wrap.appendChild(badge);
 
     card.appendChild(wrap);
   }

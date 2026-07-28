@@ -621,23 +621,17 @@ window.__ccbCSS = (() => {
     /* Card body */
     .block-main { flex: 1; min-width: 0; }
     /* flex-start (not space-between): the project tag sits right beside the
-       title, not stretched to the row's far edge — .block-head only ever
-       holds these two items now that the tag-count badge is gone. */
+       title, not stretched to the row's far edge. .block-head is always the
+       sole line of a row now (the tags feature that used to add a second
+       row below was retired 2026-07-28), so every row is exactly one
+       title-row tall. */
     .block-head {
       display: flex; align-items: baseline; justify-content: flex-start;
-      gap: 8px; margin-bottom: 8px;
+      gap: 8px;
     }
-    /* No tags row below → no trailing gap. */
-    .block-head:last-child { margin-bottom: 0; }
     .block-title {
-      font-size: 14px; font-weight: 600; color: var(--text-strong);
+      font-size: 13px; font-weight: 600; color: var(--text-strong);
       letter-spacing: -0.005em; word-break: break-word;
-    }
-    .block-tags { display: flex; flex-wrap: wrap; gap: 4px; }
-    .tag {
-      font-size: 11px; padding: 3px 8px;
-      background: var(--bg-tag); color: var(--text-mute);
-      border-radius: var(--r-tag); font-weight: 500;
     }
 
     .block-preview {
@@ -896,9 +890,15 @@ window.__ccbCSS = (() => {
       display: flex; align-items: center; gap: 8px;
     }
     .gm-select { margin-top: 1px; }
-    .gm-title { font-weight: 600; font-size: 14px; flex: 1; color: var(--text-strong); white-space: nowrap; }
+    /* overflow/ellipsis: the badge (now inline beside the title, not on its
+       own row below — 2026-07-28) needs guaranteed room at the row's end
+       even when the title is long. */
+    .gm-title {
+      font-weight: 600; font-size: 13px; flex: 1; color: var(--text-strong);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
     .auto-badge {
-      display: inline-block; margin-top: 6px;
+      display: inline-block; flex-shrink: 0;
       font-size: 11px; padding: 2px 7px;
       background: var(--bg-tag); color: var(--text-mute);
       border-radius: var(--r-tag); font-weight: 500; white-space: nowrap;

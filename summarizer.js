@@ -82,7 +82,6 @@
         id,
         title,
         content: clean,
-        tags: ["summary"],
         kind: "conversation",
         updated: Date.now(),
         savedAt: Date.now(),

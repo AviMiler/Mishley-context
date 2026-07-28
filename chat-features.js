@@ -44,7 +44,7 @@
     const wrap = document.createElement("div");
     wrap.className = "gm-card";
     wrap.addEventListener("click", () =>
-      _deps.openEdit(GM_ID, { title: "זיכרון כללי", content, tags: "" }),
+      _deps.openEdit(GM_ID, { title: "זיכרון כללי", content }),
     );
 
     const header = document.createElement("div");
@@ -111,12 +111,14 @@
     });
     if (!on) badge.style.display = "none";
 
+    // Badge sits inline in the header, beside the title — not on a row of
+    // its own below (2026-07-28) — so the card is always exactly one
+    // title-row tall regardless of autoLoad state.
     header.appendChild(selectLabel);
     header.appendChild(toggleLabel);
     header.appendChild(title);
+    header.appendChild(badge);
     wrap.appendChild(header);
-
-    if (on) wrap.appendChild(badge);
 
     card.appendChild(wrap);
   }

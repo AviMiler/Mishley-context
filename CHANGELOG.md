@@ -2,6 +2,15 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-28 — Removed the tags feature; saved-context cards now a uniform single title-row height
+
+User asked to retire the free-text tags feature on saved context blocks, and to unify the block cards (and the General Memory / project-instructions cards) to always be exactly one title-row tall, with the project-name tag and the "loads every message" badge sitting beside the title on that same row instead of on their own row below — plus a slightly smaller title font.
+
+- Removed `block.tags` entirely: the `#editTags` input in the shared edit form (`ui-template.js`), its read/write in `content.js#openEdit`/`saveEdit`, and the `.block-tags`/`.tag` pill row it used to render below a block's title (`content.js#renderBlockRow`, `ui-styles.js`). A stray `tags: ""` in `chat-features.js#renderGeneralMemory`'s edit-form prefill was also removed. `summarizer.js`'s auto-saved `[[CCB:SAVE]]` block also carried `tags: ["summary"]` — removed too, since nothing reads `.tags` anywhere anymore.
+- `chat-features.js#renderGeneralMemory` and `history-view.js#renderProjectInstructionsCard` — the "נטען בכל הודעה"/"נטען בתחילת שיחה" auto-badge used to be appended as a second row below the header when `autoLoad` was on (so the card's height changed with that state). Now appended as the last child of the header row itself, so both cards are always exactly one row tall regardless of autoLoad.
+- `ui-styles.js` — `.block-title`/`.gm-title` font-size 14px→13px; `.gm-title` gained `overflow:hidden;text-overflow:ellipsis` (needed now that the badge shares its row and must keep its own space); `.auto-badge` lost its `margin-top` (no longer below the header) and gained `flex-shrink:0`; `.block-head`'s now-unreachable `margin-bottom`/`:last-child` pair (was there to zero the gap before an optional tags row) removed as dead code.
+- `verify-agent` Go — confirmed the two `.gm-card` renderers stayed structurally identical after the parallel hand-edit, the header+badge flex layout truncates the title rather than pushing the badge off-row, and a full repo grep for `tags` turned up nothing left over except unrelated terminology and the intentional stale-data comment.
+
 ### 2026-07-28 — Fix: toolbar popup was rendering its own JS as plain text (popup.html was actually a JS file)
 
 A read-only security/correctness review found `popup.html` and `popup.js` were byte-identical — `popup.html` held raw JS text with no `<html>`/`<script>` tags at all, so clicking the toolbar icon showed the source code as text instead of running anything. Only `Ctrl+Shift+L` (wired independently in `content.js`) still worked, which is why this went unnoticed.

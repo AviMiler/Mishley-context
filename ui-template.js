@@ -496,8 +496,6 @@ window.__ccbTpl = (() => {
         </div>
         <label>כותרת</label>
         <input id="editTitle" type="text" placeholder="לדוגמה: הפרויקט שלי">
-        <label>תגים (מופרדים בפסיק)</label>
-        <input id="editTags" type="text" placeholder="קוד, ארכיטקטורה, API">
         <label>קיצור פקודה מהירה (אופציונלי) — הקלד / בתיבת הצ'אט כדי לבחור</label>
         <input id="editTrigger" type="text" placeholder="/sum" dir="ltr">
         <label>תוכן</label>

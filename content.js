@@ -972,17 +972,6 @@
     }
 
     main.appendChild(head);
-    if ((b.tags || []).length) {
-      const tagsRow = document.createElement("div");
-      tagsRow.className = "block-tags";
-      for (const t of b.tags || []) {
-        const span = document.createElement("span");
-        span.className = "tag";
-        span.textContent = t;
-        tagsRow.appendChild(span);
-      }
-      main.appendChild(tagsRow);
-    }
 
     row.addEventListener("click", () => openEdit(b.id));
     row.appendChild(cbWrap);
@@ -1210,7 +1199,6 @@
     state.editingId = id;
     const b = id ? state.blocks[id] : null;
     $el("editTitle").value = b ? b.title : prefill?.title || "";
-    $el("editTags").value = b ? (b.tags || []).join(", ") : prefill?.tags || "";
     $el("editTrigger").value = b ? b.trigger || "" : "";
     $el("editContent").value = b ? b.content : prefill?.content || "";
     // Project blocks have their own delete flow (historyView.deleteProject,
@@ -1244,10 +1232,6 @@
   async function saveEdit() {
     const title = $el("editTitle").value.trim();
     const content = $el("editContent").value.trim();
-    const tags = $el("editTags")
-      .value.split(",")
-      .map((t) => t.trim())
-      .filter(Boolean);
     const triggerRaw = $el("editTrigger").value.trim();
     if (!title || !content) {
       setStatus("צריך כותרת ותוכן", true);
@@ -1284,8 +1268,10 @@
     // Spread existing first so fields the form doesn't know about (kind,
     // autoLoad, projectId, and — critically — a project's documents/
     // isCodeProject/dirHandleId/lastScanned/depGraph) survive an edit
-    // instead of being silently dropped.
-    state.blocks[id] = { ...existing, id, title, content, tags, trigger, updated: Date.now() };
+    // instead of being silently dropped. Tags were retired 2026-07-28 — any
+    // stale `tags` array on an old block rides along harmlessly via the
+    // spread but is never read or rendered anymore.
+    state.blocks[id] = { ...existing, id, title, content, trigger, updated: Date.now() };
     // A brand-new block is created into whichever project is currently
     // active (or general, if none is); an existing block keeps its own.
     if (!existing && state.currentProjectId)
