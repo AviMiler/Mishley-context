@@ -2,6 +2,17 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-28 — Fix: couldn't insert a second quick command after the first
+
+User reported that after inserting one quick command, they couldn't insert another. Root cause: `chat-features.js#_handleQuickCommandInput` required the box's ENTIRE content to start with `/`. After one quick command injects, the box holds the injected marker/framed content instead — so "the whole box starts with /" could never be true again while any injected content remained, permanently blocking a second use until the box was fully emptied (e.g. by sending).
+
+- Fixed the trigger condition: new `chat-features.js#_qcRelevantSuffix(raw)` only requires the text AFTER the last completed injection's own `[[CCB:INJ-END:...]]` marker (if any) to start with `/` — falling back to the whole box when there's no marker yet (a fresh box, unaffected). This is what lets a second (or third) quick command be typed right after a first.
+- Renamed `inject.js#replaceLeadingText` → `replaceTrailingText` and re-anchored it: `oldText` is now known to be the box's TAIL (whatever's typed after the last marker), not necessarily its entire content, so the deletion range now runs from `fullLen - oldText.length` through the field's true end, not from absolute position 0. (Sole caller, so a clean rename+re-anchor, not a compatibility shim.)
+- `content.js#injectQuickCommand` no longer resets the undo stack on every use (`commitTrackedInjection(id, false)`) — an earlier quick command's marker may legitimately still be sitting earlier in the box now, and it's still a valid, independent undo target.
+- **Follow-up bug caught by `verify-agent` during Stage 3**, before this shipped: the initial `findOffsetPosition` rewrite had an off-by-a-node boundary bug — when the target offset landed exactly on a text-node boundary, it anchored at the END of the current node rather than the START of the next one, which (when a separator `<br>` sat in between) swept that `<br>` into the deleted range, gluing two chained injected blocks onto the same line with no break. Fixed by peeking one node ahead when the offset lands exactly on a boundary (the `TreeWalker`'s `SHOW_TEXT` filter naturally skips over the `<br>` during that peek). Re-verified — Go.
+- `removeMarkedSpan` (the undo feature's own removal — a separate, independent `TreeWalker` loop) is untouched by any of this.
+- Not yet browser-verified.
+
 ### 2026-07-28 — Fix: quick-command menu opened but wasn't clickable
 
 User reported the new quick-command menu (Phase 4.2, entry directly below) opened visually but no suggestion could be clicked. Root cause: the extension's shadow-DOM host (`#ccb-host`, `content.js`) is deliberately `pointer-events:none` — a 0×0 fixed div that must never block clicks on the real page — so every interactive top-level element inside it has to explicitly opt back in (`.fab`/`.panel` already do this). The new `#quickCmdMenu` never did, so it silently inherited `pointer-events:none` and was invisible to the mouse despite rendering fine visually — exactly matching "opens but nothing's clickable" rather than "doesn't appear." Fix: added `pointer-events: auto;` to `#quickCmdMenu`'s rule in `ui-styles.js` — one line. Verified: `verify-agent` Stage 3 pass (Go) — confirmed the mechanism, confirmed the existing `.fab`/`.panel` precedent, confirmed no child row needs its own `pointer-events` (inherits from the now-`auto` parent).

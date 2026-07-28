@@ -211,7 +211,17 @@ window.__ccbInject = (() => {
 
   // מוצא node+offset (ב-text node) הנמצא charOffset תווים מתחילת root, לפי
   // textContent (לא innerText) — אותו walk כמו removeMarkedSpan, לשימוש
-  // replaceLeadingText.
+  // replaceTrailingText.
+  //
+  // תיקון 2026-07-28 (verify-agent תפס בזמן אימות הזרקה שנייה): כשcharOffset
+  // נופל בדיוק על הגבול שבין שני text node-ים, הגרסה הישנה עצרה ב"סוף ה-node
+  // הנוכחי" — אבל אם יש ביניהם sibling שאינו טקסט (בעיקר <br>, מפריד
+  // הבלוקים שinjectTracked/wrapForTracking מוסיפים), "סוף ה-node הנוכחי"
+  // יושב **לפני** ה-<br> ההוא, לא אחריו. הטווח שנמחק (התחלה→סוף) היה
+  // בולע את ה-<br> המפריד בטעות, ומדביק את הבלוק הבא לשורה של הקודם בלי
+  // מעבר שורה. עכשיו: כשremaining===len בדיוק, מציצים ל-text node הבא (אם
+  // יש) ומחזירים אותו ב-offset 0 — עוקף TreeWalker(SHOW_TEXT) אוטומטית כל
+  // <br> שביניהם, כך שהגבול נופל **אחרי** המפריד, לא לפניו.
   function findOffsetPosition(root, charOffset) {
     if (charOffset <= 0) return { node: root, offset: 0 };
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -219,34 +229,45 @@ window.__ccbInject = (() => {
     let node;
     while ((node = walker.nextNode())) {
       const len = (node.textContent || "").length;
-      if (remaining <= len) return { node, offset: remaining };
+      if (remaining < len) return { node, offset: remaining };
+      if (remaining === len) {
+        const next = walker.nextNode();
+        return next ? { node: next, offset: 0 } : { node, offset: len };
+      }
       remaining -= len;
     }
     return null;
   }
 
-  // מחליף בדיוק את תחילת השדה (oldText — למשל "/sum" שהמשתמש הקליד כפקודה
-  // מהירה) בטקסט חדש. כמו removeMarkedSpan: לא קורא/בונה מחדש את כל השדה —
-  // מאתר את הנקודה oldText.length תווים מההתחלה (TreeWalker על textContent),
-  // מוחק עד שם, ומכניס את הטקסט החדש דרך insertRangeText הקיים — אותה עלות
-  // O(טקסט חדש) כמו prepend/append רגילים, לא O(כל השדה).
-  function replaceLeadingText(oldText, newText) {
+  // מחליף את oldText בטקסט חדש, כשoldText ידוע כ**סוף** השדה (לא ההתחלה —
+  // 2026-07-28, תוקן מ-replaceLeadingText: כשcallers רק בדקו "השדה כולו
+  // מתחיל ב-/", הזרקת פקודה מהירה שנייה אחרי הראשונה נכשלה, כי אחרי הזרקה
+  // ראשונה השדה כבר לא מתחיל ב-"/" — הוא מתחיל בתוכן שהוזרק. content.js
+  // עבר לזהות "/" רק בסיומת שאחרי סמן ה-INJ-END האחרון (אם יש), אז הטקסט
+  // שצריך להחליף הוא תמיד הזנב של השדה, לא ההתחלה שלו).
+  // כמו removeMarkedSpan: לא קורא/בונה מחדש את כל השדה — מאתר את הנקודה
+  // (אורך השדה מינוס oldText.length) תווים מההתחלה (TreeWalker על
+  // textContent), מוחק מזה ועד הסוף האמיתי של השדה, ומכניס את הטקסט החדש
+  // דרך insertRangeText הקיים — אותה עלות O(טקסט חדש), לא O(כל השדה).
+  function replaceTrailingText(oldText, newText) {
     const el = findInput();
     if (!el) return { ok: false, error: "לא נמצא שדה קלט" };
 
     if (!el.isContentEditable) {
       const current = getCurrentValue(el);
-      if (!current.startsWith(oldText)) return { ok: false, error: "not-found" };
-      setNativeValue(el, newText + current.slice(oldText.length));
+      if (!current.endsWith(oldText)) return { ok: false, error: "not-found" };
+      setNativeValue(el, current.slice(0, current.length - oldText.length) + newText);
       return { ok: true };
     }
 
-    const pos = findOffsetPosition(el, oldText.length);
+    const fullLen = (el.textContent || "").length;
+    const pos = findOffsetPosition(el, fullLen - oldText.length);
     if (!pos) return { ok: false, error: "not-found" };
     el.focus();
     const range = document.createRange();
-    range.setStart(el, 0);
-    range.setEnd(pos.node, pos.offset);
+    range.setStart(pos.node, pos.offset);
+    if (el.lastChild) range.setEndAfter(el.lastChild);
+    else range.setEnd(pos.node, pos.offset);
     range.deleteContents();
     range.collapse(true);
     const sel = window.getSelection();
@@ -279,5 +300,5 @@ window.__ccbInject = (() => {
     return { ok: true };
   }
 
-  return { findInput, injectIntoInput, getCurrentValue: getCurrentInputValue, removeMarkedSpan, replaceLeadingText };
+  return { findInput, injectIntoInput, getCurrentValue: getCurrentInputValue, removeMarkedSpan, replaceTrailingText };
 })();

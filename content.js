@@ -1079,20 +1079,23 @@
     return r;
   }
 
-  // Phase 4.2 — quick commands ("/" + a saved prompt's own trigger, typed at
-  // the very start of the chat box, like invoking a skill in Claude Code).
-  // `typedText` is exactly what the box currently holds ("/query" — the
-  // trigger's own detection already requires the box to start with "/", so
-  // this is always the box's ENTIRE content at the moment of selection, not
-  // just a substring of it). Reuses the same marker-wrap so the injected
-  // prompt participates in the same undo stack as any other injection.
+  // Phase 4.2 — quick commands ("/" + a saved prompt's own trigger, typed
+  // anywhere the chat box's trigger-detection allows — see
+  // chat-features.js#_qcRelevantSuffix — like invoking a skill in Claude
+  // Code). `typedText` is exactly the trailing "/query" text chat-features.js
+  // detected (2026-07-28 fix: this is no longer necessarily the box's ENTIRE
+  // content — it's whatever comes after the last completed injection's own
+  // end-marker, if any, which is what lets a SECOND quick command be typed
+  // right after a first one instead of only ever working on an empty box).
+  // Reuses the same marker-wrap so the injected prompt participates in the
+  // same undo stack as any other injection.
   function injectQuickCommand(typedText, text) {
     const { id, wrapped } = wrapForTracking(text);
-    const r = ccbInject.replaceLeadingText(typedText, wrapped);
-    // The box held ONLY the typed "/query" before this (that's the trigger
-    // condition), so there can't be any earlier marker still sitting in it —
-    // always start a fresh stack, same as a "replace".
-    if (r.ok) commitTrackedInjection(id, true);
+    const r = ccbInject.replaceTrailingText(typedText, wrapped);
+    // Never resets the stack: an earlier injection's marker may still be
+    // sitting earlier in the box (that's exactly what makes chaining a
+    // second quick command possible), and it's still a valid undo target.
+    if (r.ok) commitTrackedInjection(id, false);
     return r;
   }
 

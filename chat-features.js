@@ -506,14 +506,21 @@
 
   // ============================================================
   // Quick commands (Phase 4.2) — "/" + a saved prompt's own trigger, typed
-  // at the very start of the chat's own input, like invoking a skill in
-  // Claude Code: "/" opens a menu of every prompt that has a trigger set,
-  // typing narrows it, Enter/click injects that one prompt and replaces the
-  // typed "/query" with it. Deliberately only fires when the box's content
-  // STARTS with "/" (nothing typed before it) — once a space appears after
-  // the command word, the interaction is over (either something was already
-  // selected, or the user is just writing a message that happens to start
-  // with "/").
+  // in the chat's own input, like invoking a skill in Claude Code: "/" opens
+  // a menu of every prompt that has a trigger set, typing narrows it,
+  // Enter/click injects that one prompt and replaces the typed "/query" with
+  // it. Once a space appears after the command word, the interaction is over
+  // (either something was already selected, or the user is just writing a
+  // message that happens to start with "/").
+  //
+  // Trigger detection (2026-07-28 fix): originally required the box's ENTIRE
+  // content to start with "/", which meant a SECOND quick command could
+  // never be typed right after a first one — the box no longer started with
+  // "/" once it held injected content. Now checks only the SUFFIX after the
+  // last completed injection's own end-marker (`_qcRelevantSuffix`) — the
+  // part of the box the user could actually still be freely typing into —
+  // falling back to the whole box when there's no marker yet (a fresh box,
+  // the original/common case).
   // ============================================================
   let _qcMenuOpen = false;
   let _qcMatches = [];
@@ -522,6 +529,14 @@
 
   function _qcCandidates() {
     return Object.values(_deps.state.blocks).filter((b) => b && b.trigger);
+  }
+
+  function _qcRelevantSuffix(raw) {
+    const re = /\[\[CCB:INJ-END:[^\]]+\]\]/g;
+    let lastEnd = 0;
+    let m;
+    while ((m = re.exec(raw))) lastEnd = m.index + m[0].length;
+    return raw.slice(lastEnd);
   }
 
   function _qcMatchesFor(query) {
@@ -609,7 +624,7 @@
   function _selectQuickCommand(idx) {
     const block = _qcMatches[idx];
     if (!block) return;
-    const typedText = "/" + _qcQuery; // exactly what the box currently holds
+    const typedText = "/" + _qcQuery; // the trailing "/query" text detected at the box's end
     const text = buildFramedBlockText([block]);
     const r = _deps.injectQuickCommand(typedText, text);
     _closeQuickCommandMenu();
@@ -630,11 +645,12 @@
       return;
     }
     const raw = _qcRawBoxText(el);
-    if (!raw.startsWith("/")) {
+    const relevant = _qcRelevantSuffix(raw);
+    if (!relevant.startsWith("/")) {
       if (_qcMenuOpen) _closeQuickCommandMenu();
       return;
     }
-    const afterSlash = raw.slice(1);
+    const afterSlash = relevant.slice(1);
     const spaceIdx = afterSlash.search(/\s/);
     if (spaceIdx !== -1) {
       // Past the command word — either already selected, or this is just a
@@ -1016,7 +1032,7 @@
      *   loadBlocks, saveBlocks, setStatus, render, updateInjectBtn,
      *   openEdit,
      *   injectTracked: (text, mode) => { ok, error? }, // Phase 4.1 undo stack — drop-in for inject.injectIntoInput
-     *   injectQuickCommand: (typedText, text) => { ok, error? }, // Phase 4.2 — drop-in for inject.replaceLeadingText, also undo-tracked
+     *   injectQuickCommand: (typedText, text) => { ok, error? }, // Phase 4.2 — drop-in for inject.replaceTrailingText, also undo-tracked
      *   getAutoInjectMode: (source: "gm" | "project") => "start" | "every",
      *   setAutoInjectMode: (source: "gm" | "project", mode) => Promise<string>,
      * }} deps
