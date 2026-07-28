@@ -1072,6 +1072,17 @@ window.__ccbCSS = (() => {
        than making the user retype it in the add-picker below. */
     .dm-dep-row.dm-dep-excluded { opacity: 0.55; }
     .dm-dep-row.dm-dep-excluded .dm-dep-name { text-decoration: line-through; }
+    /* Marks a row as scanned-in (vs. manually added) — the same distinction
+       that decides whether unchecking it keeps the row around (automatic)
+       or deletes it outright (manual), made visible rather than only
+       behavioral. Hebrew text inside the row's LTR direction, so isolated
+       explicitly per the bidi convention used elsewhere in this file. */
+    .dm-dep-tag {
+      flex-shrink: 0; margin-inline-start: auto; font-size: 10px; padding: 1px 6px;
+      background: var(--bg-card); border: 1px solid var(--border-light);
+      border-radius: var(--r-tag); color: var(--text-faint); font-weight: 500;
+      direction: rtl; unicode-bidi: isolate; white-space: nowrap;
+    }
     .dm-add-wrap { margin-top: 8px; position: relative; }
     /* File-map picker for adding a dependency — same row language as the
        inline code tree (.code-tree-row/-icon/-label/collapse-btn), but its

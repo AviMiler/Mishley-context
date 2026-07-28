@@ -743,6 +743,18 @@
       label.textContent = dep;
       row.appendChild(checkbox);
       row.appendChild(label);
+      // Tags the edge's origin so a greyed-out excluded row (which could be
+      // either kind) and an included row both make clear whether unchecking
+      // it will keep it around (automatic) or delete it for good (manual) —
+      // per the user's request to make that distinction visible, not just
+      // behavioral.
+      if (raw.includes(dep)) {
+        const tag = document.createElement("span");
+        tag.className = "dm-dep-tag";
+        tag.textContent = "אוטומטי";
+        tag.title = "זוהה אוטומטית בסריקה";
+        row.appendChild(tag);
+      }
       outList.appendChild(row);
     }
     body.appendChild(outList);
