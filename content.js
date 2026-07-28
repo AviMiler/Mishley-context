@@ -459,6 +459,7 @@
       openEdit,
       injectTracked,
       injectQuickCommand,
+      clearInjectionStack,
       getAutoInjectMode,
       setAutoInjectMode,
     });
@@ -1135,6 +1136,15 @@
     // second quick command possible), and it's still a valid undo target.
     if (r.ok) commitTrackedInjection(id, false);
     return r;
+  }
+
+  // Called when a real send goes out with stray injection markers still in
+  // the box (chat-features.js#_interceptSend strips the marker tokens from
+  // the sent text itself) — those injections are gone from the box now, so
+  // their ids are no longer valid undo targets.
+  function clearInjectionStack() {
+    state.injectionStack = [];
+    syncUndoInjectBtn();
   }
 
   function syncUndoInjectBtn() {

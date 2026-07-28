@@ -2,6 +2,29 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-28 — Fix: toolbar popup was rendering its own JS as plain text (popup.html was actually a JS file)
+
+A read-only security/correctness review found `popup.html` and `popup.js` were byte-identical — `popup.html` held raw JS text with no `<html>`/`<script>` tags at all, so clicking the toolbar icon showed the source code as text instead of running anything. Only `Ctrl+Shift+L` (wired independently in `content.js`) still worked, which is why this went unnoticed.
+
+- `popup.html` rewritten as a real minimal HTML document (`<!doctype html>` + `<script src="popup.js">`); `popup.js` itself was already correct and is untouched. `manifest.json`'s `action.default_popup` needed no change.
+
+### 2026-07-28 — Fix: undo/quick-command injection markers could leak into sent messages and saved conversations
+
+Same review found that `[[CCB:INJ:<id>]]`/`[[CCB:INJ-END:<id>]]` (the per-injection tracking markers the undo feature wraps around injected text) were never stripped before a real send, unlike the other two marker families (`[[CCB:CTX]]`/`[[CCB:INJECTED]]`). A user who injected something and sent without clicking "בטל הזרקה" first sent the literal marker tokens to the AI, and they were also captured verbatim by the conversation-save feature.
+
+- `chat-features.js` — new `_stripInjectionMarkers(text)` (+`INJ_START_RE`/`INJ_END_RE`) strips the marker tokens while preserving the actual injected text and exactly one newline separator at each boundary.
+- `chat-features.js#_interceptSend` reordered: previously the whole function bailed unless per-message "every mode" auto-inject was on, so marker cleanup never ran otherwise. Now only `_sendBypass` short-circuits at the top; send-target detection and the marker-strip (+ new `_deps.clearInjectionStack?.()` call) run on every real send; `_hasEveryModeSource()` now only gates the pre-existing every-mode-prefix logic, unchanged, just moved later.
+- `chat-features.js#captureConversation` — defense-in-depth: also strips stray `[[CCB:INJ:` markers from captured message text (covers a message sent before this fix, or a site where send-detection misses).
+- `content.js` — new `clearInjectionStack()` (clears `state.injectionStack`, refreshes the undo button), wired into `chat.init(...)`'s deps.
+- **Caught and fixed during Stage 3**: the first version of `INJ_END_RE`'s replacement (`""`) deleted the newline on both sides of the end marker, gluing the injected block's last word directly onto the following text with no separator (verified via a fresh `verify-agent` pass running the real regex against single-injection, chained-injection, and trailing-injection cases). Fixed by replacing with `"\n"` instead; re-verified by a second fresh `verify-agent` pass — Go.
+
+### 2026-07-28 — Perf fix: summarizer.js scanned the entire page with a layout-forcing read on every mutation
+
+Same review: `summarizer.js#findAiSummaryNode()` ran `document.body.querySelectorAll("*")` (every element on the page) and read `.innerText` (forces a synchronous layout reflow — the same cost already documented and fixed elsewhere in this codebase, in `inject.js` and `ctx-meter.js`) on each one, every time its 1s mutation-debounce fired.
+
+- Scoped the scan root to `document.querySelector(MSG_SELECTORS.messageList) || document.body` (the save trigger can only ever appear inside a chat message) and switched the per-element read from `.innerText` to `.textContent` (no layout cost; still consolidates split text nodes from streaming, same as before).
+- `verify-agent` confirmed the `messageList` fallback can't throw even if the selector is undefined, and that the `innerText`→`textContent` switch has no realistic effect on trigger-detection correctness for this DOM shape.
+
 ### 2026-07-28 — Fix: settings popover scroll + dismiss-checkbox not disappearing (onboarding guide follow-up)
 
 Two bugs reported right after the onboarding guide above shipped.

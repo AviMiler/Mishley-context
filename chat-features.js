@@ -183,15 +183,37 @@
   // ============================================================
   const CTX_END_MARKER = "[[CCB:CTX-END]]";
 
+  // Undo/quick-command per-injection markers (content.js#injectionMarkers) —
+  // [[CCB:INJ:<id>]]\n...\n[[CCB:INJ-END:<id>]]\n around each tracked
+  // injection's text. Unlike [[CCB:CTX]]/[[CCB:INJECTED]], these were never
+  // stripped before a real send went through: a user who injects (prompts,
+  // files, or a quick command) and then sends without clicking undo first
+  // sent the literal marker tokens to the AI, and they'd also get captured
+  // into the saved conversation block. Strips the marker tokens only —
+  // leaves the actual injected text (what sits between them) untouched.
+  const INJ_START_RE = /\[\[CCB:INJ:[^\]]+\]\]\n?/g;
+  const INJ_END_RE = /\n?\[\[CCB:INJ-END:[^\]]+\]\]\n?/g;
+  function _stripInjectionMarkers(text) {
+    // INJ_END_RE optionally consumes a newline on BOTH sides of the end
+    // marker (one separating it from the injected text before it, one
+    // separating it from whatever follows — the user's own typed message,
+    // or the next chained injection's start marker). Replacing the whole
+    // match with "" would delete both, gluing the injected block's last
+    // word directly onto the following text with no separator at all.
+    // Replacing with "\n" keeps exactly one separator in that spot instead.
+    return text.replace(INJ_START_RE, "").replace(INJ_END_RE, "\n");
+  }
+
   function _isGmEveryMode() {
     return _deps.getAutoInjectMode?.("gm") === "every";
   }
   function _isProjectEveryMode() {
     return _deps.getAutoInjectMode?.("project") === "every";
   }
-  // Cheap gate for the interceptor: is there ANY source that needs
-  // per-message handling right now? Checked first, before the more expensive
-  // send-target detection, since this runs on every click/keydown page-wide.
+  // Is there ANY source that needs per-message handling right now? Checked
+  // in _interceptSend AFTER send-target detection and the stray-marker
+  // strip (both of which must run on every real send regardless of
+  // per-message mode) — this only gates the every-mode prefix itself.
   function _hasEveryModeSource() {
     return _isGmEveryMode() || _isProjectEveryMode();
   }
@@ -249,7 +271,7 @@
   }
 
   function _interceptSend(e) {
-    if (_sendBypass || !_hasEveryModeSource()) return;
+    if (_sendBypass) return;
 
     const input = _deps.inject.findInput();
     if (!input) return;
@@ -281,8 +303,27 @@
     }
     if (!isSend) return;
 
-    const current = input.isContentEditable ? input.innerText || "" : input.value || "";
+    let current = input.isContentEditable ? input.innerText || "" : input.value || "";
     if (!current.trim()) return; // nothing to send — let the site ignore it
+
+    // Strip stray undo/quick-command markers before a real send goes
+    // through. Independent of per-message "every mode" below — these can be
+    // left in the box by ANY tracked injection (manual prompts, files, a
+    // quick command), not just the every-mode prefix, whenever the user
+    // sends without clicking undo first. Without this the literal marker
+    // tokens went out to the AI and were captured verbatim into the saved
+    // conversation block.
+    if (current.includes("[[CCB:INJ:")) {
+      const cleaned = _stripInjectionMarkers(current);
+      if (cleaned !== current) {
+        _deps.inject.injectIntoInput(cleaned, "replace");
+        _deps.clearInjectionStack?.();
+        current = cleaned;
+      }
+    }
+
+    if (!_hasEveryModeSource()) return;
+
     // Already carries an injection (a manual "טען פרומפטים"/conversation load,
     // or a previous prepend whose send didn't go through) — don't wrap twice.
     if (current.includes("[[CCB:CTX]]") || current.includes("[[CCB:INJECTED]]")) return;
@@ -761,6 +802,15 @@
         if (!trimmed) continue;
       }
       if (trimmed.includes("[[CCB:INJECTED]]")) continue;
+      // Defense-in-depth: a stray [[CCB:INJ:...]] marker shouldn't normally
+      // reach a sent message at all (_interceptSend strips it first), but a
+      // message sent before that guard ran, or on a site whose send
+      // detection misses, could still carry the literal token here. Strip
+      // it rather than saving/re-injecting it into future continuations.
+      if (trimmed.includes("[[CCB:INJ:")) {
+        trimmed = _stripInjectionMarkers(trimmed).trim();
+        if (!trimmed) continue;
+      }
       let role = "user";
       if (MSG_SELECTORS.aiMessageMatch && MSG_SELECTORS.aiMessageMatch(n)) {
         role = "ai";
@@ -1033,6 +1083,7 @@
      *   openEdit,
      *   injectTracked: (text, mode) => { ok, error? }, // Phase 4.1 undo stack — drop-in for inject.injectIntoInput
      *   injectQuickCommand: (typedText, text) => { ok, error? }, // Phase 4.2 — drop-in for inject.replaceTrailingText, also undo-tracked
+     *   clearInjectionStack: () => void, // wipes the undo stack when a real send strips stray markers
      *   getAutoInjectMode: (source: "gm" | "project") => "start" | "every",
      *   setAutoInjectMode: (source: "gm" | "project", mode) => Promise<string>,
      * }} deps

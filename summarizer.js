@@ -10,6 +10,7 @@
   const ACTIVE_URLS = window.__ccbRawConfig?.AUTO_OPEN_URLS || [];
   const isActiveSitePage = () =>
     ACTIVE_URLS.some((u) => location.href.startsWith(u));
+  const MSG_SELECTORS = window.__ccbRawConfig?.MSG_SELECTORS || {};
 
   const SAVE_TRIGGER = "[[CCB:SAVE]]";
   const DEBOUNCE_MS = 1000;
@@ -92,13 +93,21 @@
     }
 
     function findAiSummaryNode() {
-      // Search elements (not text nodes) so innerText consolidates split text nodes from streaming.
+      // Search elements (not text nodes) so textContent consolidates split text nodes from streaming.
       // Among all matching elements, return the SMALLEST one that passes all checks
       // (smallest = most specific = the message bubble, not a parent container).
+      //
+      // Two perf fixes (same bug class already documented/fixed in ctx-meter.js
+      // and inject.js): this used to run document.body.querySelectorAll("*") —
+      // every element in the whole page — and read el.innerText (layout-forcing)
+      // on each one, on every debounced DOM mutation. Now scoped to the actual
+      // message container (the trigger can only ever appear inside an AI
+      // message) and reads .textContent (doesn't force a synchronous reflow).
+      const root = document.querySelector(MSG_SELECTORS.messageList) || document.body;
       const candidates = [];
 
-      for (const el of document.body.querySelectorAll("*")) {
-        const text = el.innerText || "";
+      for (const el of root.querySelectorAll("*")) {
+        const text = el.textContent || "";
         if (!text.includes(SAVE_TRIGGER)) continue; // no trigger
         const clean = text
           .split(SAVE_TRIGGER)
