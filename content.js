@@ -1033,8 +1033,14 @@
   // (cvLoadBtn below) — all now call injectTracked(text, mode) instead of
   // inject.injectIntoInput(text, mode) directly.
   // ============================================================
+  // A simple, ever-increasing counter (1, 2, 3, ...) rather than a
+  // timestamp+random id — the marker only needs to be unique among
+  // injections currently sitting in the box during THIS page load (old ones
+  // are gone the moment they're undone, sent, or the chat resets), and a
+  // monotonic counter guarantees that with a much shorter, readable id.
+  let _injectionIdCounter = 0;
   function generateInjectionId() {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    return String(++_injectionIdCounter);
   }
 
   function injectionMarkers(id) {

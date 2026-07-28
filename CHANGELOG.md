@@ -2,6 +2,10 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-28 — Simpler injection ids (1, 2, 3... instead of timestamp+random)
+
+User asked why the per-injection marker id was such a long, ugly string, and for a simpler `1`/`2`/`3` scheme instead. `content.js#generateInjectionId()` changed from `Date.now().toString(36) + Math.random().toString(36).slice(2, 6)` to a plain incrementing counter (`_injectionIdCounter`). The only real reason for the longer id was guarding against a marker surviving a full page reload and colliding with a freshly-reset counter — a narrow, unconfirmed edge case (would need the host site to preserve draft compose-box text across a reload) — versus the id's actual required scope: unique only among markers currently live in the box during one page load, which a monotonic counter guarantees with certainty. No other code inspects or parses the id's format (`inject.js#removeMarkedSpan` only ever does a plain string search for the full marker), so this was a safe, self-contained swap. Verified: `verify-agent` Stage 3 pass (Go).
+
 ### 2026-07-28 — Undo last injection reworked: real LIFO stack + per-injection markers, and a perf fix for the rebuild it exposed
 
 Two follow-ups to the entry directly below, both from real user reports on the just-shipped feature.
