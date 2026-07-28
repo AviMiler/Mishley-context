@@ -211,10 +211,11 @@
 
   function updateTokenCount() {
     if (!_tokenEl || !_project) return;
-    // File count covers only user-selectable code docs — the always-enabled
-    // structure doc made a fresh project read "1 קבצים נבחרים" with nothing
-    // ticked. The token sum still spans every enabled doc (structure
-    // included), because that is exactly what the footer inject sends.
+    // File count covers only actual code docs — the structure doc has its
+    // own checkbox and label above the tree (see renderStructureRow), not a
+    // path in the tree, so it shouldn't inflate "X קבצים נבחרים". The token
+    // sum still spans every enabled doc (structure included, when the user
+    // has it checked), because that is exactly what the footer inject sends.
     const enabled = (_project.documents || []).filter((d) => d.enabled);
     const codeCount = enabled.filter((d) => d.type === "code").length;
     const tokens = enabled.reduce((sum, d) => sum + (d.estimatedTokens || 0), 0);
@@ -270,11 +271,60 @@
     return false;
   }
 
+  // The auto-generated project-structure doc (PROJECT_STRUCTURE.md) used to
+  // be forced always-`enabled: true` and hidden from this tree entirely —
+  // the user asked for it to be a real, visible choice instead, pinned above
+  // the file tree (not inside the path hierarchy, since it isn't a scanned
+  // file — it has no folder to sort into). Reuses the exact
+  // toggleDocument()+render() pattern as a normal file row's checkbox, and
+  // isn't affected by the search query (it's not part of what's being
+  // searched for).
+  function renderStructureRow(doc) {
+    const row = document.createElement("div");
+    row.className = "code-tree-row code-tree-structure-row";
+
+    const spacer = document.createElement("span");
+    spacer.className = "code-tree-spacer";
+    row.appendChild(spacer);
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "code-tree-checkbox";
+    checkbox.checked = !!doc.enabled;
+    checkbox.setAttribute("aria-label", "כלול את מפת הפרויקט בהזרקה");
+    checkbox.addEventListener("change", () => {
+      _deps.docHandler.toggleDocument(_project.id, doc.id, checkbox.checked);
+      _deps.render();
+    });
+    row.appendChild(checkbox);
+
+    const icon = document.createElement("span");
+    icon.className = "code-tree-icon";
+    icon.innerHTML = IC().file;
+    row.appendChild(icon);
+
+    const label = document.createElement("span");
+    label.className = "code-tree-label";
+    label.textContent = "מפת הפרויקט (מבנה קבצים)";
+    row.appendChild(label);
+    row.title = "PROJECT_STRUCTURE.md — נוצר אוטומטית בכל סריקה, כולל את רשימת כל הקבצים והתיקיות בפרויקט";
+
+    row.addEventListener("click", (e) => {
+      if (e.target === checkbox) return;
+      checkbox.checked = !checkbox.checked;
+      checkbox.dispatchEvent(new Event("change"));
+    });
+    return row;
+  }
+
   // Re-renders only the tree body (folders/files) from the current _project +
   // _query, leaving the shell (search/actions) in place.
   function render() {
     if (!_bodyEl || !_project) return;
     _bodyEl.innerHTML = "";
+
+    const structureDoc = (_project.documents || []).find((d) => d.type === "structure");
+    if (structureDoc) _bodyEl.appendChild(renderStructureRow(structureDoc));
 
     const docs = (_project.documents || []).filter((d) => d.type === "code");
     const q = _query.trim().toLowerCase();

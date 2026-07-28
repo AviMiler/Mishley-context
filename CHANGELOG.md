@@ -2,6 +2,15 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-28 — Project structure map is now a visible, toggleable choice in the code-project file tree
+
+The auto-generated `PROJECT_STRUCTURE.md` doc was created once with `enabled: true` and never shown in the file tree — no way to see it or turn it off. User asked for it to appear at the top of the project's file list like a normal, selectable file.
+
+- Added: `code-tree.js#renderStructureRow(doc)` — a pinned row above the code-file tree (checkbox, file icon, Hebrew label, tooltip with the real filename), using the same `toggleDocument()`+`render()` pattern as every other file checkbox.
+- Changed: `content.js#syncInjectDocsBtn` no longer excludes the structure doc from its "is anything selected" check — checking only the map now correctly enables the footer inject button.
+- Verified (no code change needed): the injection path (`getEnabledDocuments`) and rescan persistence (`syncCodeProjectDocuments`'s upsert never touches `.enabled` on an existing doc) were already fully generic by `.enabled`, confirmed by reading both directly.
+- Verified: `verify-agent` Stage 3 pass — traced the fixed-id upsert to confirm exactly one structure doc per project and that a manual toggle survives a rescan; grepped the whole extension for other places assuming the map is forced-on/hidden and found none.
+
 ### 2026-07-28 — Indirect (transitive) dependencies now shown in the per-file dependency manager
 
 Follow-up to the direct-vs-transitive count confusion (below): instead of only a tooltip, the manager now surfaces the indirect files themselves.

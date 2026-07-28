@@ -988,10 +988,13 @@
       return;
     }
     btn.style.display = "flex";
-    // A code project's auto-generated "structure" doc is always enabled and
-    // never exposed in the file tree to toggle off — it alone shouldn't
-    // count as "something is selected" and keep the button clickable.
-    const hasSelectable = docs.some((d) => d.type !== "structure" && d.enabled);
+    // A code project's auto-generated "structure" doc used to be forced
+    // always-enabled and hidden from the file tree, so it couldn't count as
+    // "something is selected" on its own. It now has its own checkbox
+    // (code-tree.js#renderStructureRow) like any other doc, so a project
+    // where the user has deliberately checked only the structure doc should
+    // make this button clickable too — no type exclusion needed anymore.
+    const hasSelectable = docs.some((d) => d.enabled);
     btn.disabled = !hasSelectable;
   }
 

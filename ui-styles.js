@@ -1941,6 +1941,9 @@ window.__ccbCSS = (() => {
       border-radius: 4px; cursor: pointer;
     }
     .code-tree-row:hover { background: var(--bg-tag); }
+    /* Pinned above the file tree, not part of the path hierarchy — a thin
+       separator marks it as a distinct entry rather than "the first file". */
+    .code-tree-structure-row { border-bottom: 1px solid var(--border-subtle); margin-bottom: 4px; padding-bottom: 6px; }
     .code-tree-row .collapse-btn { width: 14px; height: 14px; }
     .code-tree-row .collapse-btn svg { width: 10px; height: 10px; }
     .code-tree-spacer { width: 14px; flex-shrink: 0; }
