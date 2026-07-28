@@ -1083,6 +1083,18 @@ window.__ccbCSS = (() => {
       border-radius: var(--r-tag); color: var(--text-faint); font-weight: 500;
       direction: rtl; unicode-bidi: isolate; white-space: nowrap;
     }
+    /* Indirect (transitive-only) dependencies — read-only, since editing an
+       edge that actually belongs to a DIFFERENT file's outgoing list doesn't
+       make sense from here (same reasoning as the dependents section). The
+       reason text ("עקיף · דרך X") is isolated bidi like .dm-dep-tag, and
+       pushed to the row's far end via auto margin so name and reason don't
+       crowd each other on a long path. */
+    .dm-dep-row.dm-dep-indirect { font-style: italic; }
+    .dm-dep-reason {
+      flex-shrink: 0; margin-inline-start: auto; font-size: 10px; color: var(--text-ghost);
+      direction: rtl; unicode-bidi: isolate; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      max-width: 45%;
+    }
     .dm-add-wrap { margin-top: 8px; position: relative; }
     /* File-map picker for adding a dependency — same row language as the
        inline code tree (.code-tree-row/-icon/-label/collapse-btn), but its

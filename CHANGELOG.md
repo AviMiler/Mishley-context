@@ -2,6 +2,16 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-28 — Indirect (transitive) dependencies now shown in the per-file dependency manager
+
+Follow-up to the direct-vs-transitive count confusion (below): instead of only a tooltip, the manager now surfaces the indirect files themselves.
+
+- Added: `code-tree.js#computeIndirectDeps(graph, path, directDeps)` — for each currently-active direct dependency, unions its own transitive closure into the result, tagging each indirect file with which direct dependency(ies) reach it.
+- Added: a new read-only section in `renderDepsManager` between the direct-deps list and the add-dependency picker, showing each indirect file with a "עקיף · דרך X" reason.
+- Behavior: unchecking a direct dependency in the manager automatically drops any indirect file only reachable through it, on the very next render — no separate cascade-delete logic, since `computeIndirectDeps` is always recomputed from the current effective direct-deps list.
+- Confirmed (no code change needed): the file-row "אפשרויות תלויות" 🔗 menu's "תלויות (N)" count already equals direct + indirect exactly, since it already runs the transitive closure over the override-aware effective graph.
+- Verified: independently reproduced by a `verify-agent` Stage 3 pass against the real 861-file scan of the whole extension folder (not just the `big big test` subfolder — corrected assumption from earlier in the day), including a diamond-dependency edge case (a file reachable via two different direct deps ends up tagged with both origins).
+
 ### 2026-07-28 — Verified (no code change): second `@/`-alias report on `recurring.ts` was stale state, not a new bug
 
 Follow-up to the fix below. A second file, `client/src/api/recurring.ts`, was reported as still showing only 1 dependency. Reproduced the real `dep-graph.js` against the actual test project (Node) and, independently, via a `verify-agent` Stage 3 pass — both got the correct 3 dependencies. No code changed; the report is explained by the browser not having reloaded the extension and/or rescanned the project since the fix below landed.

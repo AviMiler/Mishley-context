@@ -623,6 +623,31 @@
     return e;
   }
 
+  // Files reachable only through this file's ACTIVE direct dependencies (a
+  // dependency of a dependency) — the gap between the manager's own direct
+  // list and the deps-menu's transitive "(N)" count, which confused the user
+  // twice before this was surfaced in the manager itself. Traces each direct
+  // dep's own transitive closure separately (rather than the whole file's
+  // closure minus directDeps) so each indirect file can be tagged with which
+  // direct dependency actually leads to it. Deliberately reads `directDeps`
+  // fresh on every call instead of caching: if a direct edge gets toggled
+  // off in the manager, its whole subtree stops being traversed here on the
+  // very next render — an indirect file only reachable through it just
+  // disappears, with no separate "cascade delete" bookkeeping needed.
+  function computeIndirectDeps(graph, path, directDeps) {
+    const dg = window.__ccbDepGraph;
+    const result = new Map();
+    for (const direct of directDeps) {
+      const reached = dg.getTransitiveClosure(graph, direct);
+      for (const f of reached) {
+        if (f === path || f === direct || directDeps.includes(f)) continue;
+        if (!result.has(f)) result.set(f, new Set());
+        result.get(f).add(direct);
+      }
+    }
+    return result;
+  }
+
   // Recursive renderer for the add-dependency file map (candidates only —
   // the current file and everything already listed as a dependency, whether
   // active or manually turned off, are excluded upstream in dmBuildAddTree).
@@ -767,6 +792,36 @@
       outList.appendChild(row);
     }
     body.appendChild(outList);
+
+    const indirectHeader = document.createElement("div");
+    indirectHeader.className = "dm-section-label";
+    indirectHeader.textContent = "קבצים שנטענים בעקיפין — תלות של תלות";
+    indirectHeader.title = "מחושב אוטומטית מהתלויות הישירות הפעילות למעלה; לא ניתן לערוך כאן. אם תבטל סימון לתלות ישירה, כל קובץ שהגיע רק דרכה ייעלם מהרשימה הזו";
+    body.appendChild(indirectHeader);
+
+    const indirectMap = computeIndirectDeps(graph, path, effectiveDeps);
+    const indirectList = document.createElement("div");
+    indirectList.className = "dm-dep-list";
+    if (!indirectMap.size) {
+      indirectList.appendChild(dmEmptyRow("אין תלויות עקיפות"));
+    } else {
+      const sorted = Array.from(indirectMap.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+      for (const [file, origins] of sorted) {
+        const row = document.createElement("div");
+        row.className = "dm-dep-row dm-dep-readonly dm-dep-indirect";
+        const label = document.createElement("span");
+        label.className = "dm-dep-name";
+        label.textContent = file;
+        const reason = document.createElement("span");
+        reason.className = "dm-dep-reason";
+        const originNames = Array.from(origins).map((o) => o.split("/").pop());
+        reason.textContent = `עקיף · דרך ${originNames.join(", ")}`;
+        row.appendChild(label);
+        row.appendChild(reason);
+        indirectList.appendChild(row);
+      }
+    }
+    body.appendChild(indirectList);
 
     const addWrap = document.createElement("div");
     addWrap.className = "dm-add-wrap";
