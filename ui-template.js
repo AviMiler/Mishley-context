@@ -308,6 +308,22 @@ window.__ccbTpl = (() => {
             <div class="settings-title">אפשרויות מתקדמות</div>
             <button class="settings-close" id="settingsCloseBtn" aria-label="סגור">${IC.x}</button>
           </div>
+          <div class="settings-list">
+            <button class="settings-item" id="scanSettingsBtn" type="button">
+              <span class="settings-item-icon">${IC.ban}</span>
+              <span class="settings-item-text">
+                <span class="settings-item-title">קבצים לסריקת פרויקטי קוד</span>
+                <span class="settings-item-sub">תיקיות/קבצים להחרגה, סיומות, גודל מקסימלי</span>
+              </span>
+            </button>
+            <button class="settings-item" id="editPromptsBtn" type="button">
+              <span class="settings-item-icon">${IC.pencil}</span>
+              <span class="settings-item-text">
+                <span class="settings-item-title">עריכת פרומפטים</span>
+                <span class="settings-item-sub">מסגרות הזרקה (FRAMING)</span>
+              </span>
+            </button>
+          </div>
           <div class="setting-row">
             <div class="setting-row-label">
               <span class="setting-row-title">Context window</span>
@@ -343,6 +359,13 @@ window.__ccbTpl = (() => {
             </select>
           </div>
           <div class="settings-list">
+            <button class="settings-item" id="openOnboardingBtn" type="button">
+              <span class="settings-item-icon">${IC.help}</span>
+              <span class="settings-item-text">
+                <span class="settings-item-title">מדריך שימוש</span>
+                <span class="settings-item-sub">כל הפיצ'רים של התוסף בקצרה</span>
+              </span>
+            </button>
             <button class="settings-item" id="exportBackupBtn" type="button">
               <span class="settings-item-icon">${IC.download}</span>
               <span class="settings-item-text">
@@ -355,27 +378,6 @@ window.__ccbTpl = (() => {
               <span class="settings-item-text">
                 <span class="settings-item-title">ייבוא גיבוי</span>
                 <span class="settings-item-sub">טוען קובץ JSON ומחליף את הבלוקים</span>
-              </span>
-            </button>
-            <button class="settings-item" id="editPromptsBtn" type="button">
-              <span class="settings-item-icon">${IC.pencil}</span>
-              <span class="settings-item-text">
-                <span class="settings-item-title">עריכת פרומפטים</span>
-                <span class="settings-item-sub">מסגרות הזרקה (FRAMING)</span>
-              </span>
-            </button>
-            <button class="settings-item" id="scanSettingsBtn" type="button">
-              <span class="settings-item-icon">${IC.ban}</span>
-              <span class="settings-item-text">
-                <span class="settings-item-title">קבצים לסריקת פרויקטי קוד</span>
-                <span class="settings-item-sub">תיקיות/קבצים להחרגה, סיומות, גודל מקסימלי</span>
-              </span>
-            </button>
-            <button class="settings-item" id="openOnboardingBtn" type="button">
-              <span class="settings-item-icon">${IC.help}</span>
-              <span class="settings-item-text">
-                <span class="settings-item-title">מדריך שימוש</span>
-                <span class="settings-item-sub">כל הפיצ'רים של התוסף בקצרה</span>
               </span>
             </button>
           </div>

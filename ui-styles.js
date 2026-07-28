@@ -1508,14 +1508,18 @@ window.__ccbCSS = (() => {
       transition: opacity .15s;
     }
     .settings-overlay.show { opacity: 1; pointer-events: auto; }
+    /* Spans the panel's full width (2026-07-28, at the user's request — was
+       a narrow 270px popover anchored under #settingsBtn) via left/right
+       instead of a fixed width, so ui-modals.js#openSettings only needs to
+       compute the top offset anymore; horizontal position is fixed by CSS. */
     .settings-box {
       position: absolute;
+      left: 12px; right: 12px;
       background: var(--bg-card);
       border: 1px solid var(--border-strong);
       border-radius: 18px;
       box-shadow: 0 8px 24px rgba(0,0,0,.12), 0 2px 8px rgba(0,0,0,.08);
       padding: 14px;
-      width: 270px;
       transform: translateY(6px);
       transition: transform .15s;
       /* max-height is set inline per-open (ui-modals.js#openSettings) to the
@@ -1529,13 +1533,16 @@ window.__ccbCSS = (() => {
       display: flex; align-items: center; justify-content: space-between;
       gap: 10px; margin-bottom: 12px;
     }
+    /* Font sizes and padding tightened 2026-07-28 (at the user's request,
+       alongside the box widening above) so these bordered "card" rows read
+       as compact and organized rather than the box's biggest elements. */
     .setting-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      margin-bottom: 10px;
-      padding: 10px 12px;
+      margin-bottom: 8px;
+      padding: 8px 10px;
       border: 1px solid var(--border-subtle);
       border-radius: 14px;
       background: var(--bg-app);
@@ -1547,13 +1554,13 @@ window.__ccbCSS = (() => {
       min-width: 0;
     }
     .setting-row-title {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
       color: var(--text-strong);
       line-height: 1.2;
     }
     .setting-row-sub {
-      font-size: 11px;
+      font-size: 10px;
       color: var(--text-ghost);
       line-height: 1.2;
     }
@@ -1599,7 +1606,13 @@ window.__ccbCSS = (() => {
       color: var(--text-faint); border-radius: 6px;
     }
     .settings-close:hover { background: rgba(0,0,0,.04); color: var(--text-strong); }
-    .settings-list { display: flex; flex-direction: column; gap: 4px; }
+    /* margin-bottom (2026-07-28): the reordered settings box now has TWO
+       .settings-list groups with .setting-row cards sandwiched between them
+       (scan/prompts buttons, then the 4 setting-rows, then guide/backup
+       buttons) — each .setting-row supplies its own trailing margin, but a
+       .settings-list needs one too now that it's no longer only ever the
+       box's last child. */
+    .settings-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
     .settings-item {
       width: 100%;
       display: flex; align-items: center; gap: 12px;

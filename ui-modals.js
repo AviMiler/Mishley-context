@@ -219,11 +219,12 @@
     const box = $el("settingsBox");
     const btn = $el("settingsBtn");
     if (!overlay || !box || !btn) return;
+    // Horizontal position is fixed by CSS now (.settings-box: left/right:
+    // 12px — spans the panel's full width, 2026-07-28), so only `top` needs
+    // computing here, below the button that opened it.
     const panelRect = $el("panel").getBoundingClientRect();
     const btnRect = btn.getBoundingClientRect();
-    const left = btnRect.left - panelRect.left;
     const top = btnRect.bottom - panelRect.top + 10;
-    box.style.left = Math.max(12, Math.min(left, panelRect.width - 282)) + "px";
     const clampedTop = Math.max(12, top);
     box.style.top = clampedTop + "px";
     // The box's own content grows over time (settings rows + an ever-growing

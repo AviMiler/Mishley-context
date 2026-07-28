@@ -2,6 +2,16 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-28 — Advanced Options: reordered, widened to full panel width, compacted
+
+User specified the exact order for the "Advanced Options" popover (`#settingsBox`) and asked for it to span the panel's full width with more compact rows — confirmed two ambiguous points (where backup export/import go, and that "help" just meant the existing guide button) via clarifying questions before building.
+
+- `ui-template.js` — reordered to: `#scanSettingsBtn` → `#editPromptsBtn` → the 4 `.setting-row` cards (unchanged relative order: context window, doc char cap, GM auto-inject mode, project auto-inject mode) → `#openOnboardingBtn` → `#exportBackupBtn` → `#importBackupBtn`. Now two `.settings-list` groups sandwiching the setting-rows, instead of one list at the end.
+- `ui-styles.js` — `.settings-box` dropped its fixed `270px` width in favor of `left/right: 12px` (spans the panel's full width). `.setting-row` padding `10px 12px`→`8px 10px`, margin-bottom `10px`→`8px`; `.setting-row-title`/`.setting-row-sub` font-size `13px`/`11px`→`12px`/`10px`. `.settings-list` gained `margin-bottom: 8px` (needed now that it's not always the box's last child).
+- `ui-modals.js#openSettings` — dropped the horizontal-position `left` calculation (now redundant — CSS owns it); only computes `top`.
+- **Caught during Stage 2, before verification**: a code comment inside `ui-styles.js`'s CSS-in-a-template-literal used backticks around a word, which prematurely closed the outer JS template string and broke the whole file. Fixed by rewording the comment; `verify-agent` confirmed no other stray backticks exist in that template literal.
+- `verify-agent` Go — confirmed the exact order, no dangling IDs, `openSettings`'s other behavior (ctx-window/doc-cap/auto-inject-mode population, max-height clamp) untouched.
+
 ### 2026-07-28 — Close/settings buttons now flank the tabs on one row
 
 Follow-up to the wordmark removal above: user asked to merge the close/settings button row with the tabs row below it, so the two buttons sit at either side of the tabs instead of on their own row.
