@@ -432,6 +432,7 @@
       updateInjectBtn,
       openEdit,
       injectTracked,
+      injectQuickCommand,
       getAutoInjectMode,
       setAutoInjectMode,
     });
@@ -1047,20 +1048,51 @@
     return { start: `[[CCB:INJ:${id}]]`, end: `[[CCB:INJ-END:${id}]]` };
   }
 
+  // Shared by injectTracked and injectQuickCommand (Phase 4.2): mints a new
+  // id and wraps `text` with its marker pair, ready to hand to whichever
+  // inject.js primitive actually writes it into the box.
+  function wrapForTracking(text) {
+    const id = generateInjectionId();
+    const { start, end } = injectionMarkers(id);
+    return { id, wrapped: `${start}\n${text}\n${end}\n` };
+  }
+
+  // Records a successful tracked injection on the undo stack and refreshes
+  // the button. `resetStack` clears everything before pushing — used
+  // whenever the write we just did wiped out (or never included) any
+  // earlier markers, so nothing older would still be findable anyway.
+  function commitTrackedInjection(id, resetStack) {
+    if (resetStack) state.injectionStack = [];
+    state.injectionStack.push(id);
+    syncUndoInjectBtn();
+  }
+
   // Drop-in replacement for ccbInject.injectIntoInput at the three tracked
   // call sites — same return shape ({ ok, error? }) — that also wraps the
   // text with a per-injection marker pair and records it on the undo stack.
   function injectTracked(text, mode) {
-    const id = generateInjectionId();
-    const { start, end } = injectionMarkers(id);
-    const r = ccbInject.injectIntoInput(`${start}\n${text}\n${end}\n`, mode);
-    if (r.ok) {
-      // "replace" wipes the whole box, taking every earlier marker with it —
-      // nothing left on the stack would still be findable.
-      if (mode === "replace") state.injectionStack = [];
-      state.injectionStack.push(id);
-      syncUndoInjectBtn();
-    }
+    const { id, wrapped } = wrapForTracking(text);
+    const r = ccbInject.injectIntoInput(wrapped, mode);
+    // "replace" wipes the whole box, taking every earlier marker with it —
+    // nothing left on the stack would still be findable.
+    if (r.ok) commitTrackedInjection(id, mode === "replace");
+    return r;
+  }
+
+  // Phase 4.2 — quick commands ("/" + a saved prompt's own trigger, typed at
+  // the very start of the chat box, like invoking a skill in Claude Code).
+  // `typedText` is exactly what the box currently holds ("/query" — the
+  // trigger's own detection already requires the box to start with "/", so
+  // this is always the box's ENTIRE content at the moment of selection, not
+  // just a substring of it). Reuses the same marker-wrap so the injected
+  // prompt participates in the same undo stack as any other injection.
+  function injectQuickCommand(typedText, text) {
+    const { id, wrapped } = wrapForTracking(text);
+    const r = ccbInject.replaceLeadingText(typedText, wrapped);
+    // The box held ONLY the typed "/query" before this (that's the trigger
+    // condition), so there can't be any earlier marker still sitting in it —
+    // always start a fresh stack, same as a "replace".
+    if (r.ok) commitTrackedInjection(id, true);
     return r;
   }
 
@@ -1118,7 +1150,8 @@
       );
     return (
       $el("editTitle").value.trim() !== (b.title || "") ||
-      $el("editContent").value.trim() !== (b.content || "")
+      $el("editContent").value.trim() !== (b.content || "") ||
+      $el("editTrigger").value.trim() !== (b.trigger || "")
     );
   }
 
@@ -1127,6 +1160,7 @@
     const b = id ? state.blocks[id] : null;
     $el("editTitle").value = b ? b.title : prefill?.title || "";
     $el("editTags").value = b ? (b.tags || []).join(", ") : prefill?.tags || "";
+    $el("editTrigger").value = b ? b.trigger || "" : "";
     $el("editContent").value = b ? b.content : prefill?.content || "";
     // Project blocks have their own delete flow (historyView.deleteProject,
     // behind #projectEditBtn's dropdown) that also cleans up child blocks/
@@ -1163,6 +1197,7 @@
       .value.split(",")
       .map((t) => t.trim())
       .filter(Boolean);
+    const triggerRaw = $el("editTrigger").value.trim();
     if (!title || !content) {
       setStatus("צריך כותרת ותוכן", true);
       return;
@@ -1170,12 +1205,36 @@
     const id =
       state.editingId ||
       "b_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
+
+    // Quick-command trigger (Phase 4.2) — optional. Normalized to always
+    // carry its own leading "/" so storage/lookup never has to guess;
+    // empty clears any previously-saved trigger (spread below would
+    // otherwise keep a stale one from `existing`).
+    let trigger;
+    if (triggerRaw) {
+      trigger = triggerRaw.startsWith("/") ? triggerRaw : "/" + triggerRaw;
+      if (/\s/.test(trigger)) {
+        setStatus("קיצור לא יכול להכיל רווחים", true);
+        return;
+      }
+      // Case-insensitive — matching at typing time (chat-features.js) is
+      // also case-insensitive, so two triggers differing only by case would
+      // otherwise both save fine yet be indistinguishable when typed.
+      const conflict = Object.values(state.blocks).find(
+        (b) => b && b.id !== id && (b.trigger || "").toLowerCase() === trigger.toLowerCase(),
+      );
+      if (conflict) {
+        setStatus(`הקיצור ${trigger} כבר בשימוש ע"י "${conflict.title}"`, true);
+        return;
+      }
+    }
+
     const existing = state.blocks[id];
     // Spread existing first so fields the form doesn't know about (kind,
     // autoLoad, projectId, and — critically — a project's documents/
     // isCodeProject/dirHandleId/lastScanned/depGraph) survive an edit
     // instead of being silently dropped.
-    state.blocks[id] = { ...existing, id, title, content, tags, updated: Date.now() };
+    state.blocks[id] = { ...existing, id, title, content, tags, trigger, updated: Date.now() };
     // A brand-new block is created into whichever project is currently
     // active (or general, if none is); an existing block keeps its own.
     if (!existing && state.currentProjectId)
@@ -1471,6 +1530,7 @@
         state.currentConversationId = null;
         // A fresh chat has nothing left to undo.
         state.injectionStack = [];
+        window.__ccbChat.closeQuickCommandMenu();
         // Reattach msg observer in case the chat container was re-mounted
         window.__ccbChat.startMsgObserver();
         window.__ccbChat.tryAutoInject();
@@ -1512,6 +1572,7 @@
         state.gmAutoInjected = false;
         state.currentConversationId = null;
         state.injectionStack = [];
+        window.__ccbChat.closeQuickCommandMenu();
         window.__ccbChat.startMsgObserver();
         render();
         window.__ccbChat.tryAutoInject();

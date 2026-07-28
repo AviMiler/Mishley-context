@@ -209,6 +209,54 @@ window.__ccbInject = (() => {
     return { ok: true };
   }
 
+  // מוצא node+offset (ב-text node) הנמצא charOffset תווים מתחילת root, לפי
+  // textContent (לא innerText) — אותו walk כמו removeMarkedSpan, לשימוש
+  // replaceLeadingText.
+  function findOffsetPosition(root, charOffset) {
+    if (charOffset <= 0) return { node: root, offset: 0 };
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let remaining = charOffset;
+    let node;
+    while ((node = walker.nextNode())) {
+      const len = (node.textContent || "").length;
+      if (remaining <= len) return { node, offset: remaining };
+      remaining -= len;
+    }
+    return null;
+  }
+
+  // מחליף בדיוק את תחילת השדה (oldText — למשל "/sum" שהמשתמש הקליד כפקודה
+  // מהירה) בטקסט חדש. כמו removeMarkedSpan: לא קורא/בונה מחדש את כל השדה —
+  // מאתר את הנקודה oldText.length תווים מההתחלה (TreeWalker על textContent),
+  // מוחק עד שם, ומכניס את הטקסט החדש דרך insertRangeText הקיים — אותה עלות
+  // O(טקסט חדש) כמו prepend/append רגילים, לא O(כל השדה).
+  function replaceLeadingText(oldText, newText) {
+    const el = findInput();
+    if (!el) return { ok: false, error: "לא נמצא שדה קלט" };
+
+    if (!el.isContentEditable) {
+      const current = getCurrentValue(el);
+      if (!current.startsWith(oldText)) return { ok: false, error: "not-found" };
+      setNativeValue(el, newText + current.slice(oldText.length));
+      return { ok: true };
+    }
+
+    const pos = findOffsetPosition(el, oldText.length);
+    if (!pos) return { ok: false, error: "not-found" };
+    el.focus();
+    const range = document.createRange();
+    range.setStart(el, 0);
+    range.setEnd(pos.node, pos.offset);
+    range.deleteContents();
+    range.collapse(true);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    insertRangeText(range, sel, newText);
+    el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: newText }));
+    return { ok: true };
+  }
+
   function injectIntoInput(text, mode) {
     const el = findInput();
     if (!el) return { ok: false, error: "לא נמצא שדה קלט" };
@@ -231,5 +279,5 @@ window.__ccbInject = (() => {
     return { ok: true };
   }
 
-  return { findInput, injectIntoInput, getCurrentValue: getCurrentInputValue, removeMarkedSpan };
+  return { findInput, injectIntoInput, getCurrentValue: getCurrentInputValue, removeMarkedSpan, replaceLeadingText };
 })();

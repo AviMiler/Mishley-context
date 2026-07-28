@@ -2016,5 +2016,37 @@ window.__ccbCSS = (() => {
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       max-width: 80px;
     }
+
+    /* ── Quick-command menu (Phase 4.2) ──
+       position:fixed and a sibling of .panel (not nested inside it) — same
+       reasoning as #conversationView/#filePreviewView/#depManagerView: fixed
+       descendants stay pinned to the viewport regardless of ancestor layout
+       as long as no ancestor establishes its own containing block, and this
+       menu is positioned via the CHAT PAGE's own input rect (getBoundingClientRect
+       in chat-features.js), which can be anywhere on screen — not relative to
+       our sidebar at all. */
+    #quickCmdMenu {
+      position: fixed; z-index: 2147483000;
+      max-height: 240px; overflow-y: auto;
+      background: var(--bg-card); border: 1px solid var(--border-strong);
+      border-radius: var(--r-input); box-shadow: 0 8px 24px rgba(0,0,0,.18);
+      font-family: var(--font-he); font-size: 13px;
+    }
+    .quick-cmd-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 10px; cursor: pointer;
+    }
+    .quick-cmd-item.active, .quick-cmd-item:hover { background: var(--bg-hover); }
+    .quick-cmd-trigger {
+      direction: ltr; font-weight: 600; color: var(--text-strong);
+      white-space: nowrap;
+    }
+    .quick-cmd-title {
+      color: var(--text-mute); overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .quick-cmd-empty {
+      padding: 10px; color: var(--text-ghost); font-style: italic; font-size: 12px;
+    }
   `;
 })();

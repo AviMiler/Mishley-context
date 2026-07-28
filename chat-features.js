@@ -455,6 +455,29 @@
   // ============================================================
   // Manual injection of selected context blocks
   // ============================================================
+  // Shared by injectSelected (the full ticked-checkbox selection) and the
+  // Phase 4.2 quick-command picker (always exactly one block) — same framing
+  // rule either way: GM alone uses FRAMING_GM, anything else (including a
+  // mix, or a single non-GM block) uses FRAMING_MANUAL.
+  function buildFramedBlockText(blocks) {
+    const GM_ID = _deps.config.GM_ID;
+    const f = _deps.framing;
+    const isGmOnly = blocks.length === 1 && blocks[0]?.id === GM_ID;
+    const blocksBody = blocks
+      .map((b) => {
+        const title = b.title || (b.id === GM_ID ? "זיכרון כללי" : "");
+        // A kind:"project" block reaches here when its instructions card is
+        // ticked — instructions (b.content) ONLY, never its enabled documents.
+        // Documents keep their own explicit footer button ("טען קבצים"),
+        // since a code project's files run to tens of thousands of tokens.
+        return "## " + title + "\n" + (b.content || "");
+      })
+      .join("\n\n");
+    return isGmOnly
+      ? f.gmPre + blocksBody + f.gmPost
+      : f.manualPre + blocksBody + "\n\n---\n\n" + f.manualPost;
+  }
+
   function injectSelected() {
     const state = _deps.state;
     if (state.selected.size === 0) {
@@ -469,21 +492,7 @@
       .map((id) => (id === GM_ID ? state.blocks[id] || getGM() : state.blocks[id]))
       .filter(Boolean);
 
-    const isGmOnly = ordered.length === 1 && ordered[0]?.id === GM_ID;
-    const f = _deps.framing;
-    const blocksBody = ordered
-      .map((b) => {
-        const title = b.title || (b.id === GM_ID ? "זיכרון כללי" : "");
-        // A kind:"project" block reaches here when its instructions card is
-        // ticked — instructions (b.content) ONLY, never its enabled documents.
-        // Documents keep their own explicit footer button ("טען קבצים"),
-        // since a code project's files run to tens of thousands of tokens.
-        return "## " + title + "\n" + (b.content || "");
-      })
-      .join("\n\n");
-    const text = isGmOnly
-      ? f.gmPre + blocksBody + f.gmPost
-      : f.manualPre + blocksBody + "\n\n---\n\n" + f.manualPost;
+    const text = buildFramedBlockText(ordered);
     const r = _deps.injectTracked(text, "prepend");
     if (r.ok) {
       // Deliberately not auto-sending — same convention as
@@ -493,6 +502,189 @@
     } else {
       _deps.setStatus(r.error || "נכשל", true);
     }
+  }
+
+  // ============================================================
+  // Quick commands (Phase 4.2) — "/" + a saved prompt's own trigger, typed
+  // at the very start of the chat's own input, like invoking a skill in
+  // Claude Code: "/" opens a menu of every prompt that has a trigger set,
+  // typing narrows it, Enter/click injects that one prompt and replaces the
+  // typed "/query" with it. Deliberately only fires when the box's content
+  // STARTS with "/" (nothing typed before it) — once a space appears after
+  // the command word, the interaction is over (either something was already
+  // selected, or the user is just writing a message that happens to start
+  // with "/").
+  // ============================================================
+  let _qcMenuOpen = false;
+  let _qcMatches = [];
+  let _qcSelectedIndex = 0;
+  let _qcQuery = "";
+
+  function _qcCandidates() {
+    return Object.values(_deps.state.blocks).filter((b) => b && b.trigger);
+  }
+
+  function _qcMatchesFor(query) {
+    const q = query.toLowerCase();
+    return _qcCandidates()
+      .filter((b) => b.trigger.slice(1).toLowerCase().startsWith(q))
+      .sort((a, b) => a.trigger.localeCompare(b.trigger));
+  }
+
+  function _qcRawBoxText(el) {
+    // textContent/.value only — never innerText, which forces a layout
+    // reflow and would run on every keystroke here (same discipline as the
+    // rest of this file's contenteditable handling).
+    return el.isContentEditable ? el.textContent || "" : el.value || "";
+  }
+
+  function _closeQuickCommandMenu() {
+    _qcMenuOpen = false;
+    _qcMatches = [];
+    _qcSelectedIndex = 0;
+    const menu = $el("quickCmdMenu");
+    if (menu) menu.style.display = "none";
+  }
+
+  function _renderQuickCommandMenu() {
+    const menu = $el("quickCmdMenu");
+    if (!menu) return;
+    menu.innerHTML = "";
+    if (!_qcMatches.length) {
+      const empty = document.createElement("div");
+      empty.className = "quick-cmd-empty";
+      empty.textContent = "אין קיצורים תואמים";
+      menu.appendChild(empty);
+      return;
+    }
+    _qcMatches.forEach((b, i) => {
+      const row = document.createElement("div");
+      row.className = "quick-cmd-item" + (i === _qcSelectedIndex ? " active" : "");
+      row.setAttribute("role", "option");
+      const trig = document.createElement("span");
+      trig.className = "quick-cmd-trigger";
+      trig.textContent = b.trigger;
+      const title = document.createElement("span");
+      title.className = "quick-cmd-title";
+      title.textContent = b.title || "";
+      row.appendChild(trig);
+      row.appendChild(title);
+      // mousedown (not click) — fires before the chat input blurs, so a
+      // mouse pick doesn't need the input refocused afterward.
+      row.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        _selectQuickCommand(i);
+      });
+      menu.appendChild(row);
+    });
+  }
+
+  function _positionQuickCommandMenu(el, menu) {
+    const rect = el.getBoundingClientRect();
+    const ASSUMED_MENU_HEIGHT = 240; // matches ui-styles.js's #quickCmdMenu max-height
+    const openUpward = rect.top > ASSUMED_MENU_HEIGHT + 12;
+    menu.style.left = Math.round(rect.left) + "px";
+    menu.style.width = Math.round(rect.width) + "px";
+    if (openUpward) {
+      menu.style.bottom = window.innerHeight - rect.top + 6 + "px";
+      menu.style.top = "";
+    } else {
+      menu.style.top = rect.bottom + 6 + "px";
+      menu.style.bottom = "";
+    }
+  }
+
+  function _openQuickCommandMenu(el, query, matches) {
+    _qcQuery = query;
+    _qcMatches = matches;
+    _qcSelectedIndex = 0;
+    _qcMenuOpen = true;
+    _renderQuickCommandMenu();
+    const menu = $el("quickCmdMenu");
+    if (!menu) return;
+    _positionQuickCommandMenu(el, menu);
+    menu.style.display = "block";
+  }
+
+  function _selectQuickCommand(idx) {
+    const block = _qcMatches[idx];
+    if (!block) return;
+    const typedText = "/" + _qcQuery; // exactly what the box currently holds
+    const text = buildFramedBlockText([block]);
+    const r = _deps.injectQuickCommand(typedText, text);
+    _closeQuickCommandMenu();
+    _deps.setStatus(r.ok ? `הוזרק: ${block.title} ✓` : r.error || "נכשל", !r.ok);
+  }
+
+  function _handleQuickCommandInput(e) {
+    // Cheapest possible check first — no quick commands configured yet is
+    // the common case, and this avoids paying for findInput()'s DOM query
+    // on every keystroke system-wide when there's nothing to show anyway.
+    if (!_qcCandidates().length) {
+      if (_qcMenuOpen) _closeQuickCommandMenu();
+      return;
+    }
+    const el = _deps.inject.findInput();
+    if (!el || e.target !== el) {
+      if (_qcMenuOpen) _closeQuickCommandMenu();
+      return;
+    }
+    const raw = _qcRawBoxText(el);
+    if (!raw.startsWith("/")) {
+      if (_qcMenuOpen) _closeQuickCommandMenu();
+      return;
+    }
+    const afterSlash = raw.slice(1);
+    const spaceIdx = afterSlash.search(/\s/);
+    if (spaceIdx !== -1) {
+      // Past the command word — either already selected, or this is just a
+      // message that happens to start with "/".
+      if (_qcMenuOpen) _closeQuickCommandMenu();
+      return;
+    }
+    _openQuickCommandMenu(el, afterSlash, _qcMatchesFor(afterSlash));
+  }
+
+  function _handleQuickCommandKeydown(e) {
+    if (!_qcMenuOpen) return;
+    const el = _deps.inject.findInput();
+    if (!el || e.target !== el) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      _qcSelectedIndex = (_qcSelectedIndex + 1) % Math.max(_qcMatches.length, 1);
+      _renderQuickCommandMenu();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      _qcSelectedIndex =
+        (_qcSelectedIndex - 1 + Math.max(_qcMatches.length, 1)) % Math.max(_qcMatches.length, 1);
+      _renderQuickCommandMenu();
+    } else if ((e.key === "Enter" && !e.isComposing) || e.key === "Tab") {
+      // isComposing excluded the same way the existing auto-inject send
+      // detection does — an IME confirm keystroke isn't a real Enter press.
+      if (!_qcMatches.length) return; // let it behave normally (e.g. send) if nothing to pick
+      e.preventDefault();
+      // Also blocks the site's own send-on-Enter AND _interceptSend's own
+      // keydown handling for this same event — selecting a command must
+      // never also send the message.
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      _selectQuickCommand(_qcSelectedIndex);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      _closeQuickCommandMenu();
+    }
+  }
+
+  let _qcWatcherInstalled = false;
+  function installQuickCommandWatcher() {
+    if (_qcWatcherInstalled) return;
+    _qcWatcherInstalled = true;
+    document.addEventListener("input", _handleQuickCommandInput, true);
+    // Capture phase, and registered before installSendInterceptor's own
+    // keydown listener (see init() below) — belt-and-suspenders with the
+    // stopImmediatePropagation() above so a command-selecting Enter can
+    // never also fall through to send interception.
+    window.addEventListener("keydown", _handleQuickCommandKeydown, true);
   }
 
   // ============================================================
@@ -824,12 +1016,14 @@
      *   loadBlocks, saveBlocks, setStatus, render, updateInjectBtn,
      *   openEdit,
      *   injectTracked: (text, mode) => { ok, error? }, // Phase 4.1 undo stack — drop-in for inject.injectIntoInput
+     *   injectQuickCommand: (typedText, text) => { ok, error? }, // Phase 4.2 — drop-in for inject.replaceLeadingText, also undo-tracked
      *   getAutoInjectMode: (source: "gm" | "project") => "start" | "every",
      *   setAutoInjectMode: (source: "gm" | "project", mode) => Promise<string>,
      * }} deps
      */
     init(deps) {
       _deps = deps;
+      installQuickCommandWatcher();
       installSendInterceptor();
     },
     getGM,
@@ -840,5 +1034,6 @@
     flushAutoSave,
     startMsgObserver,
     stopMsgObserver,
+    closeQuickCommandMenu: _closeQuickCommandMenu,
   };
 })();

@@ -490,6 +490,8 @@ window.__ccbTpl = (() => {
         <input id="editTitle" type="text" placeholder="לדוגמה: הפרויקט שלי">
         <label>תגים (מופרדים בפסיק)</label>
         <input id="editTags" type="text" placeholder="קוד, ארכיטקטורה, API">
+        <label>קיצור פקודה מהירה (אופציונלי) — הקלד / בתיבת הצ'אט כדי לבחור</label>
+        <input id="editTrigger" type="text" placeholder="/sum" dir="ltr">
         <label>תוכן</label>
         <textarea id="editContent" placeholder="הקונטקסט שיוזרק לצ'אט..."></textarea>
         <div id="editButtons">
@@ -560,6 +562,8 @@ window.__ccbTpl = (() => {
         <div class="fp-body-wrap dm-body-wrap" id="dmBody"></div>
       </div>
     </div>
+
+    <div id="quickCmdMenu" role="listbox" aria-label="פקודות מהירות" style="display:none"></div>
   `;
 
   return { IC, PANEL_HTML };
