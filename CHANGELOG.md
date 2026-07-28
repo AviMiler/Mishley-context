@@ -2,6 +2,13 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-28 — Hardening: undo now consumes a full run of trailing blank separators, not just one
+
+User reported the chat box stays full of blank lines/spaces after injecting and undoing. Root cause could **not** be confirmed statically — `verify-agent` traced every currently-wired injection path (manual prepend, replace, chained quick commands) and found each one only ever produces exactly ONE trailing separator after its own end-marker, which the prior single-consumption code already handled correctly in every constructible case. Real `contenteditable` DOM normalization behavior in an actual browser can differ from what static Range/DOM-API reasoning predicts, and this repo has no test runner to observe it directly.
+
+- Hardened anyway, since it's a strictly safer superset of the existing design: `inject.js#removeMarkedSpan` now consumes a full RUN of trailing `<br>`/whitespace-only text nodes (contenteditable) or `\n` characters (plain textarea/input) after the end marker, instead of at most one. `verify-agent` confirmed this is safe (no infinite-loop risk, no regression to the already-reviewed `replaceTrailingText`/`findOffsetPosition`/`injectIntoInput`, which this change doesn't touch) but was unable to confirm it's the actual fix for the reported symptom, since it couldn't reproduce a scenario where the old single-consumption logic actually fell short.
+- Still not fully explained — real-browser confirmation needed. If the symptom persists after this, the next place to look is real `contenteditable` DOM shape after injection/undo (something only observable live, not via static tracing) — not another guess at the marker-cleanup logic.
+
 ### 2026-07-28 — Fix: couldn't insert a second quick command after the first
 
 User reported that after inserting one quick command, they couldn't insert another. Root cause: `chat-features.js#_handleQuickCommandInput` required the box's ENTIRE content to start with `/`. After one quick command injects, the box holds the injected marker/framed content instead — so "the whole box starts with /" could never be true again while any injected content remained, permanently blocking a second use until the box was fully emptied (e.g. by sending).

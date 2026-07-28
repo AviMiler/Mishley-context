@@ -172,8 +172,10 @@ window.__ccbInject = (() => {
       const startIdx = current.indexOf(startMarker);
       const endIdx = startIdx === -1 ? -1 : current.indexOf(endMarker, startIdx);
       if (startIdx === -1 || endIdx === -1) return { ok: false, error: "not-found" };
+      // בולע רצף שלם של "\n" עוקבים, לא רק אחד — 2026-07-28: תיקון לדיווח
+      // על "הרבה רווחים/ירידות שורה" שנשארות אחרי כמה ביטולים ברצף.
       let removeEnd = endIdx + endMarker.length;
-      if (current[removeEnd] === "\n") removeEnd++;
+      while (current[removeEnd] === "\n") removeEnd++;
       const next = current.slice(0, startIdx) + current.slice(removeEnd);
       setNativeValue(el, next);
       return { ok: true };
@@ -198,11 +200,21 @@ window.__ccbInject = (() => {
     const range = document.createRange();
     range.setStart(startNode, startOffset);
     range.setEnd(endNode, endOffset);
-    // בולע גם <br> בודד מיד אחרי סמן הסיום (מפריד הבלוקים ש-injectTracked
-    // מוסיף) אם קיים — אותה כוונה כמו בליטוף ה-"\n" בנתיב הטקסט הרגיל.
+    // בולע רצף שלם של <br>/text node-ים ריקים מיד אחרי סמן הסיום — לא רק
+    // אחד — אותה כוונה כמו בליטוף ה-"\n" בנתיב הטקסט הרגיל, אבל רצף מלא כדי
+    // שביטול לא ישאיר שורות ריקות שמצטברות אחרי כמה ביטולים ברצף (2026-07-28
+    // תיקון — הגרסה הקודמת בלעה <br> בודד בלבד).
     if (endOffset === (endNode.textContent || "").length) {
-      const after = endNode.nextSibling;
-      if (after && after.nodeName === "BR") range.setEndAfter(after);
+      let after = endNode.nextSibling;
+      while (
+        after &&
+        (after.nodeName === "BR" ||
+          (after.nodeType === Node.TEXT_NODE && !(after.textContent || "").trim()))
+      ) {
+        const next = after.nextSibling;
+        range.setEndAfter(after);
+        after = next;
+      }
     }
     range.deleteContents();
     el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "deleteContentBackward" }));
