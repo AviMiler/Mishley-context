@@ -554,18 +554,26 @@
     const dependentsCount = graph ? dg.getDirectDependents(graph, doc.name).size : 0;
     const fullCount = graph ? dg.getFullContext(graph, doc.name).size - 1 : 0;
 
-    const mkItem = (icon, label, onClick) => {
+    const mkItem = (icon, label, onClick, tooltip) => {
       const item = document.createElement("div");
       item.className = "hd-item";
       item.innerHTML = `${icon} ${label}`;
+      if (tooltip) item.title = tooltip;
       item.addEventListener("click", onClick);
       return item;
     };
 
+    // These counts are the TRANSITIVE closure (dependencies of dependencies,
+    // arbitrarily deep) — by design, since clicking the item loads that whole
+    // chain into the chat. This is deliberately larger than "ניהול תלויות"'s
+    // own list below, which only ever shows this file's DIRECT edges (a
+    // dependency of a dependency isn't something this file itself depends
+    // on). Tooltips spell this out — reported as confusing when the two
+    // numbers didn't match ("3 outside, 2 direct inside").
     dd.innerHTML = "";
-    dd.appendChild(mkItem(ic.link, `תלויות${countLabel(depsCount)}`, () => { closeDepsMenu(); loadWithDependencies(doc, "dependencies"); }));
-    dd.appendChild(mkItem(ic.download, `תלויים${countLabel(dependentsCount)}`, () => { closeDepsMenu(); loadWithDependencies(doc, "dependents"); }));
-    dd.appendChild(mkItem(ic.context, `הקשר מלא${countLabel(fullCount)}`, () => { closeDepsMenu(); loadWithDependencies(doc, "full"); }));
+    dd.appendChild(mkItem(ic.link, `תלויות${countLabel(depsCount)}`, () => { closeDepsMenu(); loadWithDependencies(doc, "dependencies"); }, "טוען את כל שרשרת התלויות של הקובץ — כולל תלויות של תלויות, לא רק ישירות"));
+    dd.appendChild(mkItem(ic.download, `תלויים${countLabel(dependentsCount)}`, () => { closeDepsMenu(); loadWithDependencies(doc, "dependents"); }, "קבצים שתלויים ישירות בקובץ הזה"));
+    dd.appendChild(mkItem(ic.context, `הקשר מלא${countLabel(fullCount)}`, () => { closeDepsMenu(); loadWithDependencies(doc, "full"); }, "כל שרשרת התלויות (כולל עקיפות) יחד עם התלויים הישירים"));
     const sep = document.createElement("div");
     sep.className = "hd-sep";
     dd.appendChild(sep);
@@ -718,7 +726,8 @@
 
     const outHeader = document.createElement("div");
     outHeader.className = "dm-section-label";
-    outHeader.textContent = "קבצים שהקובץ הזה תלוי בהם — סמן/בטל סימון כדי לכלול או להתעלם";
+    outHeader.textContent = "קבצים שהקובץ הזה תלוי בהם ישירות — סמן/בטל סימון כדי לכלול או להתעלם";
+    outHeader.title = "רשימה זו כוללת תלויות ישירות בלבד. המספר בתפריט \"תלויות\" (ליד כל קובץ בעץ) גדול יותר בכוונה — הוא כולל גם תלויות של תלויות (עקיפות)";
     body.appendChild(outHeader);
 
     const outList = document.createElement("div");

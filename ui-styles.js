@@ -1120,7 +1120,7 @@ window.__ccbCSS = (() => {
       border-bottom: 1px solid var(--border-subtle);
       flex-shrink: 0;
     }
-    #cvBack, #fpBack {
+    #cvBack, #fpBack, #dmBack {
       width: 30px;
       height: 30px;
       border: none;
@@ -1133,7 +1133,14 @@ window.__ccbCSS = (() => {
       justify-content: center;
       flex-shrink: 0;
     }
-    #cvBack:hover, #fpBack:hover { background: rgba(0,0,0,.04); color: var(--text-strong); }
+    #cvBack:hover, #fpBack:hover, #dmBack:hover { background: rgba(0,0,0,.04); color: var(--text-strong); }
+    /* #dmBack was missing from the rule above entirely, so it rendered with
+       the browser's default button chrome (bordered square) — reported as
+       "ugly". Also moves it to the opposite side of the header from
+       #cvBack/#fpBack: row-reverse puts the first DOM child (the button) at
+       the RTL end (left) instead of the RTL start (right), swapping places
+       with .cv-title-wrap. */
+    #depManagerView .cv-header { flex-direction: row-reverse; }
     /* Only the conversation view's button is a directional "back" chevron
        that needs flipping for RTL; the file preview's is a close (X) icon,
        symmetric and not part of this rule. */
