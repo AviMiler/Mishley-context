@@ -2,6 +2,10 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-28 — Fix: quick-command menu opened but wasn't clickable
+
+User reported the new quick-command menu (Phase 4.2, entry directly below) opened visually but no suggestion could be clicked. Root cause: the extension's shadow-DOM host (`#ccb-host`, `content.js`) is deliberately `pointer-events:none` — a 0×0 fixed div that must never block clicks on the real page — so every interactive top-level element inside it has to explicitly opt back in (`.fab`/`.panel` already do this). The new `#quickCmdMenu` never did, so it silently inherited `pointer-events:none` and was invisible to the mouse despite rendering fine visually — exactly matching "opens but nothing's clickable" rather than "doesn't appear." Fix: added `pointer-events: auto;` to `#quickCmdMenu`'s rule in `ui-styles.js` — one line. Verified: `verify-agent` Stage 3 pass (Go) — confirmed the mechanism, confirmed the existing `.fab`/`.panel` precedent, confirmed no child row needs its own `pointer-events` (inherits from the now-`auto` parent).
+
 ### 2026-07-28 — Quick commands (Phase 4.2): "/" in the chat box to inject a saved prompt, like invoking a Claude Code skill
 
 User asked for any saved prompt to be able to carry a "/" shortcut, and for typing "/" in the actual chat page's own input to open a menu of every configured shortcut — pick one, it injects. Modeled directly on Claude Code's own slash-command UX.

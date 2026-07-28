@@ -2026,7 +2026,7 @@ window.__ccbCSS = (() => {
        in chat-features.js), which can be anywhere on screen — not relative to
        our sidebar at all. */
     #quickCmdMenu {
-      position: fixed; z-index: 2147483000;
+      position: fixed; z-index: 2147483000; pointer-events: auto;
       max-height: 240px; overflow-y: auto;
       background: var(--bg-card); border: 1px solid var(--border-strong);
       border-radius: var(--r-input); box-shadow: 0 8px 24px rgba(0,0,0,.18);
