@@ -1060,19 +1060,29 @@ window.__ccbCSS = (() => {
     }
     .dm-dep-list { display: flex; flex-direction: column; gap: 4px; }
     .dm-dep-row {
-      display: flex; align-items: center; justify-content: space-between;
+      display: flex; align-items: center; justify-content: flex-start;
       gap: 8px; padding: 6px 8px; border-radius: 6px; background: var(--bg-tag);
       direction: ltr; text-align: left; font-size: 12px;
     }
     .dm-dep-row.dm-dep-readonly { color: var(--text-mute); }
     .dm-dep-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .dm-dep-remove {
-      border: none; background: none; cursor: pointer; color: var(--text-faint);
-      display: flex; align-items: center; flex-shrink: 0;
-    }
-    .dm-dep-remove:hover { color: #c53030; }
+    .dm-dep-checkbox { flex-shrink: 0; cursor: pointer; }
+    /* An automatically-detected edge the user turned off: stays in the list
+       (never deleted outright) so it can be switched back on later, rather
+       than making the user retype it in the add-picker below. */
+    .dm-dep-row.dm-dep-excluded { opacity: 0.55; }
+    .dm-dep-row.dm-dep-excluded .dm-dep-name { text-decoration: line-through; }
     .dm-add-wrap { margin-top: 8px; position: relative; }
-    .dm-add-suggestions { max-height: 160px; overflow-y: auto; margin-top: 4px; direction: ltr; text-align: left; }
+    /* File-map picker for adding a dependency — same row language as the
+       inline code tree (.code-tree-row/-icon/-label/collapse-btn), but its
+       own collapse state that defaults every folder CLOSED (see
+       _dmExpandedPaths in code-tree.js), unlike the main tree's default-open. */
+    .dm-add-tree {
+      margin-top: 6px; max-height: 240px; overflow-y: auto; direction: ltr; text-align: left;
+      border: 1px solid var(--border-light); border-radius: 6px; padding: 6px;
+    }
+    .dm-tree-file-row { cursor: pointer; }
+    .dm-tree-file-row:hover { background: var(--bg-tag); }
     /* File preview body — read-only file content, monospace, LTR regardless
        of the panel's own RTL (source code direction, not UI language). */
     .fp-body-wrap { flex: 1; min-height: 0; overflow: auto; padding: 14px 18px; }

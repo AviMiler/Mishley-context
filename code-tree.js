@@ -597,6 +597,11 @@
   // (and keeps overriding the scanned default after) every future rescan.
   // ============================================================
   let _dmDoc = null;
+  // File-map picker state (add-dependency section) — reset per file opened
+  // (openDepsManager), so every file's manager starts with the map collapsed
+  // and the search box empty, matching the main tree's per-project reset.
+  let _dmAddQuery = "";
+  let _dmExpandedPaths = new Set();
 
   function codeDocPaths() {
     return (_project.documents || []).filter((d) => d.type === "code").map((d) => d.name);
@@ -608,6 +613,83 @@
     e.style.cssText = "color:var(--text-faint);padding:4px 0;";
     e.textContent = text;
     return e;
+  }
+
+  // Recursive renderer for the add-dependency file map (candidates only —
+  // the current file and everything already listed as a dependency, whether
+  // active or manually turned off, are excluded upstream in dmBuildAddTree).
+  // Deliberately its own tree walker rather than reusing the main
+  // renderNode(): that one is wired to doc.enabled checkboxes and bulk
+  // folder-enable, neither of which applies here — a click on a file row
+  // just adds one edge.
+  function dmRenderTreeNode(node, container, depth, forceExpand, onFileClick, onToggle) {
+    const names = Object.keys(node.children).sort((a, b) => {
+      const aIsDir = !node.children[a].doc;
+      const bIsDir = !node.children[b].doc;
+      if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+      return a.localeCompare(b);
+    });
+    for (const name of names) {
+      const child = node.children[name];
+      const isDir = !child.doc;
+      const row = document.createElement("div");
+      row.className = "code-tree-row";
+      row.style.marginInlineStart = `${depth * 14}px`;
+
+      if (isDir) {
+        // Opposite default from the main tree: a fresh manager shows every
+        // folder COLLAPSED (per the user's explicit request), so membership
+        // in _dmExpandedPaths means "explicitly opened", not "explicitly
+        // closed" — inverted from _collapsedPaths above.
+        const expanded = forceExpand || _dmExpandedPaths.has(child.path);
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "collapse-btn" + (expanded ? "" : " collapsed");
+        btn.innerHTML = IC().chevronRight;
+        row.appendChild(btn);
+
+        const icon = document.createElement("span");
+        icon.className = "code-tree-icon";
+        icon.innerHTML = IC().folder;
+        row.appendChild(icon);
+
+        const label = document.createElement("span");
+        label.className = "code-tree-label";
+        label.textContent = name;
+        row.appendChild(label);
+
+        row.addEventListener("click", () => {
+          if (_dmExpandedPaths.has(child.path)) _dmExpandedPaths.delete(child.path);
+          else _dmExpandedPaths.add(child.path);
+          onToggle();
+        });
+        container.appendChild(row);
+
+        const childrenWrap = document.createElement("div");
+        childrenWrap.className = "code-tree-children" + (expanded ? "" : " collapsed");
+        container.appendChild(childrenWrap);
+        dmRenderTreeNode(child, childrenWrap, depth + 1, forceExpand, onFileClick, onToggle);
+      } else {
+        const spacer = document.createElement("span");
+        spacer.className = "code-tree-spacer";
+        row.appendChild(spacer);
+
+        const icon = document.createElement("span");
+        icon.className = "code-tree-icon";
+        icon.innerHTML = IC().file;
+        row.appendChild(icon);
+
+        const label = document.createElement("span");
+        label.className = "code-tree-label";
+        label.textContent = name;
+        row.appendChild(label);
+        row.title = child.path;
+        row.classList.add("dm-tree-file-row");
+
+        row.addEventListener("click", () => onFileClick(child.path));
+        container.appendChild(row);
+      }
+    }
   }
 
   function renderDepsManager() {
@@ -623,31 +705,44 @@
 
     const graph = effectiveGraph();
     const path = _dmDoc.name;
-    const deps = graph[path] || [];
+    const effectiveDeps = graph[path] || [];
+    const raw = (_project.depGraph || {})[path] || [];
+    const ov = (_project.depGraphOverrides && _project.depGraphOverrides[path]) || { added: [], removed: [] };
+    // Every row worth showing: automatically-detected edges (raw, whether
+    // currently on or manually turned off) plus manually-added edges. A
+    // manually-added edge that gets turned off has no "automatic" origin to
+    // remember, so it's simply absent from this union once removed — see
+    // removeDepEdge's comment for why that's the correct behavior, per the
+    // user's explicit distinction between the two kinds of edge.
+    const allDeps = Array.from(new Set([...raw, ...ov.added]));
 
     const outHeader = document.createElement("div");
     outHeader.className = "dm-section-label";
-    outHeader.textContent = "תלויות יוצאות (ניתן לערוך)";
+    outHeader.textContent = "תלויות יוצאות — סמן/בטל סימון כדי לכלול או להתעלם";
     body.appendChild(outHeader);
 
     const outList = document.createElement("div");
     outList.className = "dm-dep-list";
-    if (!deps.length) outList.appendChild(dmEmptyRow("אין תלויות"));
-    for (const dep of deps) {
+    if (!allDeps.length) outList.appendChild(dmEmptyRow("אין תלויות"));
+    for (const dep of allDeps) {
+      const included = effectiveDeps.includes(dep);
       const row = document.createElement("div");
-      row.className = "dm-dep-row";
+      row.className = "dm-dep-row" + (included ? "" : " dm-dep-excluded");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "dm-dep-checkbox";
+      checkbox.checked = included;
+      checkbox.title = included ? "הסר תלות" : "כלול תלות שהוסרה (זוהתה אוטומטית בסריקה)";
+      checkbox.setAttribute("aria-label", checkbox.title);
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) addDepEdge(dep);
+        else removeDepEdge(dep);
+      });
       const label = document.createElement("span");
       label.className = "dm-dep-name";
       label.textContent = dep;
-      const removeBtn = document.createElement("button");
-      removeBtn.type = "button";
-      removeBtn.className = "dm-dep-remove";
-      removeBtn.innerHTML = IC().x;
-      removeBtn.title = "הסר תלות";
-      removeBtn.setAttribute("aria-label", "הסר תלות");
-      removeBtn.addEventListener("click", () => removeDepEdge(dep));
+      row.appendChild(checkbox);
       row.appendChild(label);
-      row.appendChild(removeBtn);
       outList.appendChild(row);
     }
     body.appendChild(outList);
@@ -657,35 +752,43 @@
     const input = document.createElement("input");
     input.type = "text";
     input.className = "code-tree-search-input";
-    input.placeholder = "הוסף תלות — הקלד לחיפוש קובץ...";
-    const suggestions = document.createElement("div");
-    suggestions.className = "dm-add-suggestions";
-    input.addEventListener("input", () => {
-      const q = input.value.trim().toLowerCase();
-      suggestions.innerHTML = "";
-      if (!q) return;
-      const candidates = codeDocPaths()
-        .filter((n) => n !== path && !deps.includes(n) && n.toLowerCase().includes(q))
-        .slice(0, 20);
-      for (const c of candidates) {
-        const item = document.createElement("div");
-        item.className = "hd-item";
-        item.textContent = c;
-        item.addEventListener("click", async () => {
-          input.value = "";
-          suggestions.innerHTML = "";
-          await addDepEdge(c);
-        });
-        suggestions.appendChild(item);
+    input.placeholder = "הוסף תלות — חפש, או עיין במפת הקבצים למטה...";
+    input.value = _dmAddQuery;
+
+    const treeContainer = document.createElement("div");
+    treeContainer.className = "dm-add-tree";
+
+    // Rebuilds ONLY the file map (not the whole body) — folder expand/
+    // collapse and re-adding after a click both go through this, so typing
+    // in the search box above never loses focus/caret position, matching
+    // the main inline tree's own search behavior.
+    function refreshAddTree() {
+      treeContainer.innerHTML = "";
+      const q = _dmAddQuery.trim().toLowerCase();
+      const candidates = codeDocPaths().filter((n) => n !== path && !allDeps.includes(n));
+      const filtered = q ? candidates.filter((n) => matchesQuery(n, q)) : candidates;
+      if (!filtered.length) {
+        treeContainer.appendChild(dmEmptyRow(q ? "אין קבצים תואמים" : "כל הקבצים כבר מופיעים כתלות"));
+        return;
       }
+      const tree = buildTree(filtered.map((n) => ({ name: n })));
+      dmRenderTreeNode(tree, treeContainer, 0, !!q, (p) => addDepEdge(p), refreshAddTree);
+    }
+
+    input.addEventListener("input", () => {
+      _dmAddQuery = input.value || "";
+      refreshAddTree();
     });
+
     addWrap.appendChild(input);
-    addWrap.appendChild(suggestions);
+    addWrap.appendChild(treeContainer);
     body.appendChild(addWrap);
+    refreshAddTree();
 
     const inHeader = document.createElement("div");
     inHeader.className = "dm-section-label";
-    inHeader.textContent = "תלויים נכנסים — מחושב אוטומטית (לעריכה יש לגשת לקובץ המקורי)";
+    inHeader.textContent =
+      "קבצים שתלויים בקובץ הזה — מחושב אוטומטית מהתלויות של הקבצים האחרים, לכן לא ניתן לערוך כאן; כדי להוסיף/להסיר קישור יש לפתוח את מסך ניהול התלויות של אותו קובץ אחר";
     body.appendChild(inHeader);
 
     const dependents = Array.from(window.__ccbDepGraph.getDirectDependents(graph, path));
@@ -703,9 +806,12 @@
 
   // A manual edit is stored relative to the RAW scanned graph, not the
   // effective one: removing an edge that only exists via an earlier "added"
-  // override just un-adds it; removing a real scanned edge records it in
-  // "removed". Symmetric for adding — so re-adding a scanned edge the user
-  // had removed just clears the removal instead of double-recording it.
+  // override just un-adds it (vanishes for good — nothing automatic to
+  // remember); removing a real scanned edge records it in "removed" instead
+  // of deleting it, so it stays visible in the manager (greyed out, checkbox
+  // unchecked) for the user to bring back later rather than disappearing.
+  // Symmetric for adding — so re-adding a scanned edge the user had removed
+  // just clears the removal instead of double-recording it.
   async function removeDepEdge(target) {
     const path = _dmDoc.name;
     const raw = (_project.depGraph || {})[path] || [];
@@ -737,6 +843,8 @@
     if (!_project || !doc) return;
     await ensureDepGraph();
     _dmDoc = doc;
+    _dmAddQuery = "";
+    _dmExpandedPaths = new Set();
     _deps.historyView?.closeConversationView?.();
     closeFilePreview();
     const shadow = _deps.getShadow?.();

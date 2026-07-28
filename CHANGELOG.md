@@ -2,6 +2,15 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-28 — Dependency manager UI rework (direct user feedback on the 2026-07-27 feature)
+
+Three changes to `code-tree.js`'s per-file dependency manager, all in how it's presented — persistence (`dep-graph.js#applyOverrides`, `history-view.js#setFileDependencyOverride`) is untouched.
+
+- Changed: the outgoing-dependencies list now shows a checkbox per row instead of a remove (X) button. Unchecking a real scanned edge keeps the row visible (greyed out, struck through) instead of deleting it, so it can be switched back on later without retyping it. Unchecking a manually-added edge (one with no scanned origin) still removes it outright — per the user's explicit distinction between "automatic" and "regular" links.
+- Added: a collapsible folder file-map in the add-dependency section, alongside the existing search box, so a dependency can be added by browsing instead of only by typing. Every folder starts collapsed by default, per the user's explicit request.
+- Changed: reworded the read-only "תלויים נכנסים" (incoming dependents) section to state plainly why it can't be edited there, in response to the user asking why dependents weren't selectable — behavior unchanged, wording only.
+- Verified: syntax-checked (`node --check`); not yet re-run through `verify-agent` or a real browser (no dev server for this MV3 extension — needs an unpacked reload).
+
 ### 2026-07-27 — Per-file dependency manager (feature 6 of the 9-feature batch, scope changed mid-build at the user's request)
 
 First attempt built a project-wide table screen (a new `dep-manager.js` module: every scanned file listed with dependency/dependent counts, sortable, click-through to a per-file editor). The user redirected mid-build: each file's own existing "אפשרויות תלויות" menu should instead gain a "ניהול תלויות" item opening a screen scoped to just that file — no project-wide table. The first attempt was fully reverted (`git checkout --` + deleting the new file) before rebuilding to spec.
