@@ -99,6 +99,12 @@
     // Cleared on URL change (SPA new chat); page refresh naturally resets it
     // because content scripts re-execute.
     currentConversationId: null,
+    // Undo for the chat input's own text box (Phase 4.1). { previousValue,
+    // afterValue } — previousValue is what to restore to, afterValue is what
+    // WE last left the box as. Transient, like cvSelectedIndices. See
+    // beginInjectionBatch/finishInjectionBatch for how this stays a single
+    // undo across several manual injections (prompts + files + conversation).
+    lastInjection: null,
   };
 
   // Live FRAMING getters — picks up edits from prompts.js automatically
@@ -400,6 +406,8 @@
       inject: ccbInject,
       openEdit,
       updateInjectBtn,
+      recordInjectionBegin: beginInjectionBatch,
+      recordInjectionEnd: finishInjectionBatch,
       getDocMaxChars: () => state.docMaxChars,
       getCtxWindow: () => state.ctxWindow,
       getAutoInjectMode,
@@ -425,6 +433,8 @@
       render,
       updateInjectBtn,
       openEdit,
+      recordInjectionBegin: beginInjectionBatch,
+      recordInjectionEnd: finishInjectionBatch,
       getAutoInjectMode,
       setAutoInjectMode,
     });
@@ -652,6 +662,7 @@
     $el("addBtn").addEventListener("click", () => openEdit(null));
     $el("injectBtn").addEventListener("click", () => chat.injectSelected());
     $el("injectDocsBtn").addEventListener("click", () => historyView.injectProjectDocuments());
+    $el("undoInjectBtn").addEventListener("click", () => undoLastInjection());
     // No manual "save chat" button anymore — auto-save (chat-features.js#
     // scheduleAutoSave) covers it. chat.saveChat() is still exported and still
     // does the full scroll-to-top capture; it just has no UI trigger today.
@@ -746,8 +757,10 @@
       const allMsgs = historyView.buildHistoryMessages(b);
       const selectedMsgs = allMsgs.filter((_, i) => state.cvSelectedIndices.has(i));
       const text = historyView.buildConversationInjectionText(selectedMsgs);
+      beginInjectionBatch();
       const r = ccbInject.injectIntoInput(text, "replace");
       if (r.ok) {
+        finishInjectionBatch();
         historyView.closeConversationView();
         setStatus("נטען — ניתן לערוך ולשלוח ✓");
       } else {
@@ -846,6 +859,7 @@
     const blocksListMs = Date.now() - t1;
     syncBlocksSection();
     syncInjectDocsBtn();
+    syncUndoInjectBtn();
     const t2 = Date.now();
     window.__ccbHistoryView.render();
     const historyViewMs = Date.now() - t2;
@@ -996,6 +1010,49 @@
     // make this button clickable too — no type exclusion needed anymore.
     const hasSelectable = docs.some((d) => d.enabled);
     btn.disabled = !hasSelectable;
+  }
+
+  // ============================================================
+  // Undo last injection (Phase 4.1)
+  //
+  // One undo button covers all three manual, non-auto-send injection paths
+  // that write into the chat's own input box: prompts (chat.injectSelected),
+  // files (historyView.injectProjectDocuments → runProjectDocumentsInjection),
+  // and loaded conversation messages (cvLoadBtn below). As long as the box
+  // still holds exactly what the last injection left it as, the next
+  // injection extends the SAME undo batch instead of starting a new one —
+  // so injecting prompts, then also injecting files, then clicking "בטל
+  // הזרקה" once restores the box to what it was before EITHER of them, not
+  // just before the files. The batch ends (a fresh previousValue is taken)
+  // the moment the box no longer matches afterValue — i.e. the user sent
+  // the message, edited the box by hand, or a new chat cleared it.
+  // ============================================================
+  function beginInjectionBatch() {
+    const current = ccbInject.getCurrentValue();
+    const li = state.lastInjection;
+    if (!li || li.afterValue !== current) {
+      state.lastInjection = { previousValue: current, afterValue: current };
+    }
+  }
+
+  function finishInjectionBatch() {
+    if (!state.lastInjection) return;
+    state.lastInjection.afterValue = ccbInject.getCurrentValue();
+    syncUndoInjectBtn();
+  }
+
+  function syncUndoInjectBtn() {
+    const btn = $el("undoInjectBtn");
+    if (!btn) return;
+    btn.style.display = state.lastInjection ? "flex" : "none";
+  }
+
+  function undoLastInjection() {
+    if (!state.lastInjection) return;
+    const r = ccbInject.injectIntoInput(state.lastInjection.previousValue, "replace");
+    state.lastInjection = null;
+    syncUndoInjectBtn();
+    setStatus(r.ok ? "ההזרקה בוטלה ✓" : (r.error || "נכשל"), !r.ok);
   }
 
   // ============================================================
@@ -1366,6 +1423,8 @@
         state.gmAutoInjected = false;
         // SPA navigation = new chat → unbind any auto-saved conversation
         state.currentConversationId = null;
+        // A fresh chat has nothing left to undo.
+        state.lastInjection = null;
         // Reattach msg observer in case the chat container was re-mounted
         window.__ccbChat.startMsgObserver();
         window.__ccbChat.tryAutoInject();
@@ -1406,6 +1465,7 @@
 
         state.gmAutoInjected = false;
         state.currentConversationId = null;
+        state.lastInjection = null;
         window.__ccbChat.startMsgObserver();
         render();
         window.__ccbChat.tryAutoInject();

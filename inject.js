@@ -144,6 +144,14 @@ window.__ccbInject = (() => {
     return null;
   }
 
+  // חושף החוצה קריאה בלבד (ללא הזרקה) של תוכן שדה הקלט הנוכחי — לשימוש
+  // ה-undo (content.js#beginInjectionBatch/finishInjectionBatch), שצריך
+  // לדעת מה היה בשדה לפני/אחרי הזרקה בלי לשכפל את getCurrentValue.
+  function getCurrentInputValue() {
+    const el = findInput();
+    return el ? getCurrentValue(el) : "";
+  }
+
   function injectIntoInput(text, mode) {
     const el = findInput();
     if (!el) return { ok: false, error: "לא נמצא שדה קלט" };
@@ -166,5 +174,5 @@ window.__ccbInject = (() => {
     return { ok: true };
   }
 
-  return { findInput, injectIntoInput };
+  return { findInput, injectIntoInput, getCurrentValue: getCurrentInputValue };
 })();

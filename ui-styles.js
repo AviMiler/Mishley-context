@@ -978,6 +978,18 @@ window.__ccbCSS = (() => {
     }
     #injectDocsBtn:hover:not(:disabled) { background: var(--bg-hover); }
     #injectDocsBtn:disabled { background: var(--bg-clear); color: var(--text-ghost); border-color: var(--border-subtle); cursor: not-allowed; }
+    /* Fixed-width icon button, not a flex:1 peer like the two above — it only
+       ever shows up after a manual injection happened, so it doesn't compete
+       with them for width when hidden (the common case). */
+    #undoInjectBtn {
+      flex: 0 0 auto; width: 38px; height: 38px;
+      border: 1.5px solid var(--border-strong);
+      background: var(--bg-card); color: var(--text-body);
+      border-radius: var(--r-input);
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: background var(--t-fast);
+    }
+    #undoInjectBtn:hover { background: var(--bg-hover); }
 
     .count-pill {
       font-size: 11px; padding: 1px 7px;

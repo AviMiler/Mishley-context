@@ -2,6 +2,18 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-28 — Undo last injection (Phase 4.1): one button clears everything injected, prompts and files together
+
+User asked for an undo button that removes everything manually injected into the chat box — both loaded prompts and loaded files, even across two separate button clicks before sending. The original plan wording only covered undoing the single last injection; the user confirmed (after a clarifying question) they wanted the cumulative version.
+
+- Added: `inject.js#getCurrentValue()` — a pure read of the chat input's current text (wraps the existing internal `findInput()`+value-read), exported on `window.__ccbInject`.
+- Added: `content.js` state field `state.lastInjection = { previousValue, afterValue } | null` (transient) plus four functions — `beginInjectionBatch()`, `finishInjectionBatch()`, `syncUndoInjectBtn()`, `undoLastInjection()`. A batch continues (keeping the original `previousValue`) as long as the box still holds exactly what the last tracked injection left it as (`afterValue`); it's the box no longer matching `afterValue` — a real send, a manual edit, or a fresh chat — that starts a new one. No send-event detection needed.
+- Wired into the three existing manual, non-auto-send injection paths: `chat-features.js#injectSelected` (prompts), `history-view.js#runProjectDocumentsInjection` (files), `content.js`'s `cvLoadBtn` handler (loaded conversation messages). Deliberately NOT wired into auto-inject-at-start or the per-message "every mode" prefix, since those auto-send or fire at the instant of a real send.
+- Added: `#undoInjectBtn` footer button (`ui-template.js`, styled in `ui-styles.js` as a fixed 38×38 icon button, not a `flex:1` peer of `injectBtn`/`injectDocsBtn` since it's hidden until something is injected).
+- `state.lastInjection` is force-cleared on the two existing "fresh chat" reset points (`ccb:urlchange`, new-chat click delegation) alongside the pre-existing `state.currentConversationId` reset.
+- Verified: `verify-agent` Stage 3 pass — traced the exact "inject prompts → inject files → undo" scenario through the real code, confirmed it restores the pre-prompts state; flagged one low-severity, non-blocking edge case (a contenteditable that asynchronously self-normalizes could theoretically false-start a new batch) as a browser-verification item.
+- Not yet browser-verified.
+
 ### 2026-07-28 — Project structure map is now a visible, toggleable choice in the code-project file tree
 
 The auto-generated `PROJECT_STRUCTURE.md` doc was created once with `enabled: true` and never shown in the file tree — no way to see it or turn it off. User asked for it to appear at the top of the project's file list like a normal, selectable file.

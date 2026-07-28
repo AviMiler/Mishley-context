@@ -484,8 +484,10 @@
     const text = isGmOnly
       ? f.gmPre + blocksBody + f.gmPost
       : f.manualPre + blocksBody + "\n\n---\n\n" + f.manualPost;
+    _deps.recordInjectionBegin();
     const r = _deps.inject.injectIntoInput(text, "prepend");
     if (r.ok) {
+      _deps.recordInjectionEnd();
       // Deliberately not auto-sending — same convention as
       // injectProjectDocuments()/cvLoadBtn: the user reviews/edits/sends
       // themselves.
@@ -823,6 +825,7 @@
      *   historyView: object,
      *   loadBlocks, saveBlocks, setStatus, render, updateInjectBtn,
      *   openEdit,
+     *   recordInjectionBegin: () => void, recordInjectionEnd: () => void,
      *   getAutoInjectMode: (source: "gm" | "project") => "start" | "every",
      *   setAutoInjectMode: (source: "gm" | "project", mode) => Promise<string>,
      * }} deps
