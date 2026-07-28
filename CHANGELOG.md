@@ -2,6 +2,10 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-28 — Verified (no code change): second `@/`-alias report on `recurring.ts` was stale state, not a new bug
+
+Follow-up to the fix below. A second file, `client/src/api/recurring.ts`, was reported as still showing only 1 dependency. Reproduced the real `dep-graph.js` against the actual test project (Node) and, independently, via a `verify-agent` Stage 3 pass — both got the correct 3 dependencies. No code changed; the report is explained by the browser not having reloaded the extension and/or rescanned the project since the fix below landed.
+
 ### 2026-07-28 — Fixed: `@/` alias imports never resolved in a monorepo-style scan root
 
 User reported `client/src/api/client.ts` (imports `axios`, `@/store/authStore`, `@/types/auth`) showed zero dependencies in the dependency manager despite two of those three imports being real project files.
