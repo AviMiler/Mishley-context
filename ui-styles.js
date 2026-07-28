@@ -70,7 +70,11 @@ window.__ccbCSS = (() => {
        No title text anymore (2026-07-28, at the user's request — the
        "משלי" wordmark was removed) — this row is just the close/settings
        icon buttons now, so padding/margin are trimmed to the buttons'
-       own 28px height instead of leaving room a title used to need. */
+       own 28px height instead of leaving room a title used to need.
+       Same day, second request: the tabs moved INTO this row too, flanked
+       by the two buttons on either side, instead of sitting in a separate
+       row below — .sidebar-title-row is now the header's only row, so its
+       old margin-bottom (spacing before that second row) is gone. */
     .sidebar-header {
       padding: 8px 18px;
       background: var(--bg-app);
@@ -84,8 +88,7 @@ window.__ccbCSS = (() => {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 8px;
-      margin-bottom: 8px;
+      gap: 10px;
     }
     #settingsBtn {
       width: 28px;
@@ -132,16 +135,24 @@ window.__ccbCSS = (() => {
       color: var(--text-strong);
     }
 
-    /* ── Tabs ── */
+    /* ── Tabs ──
+       2026-07-28: moved inline into .sidebar-title-row, flanked by
+       #closeBtn/#settingsBtn on either side, instead of a full-width row
+       of its own below them — flex:1 so it fills the space between the two
+       buttons. Its own top/bottom borders are gone (redundant now that
+       it's nested in a row inset within .sidebar-header's own padding,
+       and .sidebar-header already carries the bottom border for the
+       whole header); position:relative is kept purely so the indicator
+       bar still anchors to the tabs' own box, not the page's. */
     .tabs {
       position: relative;
       display: flex;
-      border-top: 1px solid var(--border-subtle);
-      border-bottom: 1px solid var(--border-subtle);
+      flex: 1;
+      min-width: 0;
     }
     .tab {
       flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
-      padding: 10px 8px; font-size: 12px; font-weight: 500; cursor: pointer;
+      padding: 8px 6px; font-size: 12px; font-weight: 500; cursor: pointer;
       color: var(--text-ghost); user-select: none;
       transition: color var(--t-fast);
     }

@@ -2,6 +2,14 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-28 — Close/settings buttons now flank the tabs on one row
+
+Follow-up to the wordmark removal above: user asked to merge the close/settings button row with the tabs row below it, so the two buttons sit at either side of the tabs instead of on their own row.
+
+- `ui-template.js` — `.tabs` moved to be the middle child of `.sidebar-title-row`, between `#closeBtn` and `#settingsBtn`. `.sidebar-header` now has just one row.
+- `ui-styles.js` — `.sidebar-title-row` lost its `margin-bottom` (nothing follows it now), gap widened 8px→10px. `.tabs` gained `flex:1; min-width:0` to fill the space between the buttons, and lost its own `border-top`/`border-bottom` (redundant now that it's not a standalone full-width row — `.sidebar-header`'s own `border-bottom` covers the whole merged row). `.tab` padding tightened `10px 8px`→`8px 6px` to sit comfortably in the shorter combined row.
+- `verify-agent` Go — confirmed `content.js#moveTabIndicator`'s `tab.offsetLeft`/`offsetWidth` math is unaffected by the deeper nesting (`.tabs` keeps `position: relative`, still the tabs' offset parent).
+
 ### 2026-07-28 — Removed the "משלי" wordmark from the sidebar header; header trimmed to button height
 
 User asked to remove the extension's name shown at the top of the sidebar panel, and shrink that header area down to just the height of the close/settings icon buttons.
