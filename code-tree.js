@@ -718,7 +718,7 @@
 
     const outHeader = document.createElement("div");
     outHeader.className = "dm-section-label";
-    outHeader.textContent = "תלויות יוצאות — סמן/בטל סימון כדי לכלול או להתעלם";
+    outHeader.textContent = "קבצים שהקובץ הזה תלוי בהם — סמן/בטל סימון כדי לכלול או להתעלם";
     body.appendChild(outHeader);
 
     const outList = document.createElement("div");

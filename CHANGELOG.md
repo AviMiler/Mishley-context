@@ -10,6 +10,8 @@ Three changes to `code-tree.js`'s per-file dependency manager, all in how it's p
 - Added: a collapsible folder file-map in the add-dependency section, alongside the existing search box, so a dependency can be added by browsing instead of only by typing. Every folder starts collapsed by default, per the user's explicit request.
 - Changed: reworded the read-only "תלויים נכנסים" (incoming dependents) section to state plainly why it can't be edited there, in response to the user asking why dependents weren't selectable — behavior unchanged, wording only.
 - Added: an "אוטומטי" tag (`.dm-dep-tag`) on every outgoing-dependency row whose edge came from the scan (`raw.includes(dep)`), so the automatic-vs-manual distinction that decides what unchecking a row does (keep it greyed-out vs. delete it) is visible on the row itself, not just inferable from behavior.
+- Changed: the outgoing-dependencies section header now reads "קבצים שהקובץ הזה תלוי בהם" (files this file depends on) instead of the more technical "תלויות יוצאות" (outgoing dependencies), per user feedback that the plain-language phrasing was clearer.
+- Fixed: the add-dependency file-map (`.dm-add-tree`) no longer force-overrides `direction: ltr; text-align: left` — that fought the panel's RTL layout instead of matching the main inline tree, which has no such override and simply inherits RTL. Folders/files in the map now sit right-aligned like the rest of the panel.
 - Verified: syntax-checked (`node --check`); not yet re-run through `verify-agent` or a real browser (no dev server for this MV3 extension — needs an unpacked reload).
 
 ### 2026-07-27 — Per-file dependency manager (feature 6 of the 9-feature batch, scope changed mid-build at the user's request)

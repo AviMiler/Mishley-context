@@ -1089,7 +1089,7 @@ window.__ccbCSS = (() => {
        own collapse state that defaults every folder CLOSED (see
        _dmExpandedPaths in code-tree.js), unlike the main tree's default-open. */
     .dm-add-tree {
-      margin-top: 6px; max-height: 240px; overflow-y: auto; direction: ltr; text-align: left;
+      margin-top: 6px; max-height: 240px; overflow-y: auto;
       border: 1px solid var(--border-light); border-radius: 6px; padding: 6px;
     }
     .dm-tree-file-row { cursor: pointer; }
