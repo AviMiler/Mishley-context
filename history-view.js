@@ -1576,8 +1576,7 @@
     const f = _deps.framing;
     const text = f.docsPre + body + f.docsPost;
     const injectStartedAt = Date.now();
-    _deps.recordInjectionBegin();
-    const r = _deps.inject.injectIntoInput(text, "prepend");
+    const r = _deps.injectTracked(text, "prepend");
     const injectMs = Date.now() - injectStartedAt;
     console.log("[ccb-timing] runProjectDocumentsInjection", {
       docsEnabled: enabledDocs.length,
@@ -1587,7 +1586,6 @@
       totalMs: Date.now() - startedAt,
     });
     if (r.ok) {
-      _deps.recordInjectionEnd();
       // Deliberately not auto-sending — the user reviews/edits the loaded
       // text (possibly adding their own question) and sends it themselves.
       await _deps.docHandler.injectFilesToChat(project.id);
@@ -1970,7 +1968,7 @@
      *   render: () => void,
      *   setStatus: (msg, isError?) => void,
      *   openEdit: (id, prefill?) => void, // shared block-edit form — used by the instructions card's whole-card click
-     *   recordInjectionBegin: () => void, recordInjectionEnd: () => void, // Phase 4.1 undo batch
+     *   injectTracked: (text, mode) => { ok, error? }, // Phase 4.1 undo stack — drop-in for inject.injectIntoInput
      *   getAutoInjectMode: (source: "gm" | "project") => "start" | "every",
      *   setAutoInjectMode: (source: "gm" | "project", mode) => Promise<string>,
      * }} deps

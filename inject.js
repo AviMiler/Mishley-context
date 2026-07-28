@@ -145,11 +145,68 @@ window.__ccbInject = (() => {
   }
 
   // חושף החוצה קריאה בלבד (ללא הזרקה) של תוכן שדה הקלט הנוכחי — לשימוש
-  // ה-undo (content.js#beginInjectionBatch/finishInjectionBatch), שצריך
-  // לדעת מה היה בשדה לפני/אחרי הזרקה בלי לשכפל את getCurrentValue.
+  // ה-undo (content.js#undoLastInjection), שצריך לחפש בתוכן הנוכחי את
+  // סמני ה-ID של ההזרקה שמבטלים, בלי לשכפל את getCurrentValue.
   function getCurrentInputValue() {
     const el = findInput();
     return el ? getCurrentValue(el) : "";
+  }
+
+  // מוחק טווח מסומן ב-start/end markers ישירות מה-DOM החי — לא קורא את כל
+  // השדה כמחרוזת (innerText כופה layout, בדיוק כמו הבאג שכבר תועד למעלה)
+  // ולא בונה מחדש את כל מה שנשאר (מה ש-injectIntoInput(..., "replace") עושה
+  // — O(כל השדה)). זו הסיבה שביטול הזרקה היה איטי/נתקע אחרי "טען קבצים"
+  // גדול: undoLastInjection הישן קרא innerText על השדה כולו ואז שיחזר את כל
+  // מה שנשאר מחדש כ-DOM חדש, גם כשהקטע שהוסר עצמו קטן. כאן: TreeWalker על
+  // textContent (לא innerText — אינו כופה layout) מאתר את ה-text node-ים
+  // שמכילים את שני הסמנים, ו-Range.deleteContents() אמיתי מוחק רק את
+  // הטווח ביניהם — O(גודל הטווח שמוסר), בלי לגעת בשאר השדה בכלל.
+  function removeMarkedSpan(startMarker, endMarker) {
+    const el = findInput();
+    if (!el) return { ok: false, error: "לא נמצא שדה קלט" };
+
+    if (!el.isContentEditable) {
+      // .value של textarea/input הוא getter/setter נייטיבי — אין עץ DOM
+      // לבנות מחדש, כך שהחלפת מחרוזת רגילה כאן זולה ולא זקוקה לתיקון.
+      const current = getCurrentValue(el);
+      const startIdx = current.indexOf(startMarker);
+      const endIdx = startIdx === -1 ? -1 : current.indexOf(endMarker, startIdx);
+      if (startIdx === -1 || endIdx === -1) return { ok: false, error: "not-found" };
+      let removeEnd = endIdx + endMarker.length;
+      if (current[removeEnd] === "\n") removeEnd++;
+      const next = current.slice(0, startIdx) + current.slice(removeEnd);
+      setNativeValue(el, next);
+      return { ok: true };
+    }
+
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let startNode = null, startOffset = -1;
+    let endNode = null, endOffset = -1;
+    let node;
+    while ((node = walker.nextNode())) {
+      const t = node.textContent || "";
+      if (!startNode) {
+        const idx = t.indexOf(startMarker);
+        if (idx !== -1) { startNode = node; startOffset = idx; }
+        continue;
+      }
+      const idx = t.indexOf(endMarker);
+      if (idx !== -1) { endNode = node; endOffset = idx + endMarker.length; break; }
+    }
+    if (!startNode || !endNode) return { ok: false, error: "not-found" };
+
+    const range = document.createRange();
+    range.setStart(startNode, startOffset);
+    range.setEnd(endNode, endOffset);
+    // בולע גם <br> בודד מיד אחרי סמן הסיום (מפריד הבלוקים ש-injectTracked
+    // מוסיף) אם קיים — אותה כוונה כמו בליטוף ה-"\n" בנתיב הטקסט הרגיל.
+    if (endOffset === (endNode.textContent || "").length) {
+      const after = endNode.nextSibling;
+      if (after && after.nodeName === "BR") range.setEndAfter(after);
+    }
+    range.deleteContents();
+    el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "deleteContentBackward" }));
+    return { ok: true };
   }
 
   function injectIntoInput(text, mode) {
@@ -174,5 +231,5 @@ window.__ccbInject = (() => {
     return { ok: true };
   }
 
-  return { findInput, injectIntoInput, getCurrentValue: getCurrentInputValue };
+  return { findInput, injectIntoInput, getCurrentValue: getCurrentInputValue, removeMarkedSpan };
 })();

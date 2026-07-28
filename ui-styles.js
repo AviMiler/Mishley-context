@@ -978,15 +978,17 @@ window.__ccbCSS = (() => {
     }
     #injectDocsBtn:hover:not(:disabled) { background: var(--bg-hover); }
     #injectDocsBtn:disabled { background: var(--bg-clear); color: var(--text-ghost); border-color: var(--border-subtle); cursor: not-allowed; }
-    /* Fixed-width icon button, not a flex:1 peer like the two above — it only
-       ever shows up after a manual injection happened, so it doesn't compete
-       with them for width when hidden (the common case). */
+    /* Not a flex:1 peer like the two above — it only ever shows up after a
+       manual injection happened, so it doesn't compete with them for width
+       when hidden (the common case). min-width (not a fixed width) so the
+       stack-depth count-pill (2+ pending undos) can grow the button instead
+       of overflowing it. */
     #undoInjectBtn {
-      flex: 0 0 auto; width: 38px; height: 38px;
+      flex: 0 0 auto; min-width: 38px; height: 38px; padding: 0 8px;
       border: 1.5px solid var(--border-strong);
       background: var(--bg-card); color: var(--text-body);
       border-radius: var(--r-input);
-      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;
       transition: background var(--t-fast);
     }
     #undoInjectBtn:hover { background: var(--bg-hover); }

@@ -99,12 +99,11 @@
     // Cleared on URL change (SPA new chat); page refresh naturally resets it
     // because content scripts re-execute.
     currentConversationId: null,
-    // Undo for the chat input's own text box (Phase 4.1). { previousValue,
-    // afterValue } — previousValue is what to restore to, afterValue is what
-    // WE last left the box as. Transient, like cvSelectedIndices. See
-    // beginInjectionBatch/finishInjectionBatch for how this stays a single
-    // undo across several manual injections (prompts + files + conversation).
-    lastInjection: null,
+    // Undo stack for the chat input's own text box (Phase 4.1). Array of
+    // injection ids, oldest first — each undo click pops the most recent one
+    // and surgically removes just that block's marked text from the box (see
+    // injectTracked/undoLastInjection). Transient, like cvSelectedIndices.
+    injectionStack: [],
   };
 
   // Live FRAMING getters — picks up edits from prompts.js automatically
@@ -406,8 +405,7 @@
       inject: ccbInject,
       openEdit,
       updateInjectBtn,
-      recordInjectionBegin: beginInjectionBatch,
-      recordInjectionEnd: finishInjectionBatch,
+      injectTracked,
       getDocMaxChars: () => state.docMaxChars,
       getCtxWindow: () => state.ctxWindow,
       getAutoInjectMode,
@@ -433,8 +431,7 @@
       render,
       updateInjectBtn,
       openEdit,
-      recordInjectionBegin: beginInjectionBatch,
-      recordInjectionEnd: finishInjectionBatch,
+      injectTracked,
       getAutoInjectMode,
       setAutoInjectMode,
     });
@@ -757,10 +754,8 @@
       const allMsgs = historyView.buildHistoryMessages(b);
       const selectedMsgs = allMsgs.filter((_, i) => state.cvSelectedIndices.has(i));
       const text = historyView.buildConversationInjectionText(selectedMsgs);
-      beginInjectionBatch();
-      const r = ccbInject.injectIntoInput(text, "replace");
+      const r = injectTracked(text, "replace");
       if (r.ok) {
-        finishInjectionBatch();
         historyView.closeConversationView();
         setStatus("נטען — ניתן לערוך ולשלוח ✓");
       } else {
@@ -1015,44 +1010,89 @@
   // ============================================================
   // Undo last injection (Phase 4.1)
   //
-  // One undo button covers all three manual, non-auto-send injection paths
-  // that write into the chat's own input box: prompts (chat.injectSelected),
-  // files (historyView.injectProjectDocuments → runProjectDocumentsInjection),
-  // and loaded conversation messages (cvLoadBtn below). As long as the box
-  // still holds exactly what the last injection left it as, the next
-  // injection extends the SAME undo batch instead of starting a new one —
-  // so injecting prompts, then also injecting files, then clicking "בטל
-  // הזרקה" once restores the box to what it was before EITHER of them, not
-  // just before the files. The batch ends (a fresh previousValue is taken)
-  // the moment the box no longer matches afterValue — i.e. the user sent
-  // the message, edited the box by hand, or a new chat cleared it.
+  // Reworked (2026-07-28, second pass) after a real-browser report: the first
+  // version compared the box's text before/after each injection to decide
+  // whether to extend one combined undo or start a new one, and that
+  // comparison silently broke in practice (prompts-then-files only undid the
+  // files) — almost certainly the target site's contenteditable normalizing
+  // its own DOM between our read and the next one, exactly the risk flagged
+  // in Stage 3 review. Per the user's explicit direction: a real LIFO stack
+  // of every tracked injection, each wrapped with its OWN small id marker
+  // pair directly in the injected text — "בטל הזרקה" always undoes the single
+  // MOST RECENT one, repeatable. The marker (plain ASCII brackets + a short
+  // alnum id) survives contenteditable round-tripping far more reliably than
+  // comparing large snapshots of the whole box, and — as a bonus over the
+  // snapshot approach — still works correctly even if the user typed
+  // something of their own before/after/between injected blocks, since undo
+  // now surgically removes just the marked span instead of reverting the
+  // entire box to an earlier state.
+  //
+  // Covers the same three manual, non-auto-send injection paths as before:
+  // prompts (chat.injectSelected), files (historyView.injectProjectDocuments
+  // → runProjectDocumentsInjection), and loaded conversation messages
+  // (cvLoadBtn below) — all now call injectTracked(text, mode) instead of
+  // inject.injectIntoInput(text, mode) directly.
   // ============================================================
-  function beginInjectionBatch() {
-    const current = ccbInject.getCurrentValue();
-    const li = state.lastInjection;
-    if (!li || li.afterValue !== current) {
-      state.lastInjection = { previousValue: current, afterValue: current };
-    }
+  function generateInjectionId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   }
 
-  function finishInjectionBatch() {
-    if (!state.lastInjection) return;
-    state.lastInjection.afterValue = ccbInject.getCurrentValue();
-    syncUndoInjectBtn();
+  function injectionMarkers(id) {
+    return { start: `[[CCB:INJ:${id}]]`, end: `[[CCB:INJ-END:${id}]]` };
+  }
+
+  // Drop-in replacement for ccbInject.injectIntoInput at the three tracked
+  // call sites — same return shape ({ ok, error? }) — that also wraps the
+  // text with a per-injection marker pair and records it on the undo stack.
+  function injectTracked(text, mode) {
+    const id = generateInjectionId();
+    const { start, end } = injectionMarkers(id);
+    const r = ccbInject.injectIntoInput(`${start}\n${text}\n${end}\n`, mode);
+    if (r.ok) {
+      // "replace" wipes the whole box, taking every earlier marker with it —
+      // nothing left on the stack would still be findable.
+      if (mode === "replace") state.injectionStack = [];
+      state.injectionStack.push(id);
+      syncUndoInjectBtn();
+    }
+    return r;
   }
 
   function syncUndoInjectBtn() {
     const btn = $el("undoInjectBtn");
     if (!btn) return;
-    btn.style.display = state.lastInjection ? "flex" : "none";
+    const n = state.injectionStack.length;
+    if (!n) {
+      btn.style.display = "none";
+      return;
+    }
+    btn.style.display = "flex";
+    btn.innerHTML = n > 1 ? IC.undo + ' <span class="count-pill">' + n + "</span>" : IC.undo;
   }
 
   function undoLastInjection() {
-    if (!state.lastInjection) return;
-    const r = ccbInject.injectIntoInput(state.lastInjection.previousValue, "replace");
-    state.lastInjection = null;
+    if (!state.injectionStack.length) return;
+    const id = state.injectionStack.pop();
+    const { start, end } = injectionMarkers(id);
+    // Delegates to inject.js#removeMarkedSpan — a direct DOM-range deletion
+    // of just the marked block, O(removed span) rather than reading the
+    // whole field (innerText, layout-forcing) and rewriting everything still
+    // in it via "replace" mode. That read-whole+rebuild-whole approach was
+    // the first cut of this function and is what made undo slow/hang after
+    // a large "טען קבצים" load — the box's UNCHANGED remainder was being
+    // fully torn down and rebuilt as new DOM on every single undo click.
+    const r = ccbInject.removeMarkedSpan(start, end);
     syncUndoInjectBtn();
-    setStatus(r.ok ? "ההזרקה בוטלה ✓" : (r.error || "נכשל"), !r.ok);
+    if (r.ok) {
+      setStatus("ההזרקה האחרונה בוטלה ✓");
+    } else if (r.error === "not-found") {
+      // The marked block is gone already — sent, hand-edited, or the chat
+      // was reset. Nothing to remove; the stale entry is already popped, so
+      // the next click targets whatever was injected before it.
+      setStatus("ההזרקה הזו כבר לא נמצאת בתיבה", true);
+    } else {
+      setStatus(r.error || "נכשל", true);
+    }
   }
 
   // ============================================================
@@ -1424,7 +1464,7 @@
         // SPA navigation = new chat → unbind any auto-saved conversation
         state.currentConversationId = null;
         // A fresh chat has nothing left to undo.
-        state.lastInjection = null;
+        state.injectionStack = [];
         // Reattach msg observer in case the chat container was re-mounted
         window.__ccbChat.startMsgObserver();
         window.__ccbChat.tryAutoInject();
@@ -1465,7 +1505,7 @@
 
         state.gmAutoInjected = false;
         state.currentConversationId = null;
-        state.lastInjection = null;
+        state.injectionStack = [];
         window.__ccbChat.startMsgObserver();
         render();
         window.__ccbChat.tryAutoInject();
