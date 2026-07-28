@@ -1049,7 +1049,7 @@ window.__ccbCSS = (() => {
     /* ── Conversation Preview Panel (also hosts the file-preview full-pane
        view, #filePreviewView, and the per-file dependency manager,
        #depManagerView — same takeover layout, different body) ── */
-    #conversationView, #filePreviewView, #depManagerView {
+    #conversationView, #filePreviewView, #depManagerView, #onboardingView {
       position: fixed;
       top: 0;
       left: ${w}px;
@@ -1065,7 +1065,7 @@ window.__ccbCSS = (() => {
       flex-direction: column;
       pointer-events: auto;
     }
-    #conversationView.cv-open, #filePreviewView.cv-open, #depManagerView.cv-open { display: flex; }
+    #conversationView.cv-open, #filePreviewView.cv-open, #depManagerView.cv-open, #onboardingView.cv-open { display: flex; }
     /* Dependency manager body — Hebrew section labels stay RTL (inherited),
        file paths within rows are forced LTR (source paths, not UI text). */
     .dm-body-wrap { direction: rtl; }
@@ -1137,6 +1137,38 @@ window.__ccbCSS = (() => {
       overflow: hidden;
     }
 
+    /* ── Onboarding guide (#onboardingView) — static reference content, all
+       sections collapsed by default. Reuses .section-header/.section-label
+       and .collapse-btn/.collapsed (same chevron rotation as #blocksSection)
+       instead of new per-row CSS. ── */
+    .ob-dismiss-row {
+      padding: 8px 18px;
+      border-bottom: 1px solid var(--border-subtle);
+      flex-shrink: 0;
+    }
+    .ob-dismiss-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-faint);
+      cursor: pointer;
+    }
+    .ob-body-wrap { padding: 0; }
+    .ob-section { border-bottom: 1px solid var(--border-subtle); }
+    .ob-section:last-child { border-bottom: none; }
+    .ob-section-header { cursor: pointer; }
+    .ob-section-icon { display: flex; align-items: center; color: var(--text-faint); }
+    .ob-section-body {
+      padding: 2px 18px 14px 42px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .ob-section.collapsed .ob-section-body { display: none; }
+    .ob-item { font-size: 12.5px; line-height: 1.5; color: var(--text-body); }
+    .ob-item b { color: var(--text-strong); font-weight: 600; }
+
     /* Header */
     .cv-header {
       display: flex;
@@ -1146,7 +1178,7 @@ window.__ccbCSS = (() => {
       border-bottom: 1px solid var(--border-subtle);
       flex-shrink: 0;
     }
-    #cvBack, #fpBack, #dmBack {
+    #cvBack, #fpBack, #dmBack, #obClose {
       width: 30px;
       height: 30px;
       border: none;
@@ -1159,7 +1191,7 @@ window.__ccbCSS = (() => {
       justify-content: center;
       flex-shrink: 0;
     }
-    #cvBack:hover, #fpBack:hover, #dmBack:hover { background: rgba(0,0,0,.04); color: var(--text-strong); }
+    #cvBack:hover, #fpBack:hover, #dmBack:hover, #obClose:hover { background: rgba(0,0,0,.04); color: var(--text-strong); }
     /* #dmBack was missing from the rule above entirely, so it rendered with
        the browser's default button chrome (bordered square) — reported as
        "ugly". Also moves it to the opposite side of the header from

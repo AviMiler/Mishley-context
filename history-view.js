@@ -973,11 +973,13 @@
   function openConversationView(b, { openedFromProject = false } = {}) {
     if (!b) return;
 
-    // This view, the file-preview full-pane view, and the dependency
-    // manager (all code-tree.js) are fixed, same-z-index takeovers of the
-    // same area — never show more than one at a time.
+    // This view, the file-preview full-pane view, the dependency manager
+    // (both code-tree.js), and the onboarding guide (ui-modals.js) are all
+    // fixed, same-z-index takeovers of the same area — never show more than
+    // one at a time.
     window.__ccbCodeTree?.closeFilePreview?.();
     window.__ccbCodeTree?.closeDepsManager?.();
+    window.__ccbModals?.closeOnboarding?.();
     _deps.state.cvOpenedFromProject = !!openedFromProject;
 
     const messages = buildHistoryMessages(b);

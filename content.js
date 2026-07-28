@@ -104,6 +104,13 @@
     // and surgically removes just that block's marked text from the box (see
     // injectTracked/undoLastInjection). Transient, like cvSelectedIndices.
     injectionStack: [],
+    // Onboarding guide (Phase 5): whether the user has dismissed the guide's
+    // auto-open for good — either by scrolling it to the bottom, or by
+    // checking its "don't show again" box. Plain closing (X/Escape) does NOT
+    // set this, so the guide keeps auto-opening on the next panel open until
+    // one of those two happens.
+    onboardingSeen: false,
+    onboardingSeenLoaded: false,
   };
 
   // Live FRAMING getters — picks up edits from prompts.js automatically
@@ -192,6 +199,23 @@
     );
     state.docMaxChars = Number(data.docMaxChars) > 0 ? Number(data.docMaxChars) : DOC_MAX_CHARS_DEFAULT;
     state.docMaxCharsLoaded = true;
+  }
+
+  async function loadOnboardingSeen() {
+    if (state.onboardingSeenLoaded) return;
+    const data = await new Promise((r) =>
+      chrome.storage.local.get("ccb_onboardingSeen", r),
+    );
+    state.onboardingSeen = !!data.ccb_onboardingSeen;
+    state.onboardingSeenLoaded = true;
+  }
+
+  async function setOnboardingSeen(seen) {
+    state.onboardingSeen = !!seen;
+    state.onboardingSeenLoaded = true;
+    await new Promise((r) =>
+      chrome.storage.local.set({ ccb_onboardingSeen: !!seen }, r),
+    );
   }
 
   async function setDocMaxChars(k) {
@@ -373,6 +397,8 @@
       getScanSettings: () => state.scanSettings || docHandler.getDefaultScanSettings(),
       saveScanSettings,
       getDefaultScanSettings: () => docHandler.getDefaultScanSettings(),
+      getOnboardingSeen: () => state.onboardingSeen,
+      setOnboardingSeen,
     });
 
     docHandler.init({
@@ -495,6 +521,7 @@
       if (e.key === "Escape") {
         modals.closeSettings();
         modals.closeScanSettings();
+        modals.closeOnboarding();
         window.__ccbCodeTree?.closeFilePreview?.();
         window.__ccbCodeTree?.closeDepsManager?.();
       }
@@ -515,6 +542,11 @@
       modals.closeSettings();
       void modals.openScanSettings();
     });
+    $el("openOnboardingBtn")?.addEventListener("click", () => {
+      modals.closeSettings();
+      modals.openOnboarding();
+    });
+    $el("obClose")?.addEventListener("click", () => modals.closeOnboarding());
     $el("importBackupInput").addEventListener("change", async () => {
       const file = $el("importBackupInput").files?.[0];
       await importBackupFile(file);
@@ -821,10 +853,16 @@
       if (shadow.querySelector(".tab.active")?.dataset.tab === "history") {
         $el("searchHistory").focus();
       }
+      // Onboarding guide: auto-opens on every panel open until the user
+      // actually dismisses it (scrolled to the end, or checked "don't show
+      // again") — not just once ever. See loadOnboardingSeen/setOnboardingSeen.
+      await loadOnboardingSeen();
+      if (!state.onboardingSeen) window.__ccbModals.openOnboarding();
     } else {
       window.__ccbHistoryView.closeConversationView();
       window.__ccbCodeTree?.closeFilePreview?.();
       window.__ccbCodeTree?.closeDepsManager?.();
+      window.__ccbModals?.closeOnboarding();
       window.__ccbHistoryView.closeProjectSelectDropdown();
       $el("panel").classList.remove("open");
       $el("fab").classList.remove("hidden");

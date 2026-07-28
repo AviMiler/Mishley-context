@@ -481,12 +481,13 @@
       }
       renderMetaLine(shadow.getElementById("fpMeta"), groups);
 
-      // This view, the conversation preview, and the dependency manager are
-      // all full-pane takeovers of the same area — closing the others before
-      // opening this one avoids two fixed, same-z-index panels being open
-      // together.
+      // This view, the conversation preview, the dependency manager, and the
+      // onboarding guide are all full-pane takeovers of the same area —
+      // closing the others before opening this one avoids two fixed,
+      // same-z-index panels being open together.
       _deps.historyView?.closeConversationView?.();
       closeDepsManager();
+      window.__ccbModals?.closeOnboarding?.();
       const view = shadow.getElementById("filePreviewView");
       view?.classList.add("cv-open");
       view?.setAttribute("aria-hidden", "false");
@@ -973,6 +974,7 @@
     _dmExpandedPaths = new Set();
     _deps.historyView?.closeConversationView?.();
     closeFilePreview();
+    window.__ccbModals?.closeOnboarding?.();
     const shadow = _deps.getShadow?.();
     if (!shadow) return;
     const view = shadow.getElementById("depManagerView");

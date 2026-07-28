@@ -2,6 +2,17 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-28 — Feature: onboarding guide (Phase 5 — final feature of the 9-feature batch)
+
+Added a static, comprehensive help overlay covering every existing feature of the extension, opened via a new "מדריך שימוש" button at the end of the Advanced Options popover. Also auto-opens on every panel-open until the user genuinely dismisses it — scrolls the guide to the bottom, or checks its "don't show again" checkbox — a plain close via the X button or Escape does not dismiss it, per the user's explicit choice.
+
+- Deviates from the original written plan (which proposed a standalone new "?" button): the user changed the trigger mid-session via direct Q&A to "button inside Advanced Options, still auto-opens."
+- Built as a full-page takeover (`#onboardingView`), the same pattern already used by `#conversationView`/`#filePreviewView`/`#depManagerView`: 7 collapsed-by-default sections (icon + title + short one-line bullets), each covering one area of the app (sidebar/shortcuts, project bar, Context tab, documents/code-tree, History tab, injection/undo/quick-commands, Advanced Options) down to granular features like folder-aware search.
+- No new file: reused `ui-template.js` (new `IC.help` icon + the button + the static section markup), `ui-styles.js` (joined the existing full-pane-view CSS selector groups, added `.ob-*` classes that reuse the pre-existing `.section-header`/`.collapse-btn` collapse mechanics), `ui-modals.js` (`openOnboarding`/`closeOnboarding`), and `content.js` (`ccb_onboardingSeen` storage key, mirroring the existing `loadCtxWindow`/`setCtxWindow` load-guard pattern).
+- `verify-agent`'s first pass was a real No-Go: the new view's mutual exclusion with the other three full-pane views was one-directional (they never closed onboarding back), a reachable bug since `.panel` and the full-pane views occupy disjoint screen regions. Fixed with one line each in `history-view.js#openConversationView` and `code-tree.js#openPreview`/`openDepsManager`; second pass Go.
+- Verified in a real browser tab (not just `node --check`) via a throwaway local static-file server + harness (deleted after use) exercising the real, unmodified files with actual dispatched DOM events — not yet verified through the unpacked extension against a live chat page.
+- This completes all 9 features of the batch.
+
 ### 2026-07-28 — Hardening: undo now consumes a full run of trailing blank separators, not just one
 
 User reported the chat box stays full of blank lines/spaces after injecting and undoing. Root cause could **not** be confirmed statically — `verify-agent` traced every currently-wired injection path (manual prepend, replace, chained quick commands) and found each one only ever produces exactly ONE trailing separator after its own end-marker, which the prior single-consumption code already handled correctly in every constructible case. Real `contenteditable` DOM normalization behavior in an actual browser can differ from what static Range/DOM-API reasoning predicts, and this repo has no test runner to observe it directly.

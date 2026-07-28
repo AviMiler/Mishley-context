@@ -11,6 +11,7 @@
 //   openScanSettings() / closeScanSettings() / saveScanSettings() / resetScanSettingsToDefaults()
 //   openPromptsEditor() / closePromptsEditor()
 //   savePromptsEditor() / resetPromptsEditor(key)
+//   openOnboarding() / closeOnboarding()
 
 (() => {
   if (window.__ccbModalsInstalled) return;
@@ -568,6 +569,80 @@
   }
 
   // ============================================================
+  // Onboarding guide (#onboardingView) — static, full-pane reference content.
+  // "Seen" state (whether the guide should keep auto-opening on panel open)
+  // lives in content.js (getOnboardingSeen/setOnboardingSeen), same split as
+  // ctxWindow/docMaxChars: this module only owns the DOM/interaction.
+  // ============================================================
+  let _onboardingWired = false;
+
+  function markOnboardingSeen() {
+    void _deps.setOnboardingSeen?.(true);
+    const checkbox = $el("obDismissCheckbox");
+    if (checkbox) checkbox.checked = true;
+  }
+
+  // Wired once (module-level guard, same idea as _scanDraft's lifecycle) —
+  // the guide's content is fully static, so there's nothing to re-render on
+  // every open, just the collapse/scroll/checkbox listeners.
+  function wireOnboardingOnce() {
+    if (_onboardingWired) return;
+    _onboardingWired = true;
+
+    const body = $el("obBody");
+    body?.addEventListener("click", (e) => {
+      const header = e.target.closest(".ob-section-header");
+      if (!header) return;
+      const section = header.closest(".ob-section");
+      const chevron = header.querySelector(".collapse-btn");
+      const collapsed = !section.classList.contains("collapsed");
+      section.classList.toggle("collapsed", collapsed);
+      chevron?.classList.toggle("collapsed", collapsed);
+    });
+
+    // Reaching the bottom counts as genuinely having read through the guide
+    // — same dismissal effect as ticking "don't show again" below, per the
+    // user's explicit choice. A plain close (X/Escape) deliberately does not
+    // set this, so the guide keeps auto-opening until one of these happens.
+    body?.addEventListener("scroll", () => {
+      if (body.scrollHeight - body.scrollTop - body.clientHeight < 24) {
+        markOnboardingSeen();
+      }
+    });
+
+    $el("obDismissCheckbox")?.addEventListener("change", (e) => {
+      void _deps.setOnboardingSeen?.(e.target.checked);
+    });
+  }
+
+  function openOnboarding() {
+    const view = $el("onboardingView");
+    if (!view) return;
+
+    // Same fixed, same-z-index takeover area as the conversation/file-preview/
+    // dependency-manager views — never show more than one at once.
+    window.__ccbHistoryView?.closeConversationView?.();
+    window.__ccbCodeTree?.closeFilePreview?.();
+    window.__ccbCodeTree?.closeDepsManager?.();
+
+    wireOnboardingOnce();
+    const checkbox = $el("obDismissCheckbox");
+    if (checkbox) checkbox.checked = !!_deps.getOnboardingSeen?.();
+
+    view.classList.add("cv-open");
+    view.setAttribute("aria-hidden", "false");
+    const body = $el("obBody");
+    if (body) body.scrollTop = 0;
+  }
+
+  function closeOnboarding() {
+    const view = $el("onboardingView");
+    if (!view) return;
+    view.classList.remove("cv-open");
+    view.setAttribute("aria-hidden", "true");
+  }
+
+  // ============================================================
   // Public API
   // ============================================================
   window.__ccbModals = {
@@ -586,6 +661,8 @@
      *   getScanSettings: () => object,        // live global code-project scan rules
      *   saveScanSettings: (next) => Promise<object>,
      *   getDefaultScanSettings: () => object, // built-in defaults, for "reset to defaults"
+     *   getOnboardingSeen: () => boolean,
+     *   setOnboardingSeen: (seen: boolean) => Promise<void>,
      * }} deps
      */
     init(deps) { _deps = deps; },
@@ -603,5 +680,7 @@
     closePromptsEditor,
     savePromptsEditor,
     resetPromptsEditor,
+    openOnboarding,
+    closeOnboarding,
   };
 })();

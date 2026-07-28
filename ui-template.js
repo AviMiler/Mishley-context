@@ -24,6 +24,7 @@ window.__ccbTpl = (() => {
     ban: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>`,
     eye: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`,
     undo: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>`,
+    help: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.5 9a2.5 2.5 0 0 1 4.6-1.4c.6.9.4 1.8-.3 2.5-.8.8-1.3 1.2-1.3 2.4"/><line x1="12" y1="17" x2="12" y2="17.01"/></svg>`,
   };
 
   const PANEL_HTML = `
@@ -373,6 +374,13 @@ window.__ccbTpl = (() => {
                 <span class="settings-item-sub">תיקיות/קבצים להחרגה, סיומות, גודל מקסימלי</span>
               </span>
             </button>
+            <button class="settings-item" id="openOnboardingBtn" type="button">
+              <span class="settings-item-icon">${IC.help}</span>
+              <span class="settings-item-text">
+                <span class="settings-item-title">מדריך שימוש</span>
+                <span class="settings-item-sub">כל הפיצ'רים של התוסף בקצרה</span>
+              </span>
+            </button>
           </div>
         </div>
       </div>
@@ -560,6 +568,168 @@ window.__ccbTpl = (() => {
           </div>
         </div>
         <div class="fp-body-wrap dm-body-wrap" id="dmBody"></div>
+      </div>
+    </div>
+
+    <div id="onboardingView" aria-hidden="true">
+      <div class="cv-shell">
+        <div class="cv-header">
+          <button id="obClose" type="button" aria-label="סגור">${IC.x}</button>
+          <div class="cv-title-wrap fp-title-wrap">
+            <div class="fp-title">מדריך שימוש</div>
+          </div>
+        </div>
+
+        <div class="ob-dismiss-row">
+          <label class="ob-dismiss-label">
+            <input type="checkbox" id="obDismissCheckbox" />
+            אל תציג את המדריך אוטומטית בפעם הבאה
+          </label>
+        </div>
+
+        <div class="fp-body-wrap ob-body-wrap" id="obBody">
+
+          <div class="ob-section collapsed">
+            <div class="ob-section-header">
+              <div class="section-header">
+                <div class="section-head-left">
+                  <button type="button" class="collapse-btn collapsed" aria-label="הרחב/כווץ">${IC.chevronRight}</button>
+                  <span class="ob-section-icon">${IC.menu}</span>
+                  <span class="section-label">סיידבר וקיצורי מקלדת</span>
+                </div>
+              </div>
+            </div>
+            <div class="ob-section-body">
+              <div class="ob-item"><b>פתיחה/סגירה</b> — קליק על כפתור העיגול (FAB) בצד המסך, או קיצור המקלדת Ctrl+Shift+L.</div>
+              <div class="ob-item"><b>ברירת מחדל</b> — הפאנל תמיד נפתח לטאב Context.</div>
+              <div class="ob-item"><b>שני טאבים</b> — Context (כל ההזרקות והמסמכים) ו"שיחות אחרונות" (History, היסטוריית שיחות).</div>
+              <div class="ob-item"><b>כפתור ההגדרות (⚙)</b> — בראש הפאנל, פותח את חלון "אפשרויות מתקדמות" (כולל את המדריך הזה).</div>
+            </div>
+          </div>
+
+          <div class="ob-section collapsed">
+            <div class="ob-section-header">
+              <div class="section-header">
+                <div class="section-head-left">
+                  <button type="button" class="collapse-btn collapsed" aria-label="הרחב/כווץ">${IC.chevronRight}</button>
+                  <span class="ob-section-icon">${IC.folder}</span>
+                  <span class="section-label">סרגל פרויקטים</span>
+                </div>
+              </div>
+            </div>
+            <div class="ob-section-body">
+              <div class="ob-item"><b>הפרויקט הפעיל</b> — הרשימה הנפתחת למעלה קובעת פרויקט אחד "פעיל" לכל הפאנל; הבחירה נשמרת גם אחרי סגירה ופתיחה מחדש.</div>
+              <div class="ob-item"><b>+ פרויקט</b> — יוצר פרויקט טקסט רגיל (הנחיות + מסמכים/קבצים שהודבקו או הועלו).</div>
+              <div class="ob-item"><b>+ פרויקט קוד</b> — מקשר תיקייה מקומית במחשב ומאפשר לסרוק אותה כפרויקט קוד עם עץ קבצים.</div>
+              <div class="ob-item"><b>תפריט 3 הנקודות</b> — עריכה על הפרויקט הפעיל: שינוי שם או מחיקה, עובד אותו דבר לפרויקט רגיל ולפרויקט קוד.</div>
+            </div>
+          </div>
+
+          <div class="ob-section collapsed">
+            <div class="ob-section-header">
+              <div class="section-header">
+                <div class="section-head-left">
+                  <button type="button" class="collapse-btn collapsed" aria-label="הרחב/כווץ">${IC.chevronRight}</button>
+                  <span class="ob-section-icon">${IC.context}</span>
+                  <span class="section-label">טאב Context</span>
+                </div>
+              </div>
+            </div>
+            <div class="ob-section-body">
+              <div class="ob-item"><b>זיכרון כללי (GM)</b> — כרטיס קבוע בראש הרשימה, זמין בכל שיחה בכל אתר; תיבת סימון לבחירה להזרקה + מתג "טעינה אוטומטית".</div>
+              <div class="ob-item"><b>כרטיס הנחיות פרויקט</b> — מופיע מתחת ל-GM כשיש פרויקט פעיל, עובד באותה צורה בדיוק (סימון + מתג אוטומטי משלו).</div>
+              <div class="ob-item"><b>עריכת כרטיס</b> — קליק על כרטיס GM/הנחיות פותח את טופס העריכה שלו; המתג/תיבת הסימון לא פותחים עריכה כשלוחצים עליהם ישירות.</div>
+              <div class="ob-item"><b>באדג' "נטען אוטומטית"</b> — לחיץ: קליק עליו מחליף בין "בתחילת שיחה" ל"בכל הודעה", בנפרד ל-GM ולהנחיות הפרויקט.</div>
+              <div class="ob-item"><b>רשימת פרומפטים מאוחדת</b> — בלוקים כלליים מוצגים תמיד, ובלוקים ששייכים לפרויקט הפעיל מתויגים בתגית עם שם הפרויקט.</div>
+              <div class="ob-item"><b>+ בלוק חדש</b> — נוצר משויך אוטומטית לפרויקט הפעיל אם קיים, אחרת כבלוק כללי.</div>
+              <div class="ob-item"><b>"טען פרומפטים" (פוטר)</b> — מזריק לצ'אט של האתר את כל מה שמסומן ברשימה, בלי לשלוח אוטומטית.</div>
+            </div>
+          </div>
+
+          <div class="ob-section collapsed">
+            <div class="ob-section-header">
+              <div class="section-header">
+                <div class="section-head-left">
+                  <button type="button" class="collapse-btn collapsed" aria-label="הרחב/כווץ">${IC.chevronRight}</button>
+                  <span class="ob-section-icon">${IC.file}</span>
+                  <span class="section-label">מסמכי פרויקט ועץ קבצים</span>
+                </div>
+              </div>
+            </div>
+            <div class="ob-section-body">
+              <div class="ob-item"><b>פרויקט רגיל</b> — רשימת מסמכים שטוחה: קבצים שהועלו, טקסט מודבק, או כתובות URL, דרך דיאלוג "+ הוסף".</div>
+              <div class="ob-item"><b>פרויקט קוד — עץ קבצים</b> — תיבת סימון לכל קובץ; תיבה על תיקייה שלמה מסמנת/מבטלת בבת אחת את כל הקבצים תחתיה.</div>
+              <div class="ob-item"><b>חיפוש בתוך תיקייה</b> — הקלדת שם תיקייה בתיבת החיפוש מעלה את כל הקבצים תחתיה, לא רק התאמה מדויקת של שם קובץ.</div>
+              <div class="ob-item"><b>תגי תלויות/תלויים</b> — בתפריט "אפשרויות תלויות" של קובץ מוצג מספר התלויות (קבצים שהוא תלוי בהם) והתלויים (קבצים שתלויים בו).</div>
+              <div class="ob-item"><b>"טען עם תלויות"</b> — מהתפריט של כל קובץ: לבחור בבת אחת את התלויות הישירות שלו, התלויים בו, או את כל ההקשר המלא.</div>
+              <div class="ob-item"><b>תצוגה מקדימה (עין)</b> — פותחת את תוכן הקובץ לקריאה בלבד במסך מלא, כולל ספירת טוקנים מדויקת.</div>
+              <div class="ob-item"><b>ניהול תלויות (עיפרון)</b> — מסך ייעודי לקובץ בודד: מוסיפים/מסירים תלויות יוצאות ידנית; התלויים הנכנסים והתלויות העקיפות מוצגים לקריאה בלבד.</div>
+              <div class="ob-item"><b>מפת הפרויקט</b> — מסמך מבנה קבצים שנוצר אוטומטית בכל סריקה, מופיע כשורה משלו בראש העץ עם תיבת סימון.</div>
+              <div class="ob-item"><b>רענון וסינון</b> — כפתור רענון סריקה וכפתור "קבצים להחרגה" (ignore) בכותרת סקשן המסמכים, ספציפיים לפרויקט הזה.</div>
+              <div class="ob-item"><b>פס תקציב טוקנים</b> — מתחת לעץ, מציג את אחוז המילוי מתוך גודל חלון ההקשר בצבע לפי סף (ירוק/צהוב/אדום).</div>
+            </div>
+          </div>
+
+          <div class="ob-section collapsed">
+            <div class="ob-section-header">
+              <div class="section-header">
+                <div class="section-head-left">
+                  <button type="button" class="collapse-btn collapsed" aria-label="הרחב/כווץ">${IC.chevronRight}</button>
+                  <span class="ob-section-icon">${IC.clock}</span>
+                  <span class="section-label">טאב History ותצוגת שיחה</span>
+                </div>
+              </div>
+            </div>
+            <div class="ob-section-body">
+              <div class="ob-item"><b>רשימת שיחות</b> — חיפוש לפי כותרת או לפי תוכן ההודעות, ואפשרויות נעיצה / שינוי שם / שיוך לפרויקט / מחיקה.</div>
+              <div class="ob-item"><b>סינון לפי פרויקט</b> — כשיש פרויקט פעיל, הרשימה מסוננת אליו אוטומטית; תיבת "הצג את כל השיחות" מבטלת זמנית את הסינון.</div>
+              <div class="ob-item"><b>תצוגה מקדימה</b> — קליק על שיחה פותח חיפוש בתוך ההודעות שלה ובחירת הודעות ספציפיות.</div>
+              <div class="ob-item"><b>"טען נבחרים"</b> — מזריק את ההודעות שנבחרו כהקשר לצ'אט הנוכחי, בלי לשלוח אוטומטית ובלי לקשר את השיחות.</div>
+              <div class="ob-item"><b>שמירה אוטומטית</b> — כל שיחה נשמרת ברקע תוך כדי כתיבה, אין צורך בכפתור שמירה ידני.</div>
+            </div>
+          </div>
+
+          <div class="ob-section collapsed">
+            <div class="ob-section-header">
+              <div class="section-header">
+                <div class="section-head-left">
+                  <button type="button" class="collapse-btn collapsed" aria-label="הרחב/כווץ">${IC.chevronRight}</button>
+                  <span class="ob-section-icon">${IC.inject}</span>
+                  <span class="section-label">הזרקה, ביטול ופקודות מהירות</span>
+                </div>
+              </div>
+            </div>
+            <div class="ob-section-body">
+              <div class="ob-item"><b>"טען פרומפטים" / "טען קבצים"</b> — שני כפתורי הפוטר להזרקה ידנית; אף אחד מהם לא שולח אוטומטית.</div>
+              <div class="ob-item"><b>"בטל הזרקה"</b> — מבטל תמיד רק את ההזרקה האחרונה; אפשר ללחוץ שוב ברצף כדי לבטל אחורה כמה הזרקות, עם מספר שמראה כמה ממתינות.</div>
+              <div class="ob-item"><b>פקודות מהירות</b> — הקלדת "/" בתיבת הצ'אט של האתר עצמו (לא בפאנל) פותחת תפריט הצעות מסונן.</div>
+              <div class="ob-item"><b>ניווט בתפריט</b> — חצים למעלה/למטה לניווט, Enter או Tab לבחירה, Escape לסגירה.</div>
+              <div class="ob-item"><b>שרשור פקודות</b> — אפשר לבחור כמה פקודות מהירות ברצף לאותה הודעה, אחת אחרי השנייה.</div>
+              <div class="ob-item"><b>הגדרת קיצור לבלוק</b> — בטופס העריכה של כל בלוק (כללי, פרויקט, GM, הנחיות) יש שדה "קיצור" (למשל "/summarize").</div>
+            </div>
+          </div>
+
+          <div class="ob-section collapsed">
+            <div class="ob-section-header">
+              <div class="section-header">
+                <div class="section-head-left">
+                  <button type="button" class="collapse-btn collapsed" aria-label="הרחב/כווץ">${IC.chevronRight}</button>
+                  <span class="ob-section-icon">${IC.settings}</span>
+                  <span class="section-label">הגדרות מתקדמות</span>
+                </div>
+              </div>
+            </div>
+            <div class="ob-section-body">
+              <div class="ob-item"><b>Context window</b> — גודל חלון ההקשר (באלפי טוקנים) — הבסיס לכל אחוזי המילוי המוצגים בפאנל.</div>
+              <div class="ob-item"><b>מגבלת תווים למסמך</b> — חלה רק על מסמכים רגילים; קבצי קוד ומפת הפרויקט לעולם לא נחתכים.</div>
+              <div class="ob-item"><b>מתי לטעון (GM / הנחיות פרויקט)</b> — שני מתגים נפרדים, "בתחילת שיחה" או "בכל הודעה", כל אחד עצמאי.</div>
+              <div class="ob-item"><b>ייצוא/ייבוא גיבוי</b> — קובץ JSON אחד עם כל הבלוקים, הפרויקטים והמסמכים.</div>
+              <div class="ob-item"><b>עריכת פרומפטים</b> — טקסטים חופשיים לפני/אחרי כל סוג הזרקה (ידני, GM, שיחה, פרויקט, קבצים, כל-הודעה).</div>
+              <div class="ob-item"><b>קבצים לסריקת פרויקטי קוד</b> — כללי החרגה גלובליים: תיקיות/קבצים לדילוג, סיומות לסריקה, וגודל קובץ מקסימלי.</div>
+            </div>
+          </div>
+
+        </div>
       </div>
     </div>
 
