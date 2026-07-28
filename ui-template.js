@@ -580,7 +580,7 @@ window.__ccbTpl = (() => {
           </div>
         </div>
 
-        <div class="ob-dismiss-row">
+        <div class="ob-dismiss-row" id="obDismissRow">
           <label class="ob-dismiss-label">
             <input type="checkbox" id="obDismissCheckbox" />
             אל תציג את המדריך אוטומטית בפעם הבאה

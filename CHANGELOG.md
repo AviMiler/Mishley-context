@@ -2,6 +2,14 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-28 — Fix: settings popover scroll + dismiss-checkbox not disappearing (onboarding guide follow-up)
+
+Two bugs reported right after the onboarding guide above shipped.
+
+- The new "מדריך שימוש" button pushed `.settings-box`'s content past the space available below its dynamically-positioned `top` (inside `.panel`, a fixed `100vh; overflow:hidden` sidebar) — `.settings-box` had no `max-height`/`overflow-y` at all, so the bottom of the list silently clipped instead of scrolling. Fixed: `ui-modals.js#openSettings()` now computes `box.style.maxHeight` from the actual remaining space; `.settings-box` gained `overflow-y: auto`.
+- The "don't show again" checkbox was specced to make its own row disappear for good the first time it's checked (or the guide is scrolled to the bottom) — the initial build instead left the row permanently visible with the checkbox just reflecting/toggling current state. Fixed: `markOnboardingSeen()` now hides `#obDismissRow` (native `hidden`) instead of syncing `.checked`; there's no UI path to bring it back.
+- Both bugs reproduced, then both fixes confirmed, in a real browser tab via the same throwaway-harness technique used to verify the original feature (deleted after use). `verify-agent` Go.
+
 ### 2026-07-28 — Feature: onboarding guide (Phase 5 — final feature of the 9-feature batch)
 
 Added a static, comprehensive help overlay covering every existing feature of the extension, opened via a new "מדריך שימוש" button at the end of the Advanced Options popover. Also auto-opens on every panel-open until the user genuinely dismisses it — scrolls the guide to the bottom, or checks its "don't show again" checkbox — a plain close via the X button or Escape does not dismiss it, per the user's explicit choice.

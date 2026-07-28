@@ -1518,6 +1518,11 @@ window.__ccbCSS = (() => {
       width: 270px;
       transform: translateY(6px);
       transition: transform .15s;
+      /* max-height is set inline per-open (ui-modals.js#openSettings) to the
+         space actually available below the box's computed top, since .panel
+         is a fixed 100vh/overflow:hidden — without this, a tall settings
+         list silently clips instead of scrolling. */
+      overflow-y: auto;
     }
     .settings-overlay.show .settings-box { transform: translateY(0); }
     .settings-head {

@@ -224,7 +224,13 @@
     const left = btnRect.left - panelRect.left;
     const top = btnRect.bottom - panelRect.top + 10;
     box.style.left = Math.max(12, Math.min(left, panelRect.width - 282)) + "px";
-    box.style.top = Math.max(12, top) + "px";
+    const clampedTop = Math.max(12, top);
+    box.style.top = clampedTop + "px";
+    // The box's own content grows over time (settings rows + an ever-growing
+    // .settings-list) — without a cap it can exceed the panel's fixed
+    // 100vh/overflow:hidden height and clip its bottom silently, with no way
+    // to scroll to it. Clamp to the space actually available below `top`.
+    box.style.maxHeight = Math.max(120, panelRect.height - clampedTop - 12) + "px";
     await _deps.loadCtxWindow();
     const input = $el("ccb-ctx-size");
     if (input) input.value = String(Math.round(_deps.getCtxWindow() / 1000));
@@ -576,10 +582,15 @@
   // ============================================================
   let _onboardingWired = false;
 
+  // Once seen (via either the checkbox or scrolling to the bottom), the
+  // dismiss row itself disappears for good — there's no way to re-show it
+  // from the guide, per the user's explicit spec ("תיבה ייעודית שלא תופיע
+  // שוב אחרי שסימן"). Native `hidden` is used rather than a CSS class since
+  // .ob-dismiss-row declares no competing `display`.
   function markOnboardingSeen() {
     void _deps.setOnboardingSeen?.(true);
-    const checkbox = $el("obDismissCheckbox");
-    if (checkbox) checkbox.checked = true;
+    const row = $el("obDismissRow");
+    if (row) row.hidden = true;
   }
 
   // Wired once (module-level guard, same idea as _scanDraft's lifecycle) —
@@ -611,7 +622,7 @@
     });
 
     $el("obDismissCheckbox")?.addEventListener("change", (e) => {
-      void _deps.setOnboardingSeen?.(e.target.checked);
+      if (e.target.checked) markOnboardingSeen();
     });
   }
 
@@ -626,8 +637,10 @@
     window.__ccbCodeTree?.closeDepsManager?.();
 
     wireOnboardingOnce();
-    const checkbox = $el("obDismissCheckbox");
-    if (checkbox) checkbox.checked = !!_deps.getOnboardingSeen?.();
+    // Once dismissed, the row never comes back — this only ever hides it,
+    // never re-shows it (there is deliberately no "re-enable" path).
+    const row = $el("obDismissRow");
+    if (row && _deps.getOnboardingSeen?.()) row.hidden = true;
 
     view.classList.add("cv-open");
     view.setAttribute("aria-hidden", "false");
