@@ -2,6 +2,15 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-28 — Fixed: `@/` alias imports never resolved in a monorepo-style scan root
+
+User reported `client/src/api/client.ts` (imports `axios`, `@/store/authStore`, `@/types/auth`) showed zero dependencies in the dependency manager despite two of those three imports being real project files.
+
+Root cause: `dep-graph.js#resolveJsImport` resolved a `@/foo` alias as `src/foo` relative to the **scanned root**. That's correct when the scanned root IS the package (its own `src/` sits right under it), but this test project's code project is scanned at the level above `client/` and `server/` — so `@/store/authStore` needs to resolve against `client/src/store/authStore`, and a top-level `src/` doesn't exist at all. Every alias import in this project silently failed to resolve, project-wide — not just in this one file.
+
+- Fixed: added `findNearestSrcRoot(fromPath)`, which walks up the importing file's own path to the nearest ancestor directory literally named `src` (e.g. `client/src` for a file under `client/src/...`), and tries the alias relative to THAT root first. Falls back to the old scan-root-relative guess (`src/${aliasRest}`, then bare `${aliasRest}`) when no `src` ancestor exists, so single-package scan roots (the common case, where the old behavior was already correct) are unaffected.
+- Verified: ran the real `dep-graph.js#buildGraph` against the actual scanned test project (84 files) — `client/src/api/client.ts` now resolves to `['client/src/store/authStore.ts', 'client/src/types/auth.ts']` (axios correctly stays unresolved, external package); `client/src/app/layout/Header.tsx` now also resolves its two aliases, which previously failed silently too. Also verified a synthetic single-root project (no monorepo nesting) still resolves identically to before. Not yet re-run through `verify-agent`; no unpacked-extension browser pass yet.
+
 ### 2026-07-28 — Dependency manager UI rework (direct user feedback on the 2026-07-27 feature)
 
 Three changes to `code-tree.js`'s per-file dependency manager, all in how it's presented — persistence (`dep-graph.js#applyOverrides`, `history-view.js#setFileDependencyOverride`) is untouched.

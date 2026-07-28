@@ -389,6 +389,25 @@
     return null;
   }
 
+  // `@/foo` is conventionally rooted at the PACKAGE's own `src/` (per its own
+  // tsconfig/vite `paths`), which is only the same as the scanned root when
+  // the scan root IS that package. In a monorepo scanned at a level above
+  // the package (e.g. a root containing `client/` and `server/`, each with
+  // its own `src/`), `client/src/x.ts` importing `@/y` must resolve against
+  // `client/src/y`, not a top-level `src/y` that doesn't exist. Finds the
+  // nearest ancestor path segment literally named `src` walking up from the
+  // importing file — that's the package root's own alias base — favoring it
+  // over the scan-root-relative guess below (kept as a fallback for the
+  // single-package-root case, where fromPath's own ancestry still resolves
+  // there, or for a repo layout with no literal `src` segment at all).
+  function findNearestSrcRoot(fromPath) {
+    const parts = fromPath.split("/");
+    for (let i = parts.length - 2; i >= 0; i--) {
+      if (parts[i] === "src") return parts.slice(0, i + 1).join("/");
+    }
+    return null;
+  }
+
   function resolveJsImport(fromPath, importPath, resolver) {
     if (importPath.startsWith(".")) {
       const joined = joinRelative(fromPath, importPath);
@@ -396,6 +415,11 @@
     }
     const aliasRest = stripLeadingAlias(importPath);
     if (aliasRest === null) return null; // external package / unresolvable alias
+    const srcRoot = findNearestSrcRoot(fromPath);
+    if (srcRoot) {
+      const viaSrcRoot = findCandidate(`${srcRoot}/${aliasRest}`, resolver);
+      if (viaSrcRoot) return viaSrcRoot;
+    }
     return findCandidate(`src/${aliasRest}`, resolver) || findCandidate(aliasRest, resolver);
   }
 
