@@ -34,9 +34,6 @@ window.__ccbTpl = (() => {
       <div class="sidebar-header">
         <div class="sidebar-title-row">
           <button id="closeBtn" title="סגור" aria-label="סגור">${IC.x}</button>
-          <div class="title-wrap">
-            <span class="sidebar-title">משלי</span>
-          </div>
           <button id="settingsBtn" title="אפשרויות מתקדמות" aria-label="אפשרויות מתקדמות">${IC.settings}</button>
         </div>
         <div class="tabs" role="tablist">

@@ -66,9 +66,13 @@ window.__ccbCSS = (() => {
     }
     .panel.open { transform: translateX(0); }
 
-    /* ── Header ── */
+    /* ── Header ──
+       No title text anymore (2026-07-28, at the user's request — the
+       "משלי" wordmark was removed) — this row is just the close/settings
+       icon buttons now, so padding/margin are trimmed to the buttons'
+       own 28px height instead of leaving room a title used to need. */
     .sidebar-header {
-      padding: 12px 18px;
+      padding: 8px 18px;
       background: var(--bg-app);
       border-bottom: 1px solid var(--border-subtle);
       flex-shrink: 0;
@@ -81,22 +85,7 @@ window.__ccbCSS = (() => {
       align-items: center;
       justify-content: space-between;
       gap: 8px;
-      margin-bottom: 12px;
-    }
-    .title-wrap {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-    }
-    .sidebar-title {
-      font-family: var(--font-en);
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-      color: var(--text-strong);
-      display: block;
+      margin-bottom: 8px;
     }
     #settingsBtn {
       width: 28px;

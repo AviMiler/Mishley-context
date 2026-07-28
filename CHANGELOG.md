@@ -2,6 +2,15 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-28 — Removed the "משלי" wordmark from the sidebar header; header trimmed to button height
+
+User asked to remove the extension's name shown at the top of the sidebar panel, and shrink that header area down to just the height of the close/settings icon buttons.
+
+- `ui-template.js` — removed the `.title-wrap`/`.sidebar-title` markup from `.sidebar-title-row`; the row now holds just `#closeBtn` and `#settingsBtn`, pinned to opposite ends via the row's existing `justify-content: space-between`.
+- `ui-styles.js` — removed the now-dead `.title-wrap`/`.sidebar-title` CSS. `.sidebar-header` padding trimmed 12px→8px (top/bottom), `.sidebar-title-row` margin-bottom trimmed 12px→8px.
+- Deliberately left the FAB's `title="משלי קוד (Ctrl+Shift+L)"` hover tooltip untouched — not visible header text, out of scope for this request.
+- `verify-agent` Go.
+
 ### 2026-07-28 — Removed the tags feature; saved-context cards now a uniform single title-row height
 
 User asked to retire the free-text tags feature on saved context blocks, and to unify the block cards (and the General Memory / project-instructions cards) to always be exactly one title-row tall, with the project-name tag and the "loads every message" badge sitting beside the title on that same row instead of on their own row below — plus a slightly smaller title font.
