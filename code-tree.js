@@ -787,8 +787,11 @@
   let _dmAddQuery = "";
   let _dmExpandedPaths = new Set();
 
-  function codeDocPaths() {
-    return (_project.documents || []).filter((d) => d.type === "code").map((d) => d.name);
+  // Returns the full doc objects (not just names) — refreshAddTree needs
+  // isManuallyAdded to split scanned files (rendered as a folder tree) from
+  // manual/external ones (rendered as their own flat section, see below).
+  function codeDocs() {
+    return (_project.documents || []).filter((d) => d.type === "code");
   }
 
   function dmEmptyRow(text) {
@@ -898,6 +901,44 @@
         row.addEventListener("click", () => onFileClick(child.path));
         container.appendChild(row);
       }
+    }
+  }
+
+  // Flat, always-visible list of manually-added ("external") files at the
+  // bottom of the add-dependency picker — see refreshAddTree's comment for
+  // why these are kept out of the folder tree above rather than sorted into
+  // it. Deliberately minimal rows (icon + name only, no checkbox/preview/
+  // deps buttons) since this is a picker, not the main file tree — clicking
+  // a row adds that file as a dependency edge, same as clicking a leaf in
+  // the folder tree above.
+  function renderAddTreeManualSection(docs, container) {
+    const label = document.createElement("div");
+    label.className = "code-tree-manual-label";
+    label.textContent = "קבצים חיצוניים";
+    container.appendChild(label);
+
+    const sorted = [...docs].sort((a, b) => a.name.localeCompare(b.name));
+    for (const doc of sorted) {
+      const row = document.createElement("div");
+      row.className = "code-tree-row dm-tree-file-row";
+      row.title = doc.name;
+
+      const spacer = document.createElement("span");
+      spacer.className = "code-tree-spacer";
+      row.appendChild(spacer);
+
+      const icon = document.createElement("span");
+      icon.className = "code-tree-icon";
+      icon.innerHTML = IC().file;
+      row.appendChild(icon);
+
+      const label2 = document.createElement("span");
+      label2.className = "code-tree-label";
+      label2.textContent = doc.name;
+      row.appendChild(label2);
+
+      row.addEventListener("click", () => addDepEdge(doc.name));
+      container.appendChild(row);
     }
   }
 
@@ -1014,17 +1055,33 @@
     // collapse and re-adding after a click both go through this, so typing
     // in the search box above never loses focus/caret position, matching
     // the main inline tree's own search behavior.
+    //
+    // Manually-added files are excluded from the folder tree entirely and
+    // rendered as their own flat "קבצים חיצוניים" section below it — same
+    // split as the main inline tree (render()/renderManualFilesSection).
+    // Without this, a manual file (a root-level leaf, no "/" in its name)
+    // sorted alphabetically after every scanned top-level folder and could
+    // sit below the picker's scroll cap with no visual marker, effectively
+    // invisible while browsing (only surfaced by typing a matching search).
     function refreshAddTree() {
       treeContainer.innerHTML = "";
       const q = _dmAddQuery.trim().toLowerCase();
-      const candidates = codeDocPaths().filter((n) => n !== path && !allDeps.includes(n));
-      const filtered = q ? candidates.filter((n) => matchesQuery(n, q)) : candidates;
-      if (!filtered.length) {
+      const allCandidates = codeDocs().filter((d) => d.name !== path && !allDeps.includes(d.name));
+      const scanned = allCandidates.filter((d) => !d.isManuallyAdded);
+      const manual = allCandidates.filter((d) => d.isManuallyAdded);
+      const filteredScanned = q ? scanned.filter((d) => matchesQuery(d.name, q)) : scanned;
+      const filteredManual = q ? manual.filter((d) => matchesQuery(d.name, q)) : manual;
+
+      if (!filteredScanned.length && !filteredManual.length) {
         treeContainer.appendChild(dmEmptyRow(q ? "אין קבצים תואמים" : "כל הקבצים כבר מופיעים כתלות"));
         return;
       }
-      const tree = buildTree(filtered.map((n) => ({ name: n })));
-      dmRenderTreeNode(tree, treeContainer, 0, !!q, (p) => addDepEdge(p), refreshAddTree);
+
+      if (filteredScanned.length) {
+        const tree = buildTree(filteredScanned.map((d) => ({ name: d.name })));
+        dmRenderTreeNode(tree, treeContainer, 0, !!q, (p) => addDepEdge(p), refreshAddTree);
+      }
+      if (filteredManual.length) renderAddTreeManualSection(filteredManual, treeContainer);
     }
 
     input.addEventListener("input", () => {

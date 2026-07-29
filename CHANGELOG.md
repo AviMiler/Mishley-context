@@ -2,6 +2,14 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-29 — Fix: manual files buried/unreachable in dependency-manager's add-dependency picker
+
+User reported a manually-added file didn't appear in the dependency manager's add-dependency file map when browsing without search. Root cause: `codeDocPaths()` returned bare name strings for both scanned and manual files, so a manual file (a root-level leaf, no `/` in its name) fed straight into `buildTree()` alongside scanned folders — `dmRenderTreeNode`'s sort (directories first, then alphabetical) put it after every top-level folder, likely off-screen in the 240px-capped scrollable tree with no visual marker. Not a real exclusion bug; a discoverability one. Fixed per the user's explicit ask: manual files are now always shown as their own always-visible section at the bottom, labeled "external files."
+
+- `code-tree.js` — `codeDocPaths()` renamed to `codeDocs()`, now returns full doc objects instead of bare names (only call site updated). `refreshAddTree()` splits candidates into `scanned`/`manual` by `isManuallyAdded`, feeds only `scanned` into the existing `buildTree()`+`dmRenderTreeNode()` tree (manual files now structurally excluded from it, not just sorted last), and renders `manual` via a new `renderAddTreeManualSection` helper — `.code-tree-manual-label` header "קבצים חיצוניים" + one row per manual candidate, click still calls `addDepEdge` unchanged. Search (`_dmAddQuery`) filters both groups independently; empty-state gates on both being empty. No CSS changes — existing classes reused.
+
+**Verify:** `verify-agent` Go — confirmed manual candidates are structurally impossible to be buried now (excluded from `buildTree` entirely, always-appended flat section), `addDepEdge` contract unchanged, search applies identically to both groups, empty-state correctly gates on both groups, clean complete rename (repo-wide grep), no dead code. See [AGENT_CONTEXT.md](AGENT_CONTEXT.md).
+
 ### 2026-07-29 — Feature: dependency-declaration button re-enabled for manually-added files
 
 Manually-added code-project files (see the feature right below) can now have dependencies manually declared for them, via the same "אפשרויות תלויות" menu/"ניהול תלויות" screen scanned files already have. Previously omitted by deliberate design (`dep-graph.js#buildGraph` only ever sees the scanned-folder array, so a manual file — possibly outside the bookmarked folder — could never get an auto-detected edge). User asked for it to work anyway; Stage 1 found a genuine two-path ambiguity and got the user's explicit choice: **manual-declaration only** (reuse the existing `project.depGraphOverrides` mechanism) over real auto-detection (would've needed `buildGraph`/path-resolution changes).
