@@ -2,6 +2,24 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-29 — Fix: deps-options popup could overflow off-screen
+
+User reported the deps-options popup (`code-tree.js#openDepsMenu`, opened via a file row's "אפשרויות תלויות" button) could extend below the bottom of the screen with no way to reach its lower items. Root cause: `#hiDropdown` (the shared dropdown host also used by `history-view.js#openHiDropdown` and `history-view.js#openProjectDropdown`) had no `max-height`/scroll in its base CSS rule, and all three positioning call sites set only `top`/`left` from the trigger button's `getBoundingClientRect()` with no clamping against the panel/viewport bottom — unlike `ui-modals.js#openSettings`, which already clamps `top` and computes a `maxHeight` from the remaining panel space.
+
+- `ui-styles.js` — added `overflow-y: auto` and `max-height: 100vh` to the base `#hiDropdown` rule. No other rule touched.
+- `history-view.js` — new shared `positionHiDropdown(dd, anchorRect)` helper: clamps `top` against `#panel`'s own `getBoundingClientRect()` and sets a computed `maxHeight` from the remaining space, mirroring `openSettings`'s existing formula. Exported via the module's public API. Replaced the duplicated unclamped positioning blocks in `openHiDropdown` (~line 1365) and `openProjectDropdown` (~line 911) with calls to it.
+- `code-tree.js` — `openDepsMenu` (~line 761) now calls `_deps.historyView.positionHiDropdown(dd, rect)` instead of setting `dd.style.top` directly.
+
+**Verify:** `verify-agent` Go — confirmed `positionHiDropdown` exists, is exported, and is called correctly at all three sites; confirmed the CSS diff is exactly the two new properties on `#hiDropdown` with no other rule touched; confirmed scope held to these 3 files with no dead code. Matched Stage 1's plan exactly, no deviation. See [AGENT_CONTEXT.md](AGENT_CONTEXT.md).
+
+### 2026-07-29 — Fix: file-tree search made folder collapse arrows non-functional
+
+User reported that once a folder was surfaced by a search match in the code-project file tree, its collapse arrow stopped working — clicking it had no visible effect. Root cause: `code-tree.js#render()` force-expands every folder while a search query is active (deliberate — surfaces matches inside folders the user had previously collapsed), but `renderNode`'s `collapsed` computation (`!forceExpand && _collapsedPaths.has(child.path)`) discarded `_collapsedPaths` entirely whenever `forceExpand` was true, so the click handler kept toggling state that the render never read back.
+
+- `code-tree.js` — added a second `_searchCollapsedPaths` Set, used only while `forceExpand` is true (search active); the normal `_collapsedPaths` Set is used otherwise. The click handler now toggles whichever set is active. Folders still auto-expand by default on a fresh search match (empty set), but an explicit click during search now genuinely collapses that folder. Both sets are reset together on project switch (`renderInline`).
+
+**Verify:** `verify-agent` Go — confirmed `_searchCollapsedPaths` is declared, read in `renderNode`, written in the click handler, and reset alongside `_collapsedPaths` on project switch; confirmed no regression to the non-search collapse behavior. Matched Stage 1's plan exactly, no deviation. See [AGENT_CONTEXT.md](AGENT_CONTEXT.md).
+
 ### 2026-07-29 — Fix: manual files buried/unreachable in dependency-manager's add-dependency picker
 
 User reported a manually-added file didn't appear in the dependency manager's add-dependency file map when browsing without search. Root cause: `codeDocPaths()` returned bare name strings for both scanned and manual files, so a manual file (a root-level leaf, no `/` in its name) fed straight into `buildTree()` alongside scanned folders — `dmRenderTreeNode`'s sort (directories first, then alphabetical) put it after every top-level folder, likely off-screen in the 240px-capped scrollable tree with no visual marker. Not a real exclusion bug; a discoverability one. Fixed per the user's explicit ask: manual files are now always shown as their own always-visible section at the bottom, labeled "external files."

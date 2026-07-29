@@ -770,6 +770,8 @@ window.__ccbCSS = (() => {
       min-width: 160px;
       z-index: 20;
       display: none;
+      overflow-y: auto;
+      max-height: 100vh;
     }
     #hiDropdown.open { display: block; }
     #hiDropdown.ctx-files-dropdown {

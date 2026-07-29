@@ -31,6 +31,7 @@
   let _budgetPctEl = null;
   let _query = "";
   let _collapsedPaths = new Set();
+  let _searchCollapsedPaths = new Set(); // tracks per-folder collapse state during search, separate from normal browse mode
 
   const IC = () => window.__ccbTpl.IC;
 
@@ -85,7 +86,10 @@
       row.style.marginInlineStart = `${depth * 14}px`;
 
       if (isDir) {
-        const collapsed = !forceExpand && _collapsedPaths.has(child.path);
+        // During search (forceExpand=true), check _searchCollapsedPaths to see if the user
+        // explicitly collapsed this folder despite the query; otherwise use _collapsedPaths.
+        const activeSet = forceExpand ? _searchCollapsedPaths : _collapsedPaths;
+        const collapsed = activeSet.has(child.path);
 
         const btn = document.createElement("button");
         btn.type = "button";
@@ -125,8 +129,9 @@
         row.appendChild(label);
 
         row.addEventListener("click", () => {
-          if (_collapsedPaths.has(child.path)) _collapsedPaths.delete(child.path);
-          else _collapsedPaths.add(child.path);
+          const set = forceExpand ? _searchCollapsedPaths : _collapsedPaths;
+          if (set.has(child.path)) set.delete(child.path);
+          else set.add(child.path);
           render();
         });
         container.appendChild(row);
@@ -756,8 +761,7 @@
     dd.appendChild(mkItem(ic.pencil, "ניהול תלויות", () => { closeDepsMenu(); openDepsManager(doc); }));
 
     const rect = btn.getBoundingClientRect();
-    dd.style.top = rect.top + "px";
-    dd.style.left = rect.right + 6 + "px";
+    _deps.historyView.positionHiDropdown(dd, rect);
     dd.classList.add("open");
 
     const onOutside = (e) => {
@@ -1184,6 +1188,7 @@
     if (!_project || _project.id !== project.id) {
       _query = "";
       _collapsedPaths = new Set();
+      _searchCollapsedPaths = new Set();
     }
     _project = project;
     _mountEl = mount;

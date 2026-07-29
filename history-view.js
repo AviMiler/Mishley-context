@@ -911,8 +911,7 @@
     dd.appendChild(delItem);
 
     const rect = menuBtn.getBoundingClientRect();
-    dd.style.top = rect.top + "px";
-    dd.style.left = rect.right + 6 + "px";
+    positionHiDropdown(dd, rect);
     dd.classList.add("open");
 
     const onOutside = (e) => {
@@ -1240,6 +1239,31 @@
   // ============================================================
   // History-row dropdown (per conversation: pin / rename / assign / delete)
   // ============================================================
+  // Positions #hiDropdown (a fixed/floating dropdown menu) relative to an anchor
+  // button, clamping its top so it never extends below the panel. Reused by all
+  // three call sites (history row menu, project selector, deps menu in code-tree.js)
+  // to prevent the menu from running off-screen bottom, matching the pattern
+  // already used by ui-modals.js#openSettings for the settings popover.
+  function positionHiDropdown(dd, anchorRect) {
+    if (!dd) return;
+    const panelRect = _deps.getShadow?.()?.getElementById("panel")?.getBoundingClientRect?.();
+    if (!panelRect) {
+      // Fallback: no panel available, just position at anchor top (least bad option)
+      dd.style.top = anchorRect.top + "px";
+      dd.style.left = anchorRect.right + 6 + "px";
+      return;
+    }
+    // Clamp top so the menu never goes below the panel's bottom (12px margin)
+    const minTop = 12;
+    const maxTop = Math.max(minTop, panelRect.height - 12 - (dd.offsetHeight || 200));
+    const top = Math.min(anchorRect.top, maxTop);
+    dd.style.top = top + "px";
+    dd.style.left = anchorRect.right + 6 + "px";
+    // Set maxHeight to fill remaining space below the computed top
+    const maxHeight = Math.max(60, panelRect.height - top - 12);
+    dd.style.maxHeight = maxHeight + "px";
+  }
+
   function closeHiDropdown() {
     const dd = $el("hiDropdown");
     if (dd) {
@@ -1341,8 +1365,7 @@
     dd.appendChild(delItem);
 
     const rect = menuBtn.getBoundingClientRect();
-    dd.style.top = rect.top + "px";
-    dd.style.left = rect.right + 6 + "px";
+    positionHiDropdown(dd, rect);
     dd.classList.add("open");
 
     const onOutside = (e) => {
@@ -2057,6 +2080,7 @@
     updateCvFooter,
     openHiDropdown,
     closeHiDropdown,
+    positionHiDropdown,
     openProjectDropdown,
     syncCollapsibleSections,
     syncProjectDocumentsSection,
