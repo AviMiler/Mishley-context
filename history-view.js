@@ -438,7 +438,7 @@
     if (label) {
       label.textContent = current
         ? current.title
-        : projects.length ? "— בחר פרויקט —" : "אין פרויקטים עדיין";
+        : projects.length ? "ללא פרויקט" : "אין פרויקטים עדיין";
     }
     if (icon) icon.style.display = current?.isCodeProject ? "flex" : "none";
 
