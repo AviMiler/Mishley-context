@@ -6,8 +6,8 @@
 // Exposes: window.__ccbCodeTree
 //
 // Public API:
-//   init(deps)                  — { docHandler, getShadow, historyView, modals, setStatus,
-//                                    render, getCtxWindow }
+//   init(deps)                  — { docHandler, getShadow, historyView, modals, loadBlocks,
+//                                    saveBlocks, setStatus, render, getCtxWindow }
 //   renderInline(project, mount) — (re)build the file tree inside `mount`
 //                                  (an element inside #projectDocumentsList)
 //   closeFilePreview()           — close the full-pane file preview if open
@@ -50,7 +50,12 @@
         pathSoFar = pathSoFar ? `${pathSoFar}/${part}` : part;
         const isFile = i === parts.length - 1;
         if (!node.children[part]) {
-          node.children[part] = { children: {}, path: pathSoFar, name: part, doc: isFile ? doc : null };
+          node.children[part] = {
+            children: {},
+            path: pathSoFar,
+            name: part,
+            doc: isFile ? doc : null,
+          };
         } else if (isFile) {
           node.children[part].doc = doc;
         }
@@ -105,8 +110,10 @@
         const checkbox = document.createElement("input");
         checkbox.type = "checkbox";
         checkbox.className = "code-tree-checkbox";
-        checkbox.checked = dirDocs.length > 0 && enabledCount === dirDocs.length;
-        checkbox.indeterminate = enabledCount > 0 && enabledCount < dirDocs.length;
+        checkbox.checked =
+          dirDocs.length > 0 && enabledCount === dirDocs.length;
+        checkbox.indeterminate =
+          enabledCount > 0 && enabledCount < dirDocs.length;
         checkbox.setAttribute("aria-label", `בחר את כל הקבצים בתיקייה ${name}`);
         checkbox.addEventListener("click", (e) => e.stopPropagation());
         checkbox.addEventListener("change", () => {
@@ -137,7 +144,8 @@
         container.appendChild(row);
 
         const childrenWrap = document.createElement("div");
-        childrenWrap.className = "code-tree-children" + (collapsed ? " collapsed" : "");
+        childrenWrap.className =
+          "code-tree-children" + (collapsed ? " collapsed" : "");
         container.appendChild(childrenWrap);
         renderNode(child, childrenWrap, depth + 1, forceExpand);
       } else {
@@ -150,7 +158,11 @@
         checkbox.className = "code-tree-checkbox";
         checkbox.checked = !!child.doc.enabled;
         checkbox.addEventListener("change", () => {
-          _deps.docHandler.toggleDocument(_project.id, child.doc.id, checkbox.checked);
+          _deps.docHandler.toggleDocument(
+            _project.id,
+            child.doc.id,
+            checkbox.checked,
+          );
           // A full top-level render (not just updateTokenCount()) — same
           // pattern as the regular-project flat document list's own
           // checkbox (history-view.js) — so the footer inject button's
@@ -205,7 +217,12 @@
         row.appendChild(fileActions);
 
         row.addEventListener("click", (e) => {
-          if (e.target === checkbox || e.target === depsBtn || e.target === previewBtn) return;
+          if (
+            e.target === checkbox ||
+            e.target === depsBtn ||
+            e.target === previewBtn
+          )
+            return;
           checkbox.checked = !checkbox.checked;
           checkbox.dispatchEvent(new Event("change"));
         });
@@ -223,7 +240,10 @@
     // has it checked), because that is exactly what the footer inject sends.
     const enabled = (_project.documents || []).filter((d) => d.enabled);
     const codeCount = enabled.filter((d) => d.type === "code").length;
-    const tokens = enabled.reduce((sum, d) => sum + (d.estimatedTokens || 0), 0);
+    const tokens = enabled.reduce(
+      (sum, d) => sum + (d.estimatedTokens || 0),
+      0,
+    );
     _tokenEl.textContent = `${codeCount} קבצים נבחרים · ${tokens.toLocaleString("he-IL")} tokens`;
     updateBudgetBar(tokens);
   }
@@ -312,7 +332,8 @@
     label.className = "code-tree-label";
     label.textContent = "מפת הפרויקט (מבנה קבצים)";
     row.appendChild(label);
-    row.title = "PROJECT_STRUCTURE.md — נוצר אוטומטית בכל סריקה, כולל את רשימת כל הקבצים והתיקיות בפרויקט";
+    row.title =
+      "PROJECT_STRUCTURE.md — נוצר אוטומטית בכל סריקה, כולל את רשימת כל הקבצים והתיקיות בפרויקט";
 
     row.addEventListener("click", (e) => {
       if (e.target === checkbox) return;
@@ -328,7 +349,9 @@
     if (!_bodyEl || !_project) return;
     _bodyEl.innerHTML = "";
 
-    const structureDoc = (_project.documents || []).find((d) => d.type === "structure");
+    const structureDoc = (_project.documents || []).find(
+      (d) => d.type === "structure",
+    );
     if (structureDoc) _bodyEl.appendChild(renderStructureRow(structureDoc));
 
     const allDocs = (_project.documents || []).filter((d) => d.type === "code");
@@ -339,8 +362,12 @@
     const scannedDocs = allDocs.filter((d) => !d.isManuallyAdded);
     const manualDocs = allDocs.filter((d) => d.isManuallyAdded);
     const q = _query.trim().toLowerCase();
-    const filteredScanned = q ? scannedDocs.filter((d) => matchesQuery(d.name, q)) : scannedDocs;
-    const filteredManual = q ? manualDocs.filter((d) => matchesQuery(d.name, q)) : manualDocs;
+    const filteredScanned = q
+      ? scannedDocs.filter((d) => matchesQuery(d.name, q))
+      : scannedDocs;
+    const filteredManual = q
+      ? manualDocs.filter((d) => matchesQuery(d.name, q))
+      : manualDocs;
 
     if (!filteredScanned.length && !filteredManual.length) {
       const empty = document.createElement("div");
@@ -357,7 +384,8 @@
       const tree = buildTree(filteredScanned);
       renderNode(tree, _bodyEl, 0, !!q);
     }
-    if (filteredManual.length) renderManualFilesSection(filteredManual, _bodyEl);
+    if (filteredManual.length)
+      renderManualFilesSection(filteredManual, _bodyEl);
 
     updateTokenCount();
   }
@@ -422,7 +450,8 @@
       depsBtn.type = "button";
       depsBtn.className = "code-tree-deps-btn";
       depsBtn.innerHTML = IC().link;
-      depsBtn.title = "אפשרויות תלויות (ציון ידני בלבד — קובץ שנוסף ידנית אינו נסרק אוטומטית)";
+      depsBtn.title =
+        "אפשרויות תלויות (ציון ידני בלבד — קובץ שנוסף ידנית אינו נסרק אוטומטית)";
       depsBtn.setAttribute("aria-label", "אפשרויות תלויות");
       depsBtn.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -444,7 +473,8 @@
         if (!ok) return;
         await _deps.docHandler.removeDocument(_project.id, doc.id);
         await _deps.docHandler.removeCodeContent(doc.id);
-        if (doc.fileHandleId) window.__ccbFsHandles.remove(doc.fileHandleId).catch(() => {});
+        if (doc.fileHandleId)
+          window.__ccbFsHandles.remove(doc.fileHandleId).catch(() => {});
         _deps.render();
       });
 
@@ -456,7 +486,13 @@
       row.appendChild(fileActions);
 
       row.addEventListener("click", (e) => {
-        if (e.target === checkbox || previewBtn.contains(e.target) || depsBtn.contains(e.target) || removeBtn.contains(e.target)) return;
+        if (
+          e.target === checkbox ||
+          previewBtn.contains(e.target) ||
+          depsBtn.contains(e.target) ||
+          removeBtn.contains(e.target)
+        )
+          return;
         checkbox.checked = !checkbox.checked;
         checkbox.dispatchEvent(new Event("change"));
       });
@@ -569,7 +605,9 @@
       if (typeof contentOverride === "string") {
         content = contentOverride;
       } else if (doc.type === "code") {
-        content = (await _deps.docHandler.getCodeContents([doc.id])).get(doc.id);
+        content = (await _deps.docHandler.getCodeContents([doc.id])).get(
+          doc.id,
+        );
       } else {
         content = doc.content || null;
       }
@@ -601,7 +639,10 @@
         { dir: "ltr", pieces: [fmt(tokens), "tokens"] },
       ];
       if (full.length > FP_MAX_CHARS) {
-        groups.push({ dir: "rtl", pieces: ["מוצגים", fmt(FP_MAX_CHARS), "תווים ראשונים"] });
+        groups.push({
+          dir: "rtl",
+          pieces: ["מוצגים", fmt(FP_MAX_CHARS), "תווים ראשונים"],
+        });
       }
       renderMetaLine(shadow.getElementById("fpMeta"), groups);
 
@@ -660,7 +701,10 @@
   // _project.depGraph directly, or a user's manual edit would silently not
   // show up outside the screen that made it.
   function effectiveGraph() {
-    return window.__ccbDepGraph.applyOverrides(_project.depGraph || {}, _project.depGraphOverrides);
+    return window.__ccbDepGraph.applyOverrides(
+      _project.depGraph || {},
+      _project.depGraphOverrides,
+    );
   }
 
   async function loadWithDependencies(doc, mode = "dependencies") {
@@ -668,6 +712,7 @@
     await ensureDepGraph();
 
     const graph = effectiveGraph();
+    const loadIgnores = getLoadIgnores(doc.name);
     let closure, label;
     if (mode === "dependents") {
       closure = window.__ccbDepGraph.getDirectDependents(graph, doc.name);
@@ -681,16 +726,28 @@
       label = "תלויות";
     }
 
+    if (mode !== "dependents") {
+      for (const ignored of loadIgnores) closure.delete(ignored);
+    }
+
     // enableFilesForProject triggers a global render → renderInline rebuild.
     // It returns how many closure paths matched actual documents — with a
     // stale graph (files renamed/removed since the last scan) that can be
     // fewer than closure.size, and the status must not overstate it.
-    const marked = await _deps.historyView.enableFilesForProject(_project.id, Array.from(closure));
+    const marked = await _deps.historyView.enableFilesForProject(
+      _project.id,
+      Array.from(closure),
+    );
 
     if (closure.size <= 1) {
-      _deps.setStatus?.(`לא זוהו קבצים נוספים (${label}) — ניתוח סטטי, לא כל קריאה ניתנת לזיהוי`);
+      _deps.setStatus?.(
+        `לא זוהו קבצים נוספים (${label}) — ניתוח סטטי, לא כל קריאה ניתנת לזיהוי`,
+      );
     } else if (marked < closure.size) {
-      _deps.setStatus?.(`סומנו ${marked} מתוך ${closure.size} קבצים (${label}) — ייתכן שנדרש רענון סריקה`, true);
+      _deps.setStatus?.(
+        `סומנו ${marked} מתוך ${closure.size} קבצים (${label}) — ייתכן שנדרש רענון סריקה`,
+        true,
+      );
     } else {
       _deps.setStatus?.(`סומנו ${marked} קבצים (${label}) ✓`);
     }
@@ -723,11 +780,26 @@
     // נסרק) לא מציגים מספר בדוי; loadWithDependencies כבר יודע לסרוק
     // מחדש בעצמו במקרה הזה.
     const graph = _project.depGraph ? effectiveGraph() : null;
+    const loadIgnores = graph ? getLoadIgnores(doc.name) : null;
     const countLabel = (n) => (graph ? ` (${n})` : "");
     const dg = window.__ccbDepGraph;
-    const depsCount = graph ? dg.getTransitiveClosure(graph, doc.name).size - 1 : 0;
-    const dependentsCount = graph ? dg.getDirectDependents(graph, doc.name).size : 0;
-    const fullCount = graph ? dg.getFullContext(graph, doc.name).size - 1 : 0;
+    const depsCount = graph
+      ? (() => {
+          const set = dg.getTransitiveClosure(graph, doc.name);
+          for (const ignored of loadIgnores) set.delete(ignored);
+          return set.size - 1;
+        })()
+      : 0;
+    const dependentsCount = graph
+      ? dg.getDirectDependents(graph, doc.name).size
+      : 0;
+    const fullCount = graph
+      ? (() => {
+          const set = dg.getFullContext(graph, doc.name);
+          for (const ignored of loadIgnores) set.delete(ignored);
+          return set.size - 1;
+        })()
+      : 0;
 
     const mkItem = (icon, label, onClick, tooltip) => {
       const item = document.createElement("div");
@@ -750,15 +822,53 @@
     // declared yet", not a failed analysis. The suffix on each tooltip makes
     // that distinction explicit instead of leaving it to look like the deps
     // feature silently doesn't work for these files.
-    const manualNote = doc.isManuallyAdded ? " (קובץ שנוסף ידנית — רק תלויות שסומנו ידנית ב'ניהול תלויות' יופיעו כאן)" : "";
+    const manualNote = doc.isManuallyAdded
+      ? " (קובץ שנוסף ידנית — רק תלויות שסומנו ידנית ב'ניהול תלויות' יופיעו כאן)"
+      : "";
     dd.innerHTML = "";
-    dd.appendChild(mkItem(ic.link, `תלויות${countLabel(depsCount)}`, () => { closeDepsMenu(); loadWithDependencies(doc, "dependencies"); }, "טוען את כל שרשרת התלויות של הקובץ — כולל תלויות של תלויות, לא רק ישירות" + manualNote));
-    dd.appendChild(mkItem(ic.download, `תלויים${countLabel(dependentsCount)}`, () => { closeDepsMenu(); loadWithDependencies(doc, "dependents"); }, "קבצים שתלויים ישירות בקובץ הזה" + manualNote));
-    dd.appendChild(mkItem(ic.context, `הקשר מלא${countLabel(fullCount)}`, () => { closeDepsMenu(); loadWithDependencies(doc, "full"); }, "כל שרשרת התלויות (כולל עקיפות) יחד עם התלויים הישירים" + manualNote));
+    dd.appendChild(
+      mkItem(
+        ic.link,
+        `תלויות${countLabel(depsCount)}`,
+        () => {
+          closeDepsMenu();
+          loadWithDependencies(doc, "dependencies");
+        },
+        "טוען את כל שרשרת התלויות של הקובץ — כולל תלויות של תלויות, לא רק ישירות" +
+          manualNote,
+      ),
+    );
+    dd.appendChild(
+      mkItem(
+        ic.download,
+        `תלויים${countLabel(dependentsCount)}`,
+        () => {
+          closeDepsMenu();
+          loadWithDependencies(doc, "dependents");
+        },
+        "קבצים שתלויים ישירות בקובץ הזה" + manualNote,
+      ),
+    );
+    dd.appendChild(
+      mkItem(
+        ic.context,
+        `הקשר מלא${countLabel(fullCount)}`,
+        () => {
+          closeDepsMenu();
+          loadWithDependencies(doc, "full");
+        },
+        "כל שרשרת התלויות (כולל עקיפות) יחד עם התלויים הישירים" + manualNote,
+      ),
+    );
     const sep = document.createElement("div");
     sep.className = "hd-sep";
     dd.appendChild(sep);
-    dd.appendChild(mkItem(ic.pencil, "ניהול תלויות", () => { closeDepsMenu(); openDepsManager(doc); }));
+    dd.appendChild(
+      mkItem(ic.pencil, "ניהול תלויות", () => {
+        closeDepsMenu();
+        openDepsManager(doc);
+      }),
+    );
 
     const rect = btn.getBoundingClientRect();
     _deps.historyView.positionHiDropdown(dd, rect);
@@ -768,7 +878,8 @@
       if (!dd.contains(e.target) && e.target !== btn) closeDepsMenu();
     };
     document.addEventListener("click", onOutside, { capture: true });
-    _depsMenuCleanup = () => document.removeEventListener("click", onOutside, { capture: true });
+    _depsMenuCleanup = () =>
+      document.removeEventListener("click", onOutside, { capture: true });
   }
 
   // ============================================================
@@ -777,12 +888,11 @@
   // ("ניהול תלויות"), full-pane like the file preview view (#depManagerView,
   // same cv-shell takeover pattern). Outgoing dependencies are editable
   // (remove an existing edge, add a new one via a filtered picker over the
-  // project's own code files); incoming dependents are read-only — they're
-  // derived from other files' outgoing edges, so editing them only makes
-  // sense at the source file. Edits persist via
-  // historyView.setFileDependencyOverride to project.depGraphOverrides,
-  // which rescanCodeProject never touches, so a manual choice here survives
-  // (and keeps overriding the scanned default after) every future rescan.
+  // project's own code files); indirect dependencies now also have a per-
+  // file root-only ignore toggle. Outgoing edge edits persist via
+  // project.depGraphOverrides; the indirect ignore list persists separately
+  // as project.depLoadIgnores so it only applies when THIS file is the load
+  // root and never leaks upward to a parent that loads it directly.
   // ============================================================
   let _dmDoc = null;
   // File-map picker state (add-dependency section) — reset per file opened
@@ -831,6 +941,30 @@
     return result;
   }
 
+  function getLoadIgnores(path) {
+    return new Set((_project?.depLoadIgnores || {})[path] || []);
+  }
+
+  async function setLoadIgnores(path, ignoredPaths) {
+    if (!_project) return;
+    await _deps.loadBlocks?.();
+    const project = _deps.historyView.getProjectById(_project.id);
+    if (!project) return;
+    const next = Array.from(
+      new Set(
+        (ignoredPaths || []).map((p) => String(p || "").trim()).filter(Boolean),
+      ),
+    );
+    const all = { ...(project.depLoadIgnores || {}) };
+    if (next.length) all[path] = next;
+    else delete all[path];
+    if (Object.keys(all).length) project.depLoadIgnores = all;
+    else delete project.depLoadIgnores;
+    project.updated = Date.now();
+    await _deps.saveBlocks?.();
+    _project = project;
+  }
+
   // Recursive renderer for the add-dependency file map (candidates only —
   // the current file and everything already listed as a dependency, whether
   // active or manually turned off, are excluded upstream in dmBuildAddTree).
@@ -838,7 +972,14 @@
   // renderNode(): that one is wired to doc.enabled checkboxes and bulk
   // folder-enable, neither of which applies here — a click on a file row
   // just adds one edge.
-  function dmRenderTreeNode(node, container, depth, forceExpand, onFileClick, onToggle) {
+  function dmRenderTreeNode(
+    node,
+    container,
+    depth,
+    forceExpand,
+    onFileClick,
+    onToggle,
+  ) {
     const names = Object.keys(node.children).sort((a, b) => {
       const aIsDir = !node.children[a].doc;
       const bIsDir = !node.children[b].doc;
@@ -875,16 +1016,25 @@
         row.appendChild(label);
 
         row.addEventListener("click", () => {
-          if (_dmExpandedPaths.has(child.path)) _dmExpandedPaths.delete(child.path);
+          if (_dmExpandedPaths.has(child.path))
+            _dmExpandedPaths.delete(child.path);
           else _dmExpandedPaths.add(child.path);
           onToggle();
         });
         container.appendChild(row);
 
         const childrenWrap = document.createElement("div");
-        childrenWrap.className = "code-tree-children" + (expanded ? "" : " collapsed");
+        childrenWrap.className =
+          "code-tree-children" + (expanded ? "" : " collapsed");
         container.appendChild(childrenWrap);
-        dmRenderTreeNode(child, childrenWrap, depth + 1, forceExpand, onFileClick, onToggle);
+        dmRenderTreeNode(
+          child,
+          childrenWrap,
+          depth + 1,
+          forceExpand,
+          onFileClick,
+          onToggle,
+        );
       } else {
         const spacer = document.createElement("span");
         spacer.className = "code-tree-spacer";
@@ -961,7 +1111,9 @@
     const path = _dmDoc.name;
     const effectiveDeps = graph[path] || [];
     const raw = (_project.depGraph || {})[path] || [];
-    const ov = (_project.depGraphOverrides && _project.depGraphOverrides[path]) || { added: [], removed: [] };
+    const ov = (_project.depGraphOverrides &&
+      _project.depGraphOverrides[path]) || { added: [], removed: [] };
+    const loadIgnores = getLoadIgnores(path);
     // Every row worth showing: automatically-detected edges (raw, whether
     // currently on or manually turned off) plus manually-added edges. A
     // manually-added edge that gets turned off has no "automatic" origin to
@@ -972,8 +1124,10 @@
 
     const outHeader = document.createElement("div");
     outHeader.className = "dm-section-label";
-    outHeader.textContent = "קבצים שהקובץ הזה תלוי בהם ישירות — סמן/בטל סימון כדי לכלול או להתעלם";
-    outHeader.title = "רשימה זו כוללת תלויות ישירות בלבד. המספר בתפריט \"תלויות\" (ליד כל קובץ בעץ) גדול יותר בכוונה — הוא כולל גם תלויות של תלויות (עקיפות)";
+    outHeader.textContent =
+      "קבצים שהקובץ הזה תלוי בהם ישירות — סמן/בטל סימון כדי לכלול או להתעלם";
+    outHeader.title =
+      'רשימה זו כוללת תלויות ישירות בלבד. המספר בתפריט "תלויות" (ליד כל קובץ בעץ) גדול יותר בכוונה — הוא כולל גם תלויות של תלויות (עקיפות)';
     body.appendChild(outHeader);
 
     const outList = document.createElement("div");
@@ -987,7 +1141,9 @@
       checkbox.type = "checkbox";
       checkbox.className = "dm-dep-checkbox";
       checkbox.checked = included;
-      checkbox.title = included ? "הסר תלות" : "כלול תלות שהוסרה (זוהתה אוטומטית בסריקה)";
+      checkbox.title = included
+        ? "הסר תלות"
+        : "כלול תלות שהוסרה (זוהתה אוטומטית בסריקה)";
       checkbox.setAttribute("aria-label", checkbox.title);
       checkbox.addEventListener("change", () => {
         if (checkbox.checked) addDepEdge(dep);
@@ -1017,7 +1173,8 @@
     const indirectHeader = document.createElement("div");
     indirectHeader.className = "dm-section-label";
     indirectHeader.textContent = "קבצים שנטענים בעקיפין — תלות של תלות";
-    indirectHeader.title = "מחושב אוטומטית מהתלויות הישירות הפעילות למעלה; לא ניתן לערוך כאן. אם תבטל סימון לתלות ישירה, כל קובץ שהגיע רק דרכה ייעלם מהרשימה הזו";
+    indirectHeader.title =
+      "מחושב אוטומטית מהתלויות הישירות הפעילות למעלה. אפשר לבטל סימון כדי להתעלם מהקובץ הזה רק כשהקובץ הנוכחי הוא שורש הטעינה; אם קובץ אחר יטען אותו ישירות, ההחרגה הזו לא תחול עליו.";
     body.appendChild(indirectHeader);
 
     const indirectMap = computeIndirectDeps(graph, path, effectiveDeps);
@@ -1026,10 +1183,30 @@
     if (!indirectMap.size) {
       indirectList.appendChild(dmEmptyRow("אין תלויות עקיפות"));
     } else {
-      const sorted = Array.from(indirectMap.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+      const sorted = Array.from(indirectMap.entries()).sort((a, b) =>
+        a[0].localeCompare(b[0]),
+      );
       for (const [file, origins] of sorted) {
         const row = document.createElement("div");
-        row.className = "dm-dep-row dm-dep-readonly dm-dep-indirect";
+        const ignored = loadIgnores.has(file);
+        row.className =
+          "dm-dep-row dm-dep-indirect" + (ignored ? " dm-dep-excluded" : "");
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "dm-dep-checkbox";
+        checkbox.checked = !ignored;
+        checkbox.title = ignored
+          ? "כלול שוב בטעינה של הקובץ הזה בלבד"
+          : "התעלם מהתלות הזו רק בטעינה של הקובץ הזה";
+        checkbox.setAttribute("aria-label", checkbox.title);
+        checkbox.addEventListener("change", () => {
+          const next = new Set(loadIgnores);
+          if (checkbox.checked) next.delete(file);
+          else next.add(file);
+          void setLoadIgnores(path, Array.from(next)).then(() =>
+            renderDepsManager(),
+          );
+        });
         const label = document.createElement("span");
         label.className = "dm-dep-name";
         label.textContent = file;
@@ -1037,6 +1214,9 @@
         reason.className = "dm-dep-reason";
         const originNames = Array.from(origins).map((o) => o.split("/").pop());
         reason.textContent = `עקיף · דרך ${originNames.join(", ")}`;
+        if (ignored)
+          row.title = "הקובץ הזה מוחרג רק כשהקובץ הנוכחי נטען ישירות";
+        row.appendChild(checkbox);
         row.appendChild(label);
         row.appendChild(reason);
         indirectList.appendChild(row);
@@ -1070,22 +1250,38 @@
     function refreshAddTree() {
       treeContainer.innerHTML = "";
       const q = _dmAddQuery.trim().toLowerCase();
-      const allCandidates = codeDocs().filter((d) => d.name !== path && !allDeps.includes(d.name));
+      const allCandidates = codeDocs().filter(
+        (d) => d.name !== path && !allDeps.includes(d.name),
+      );
       const scanned = allCandidates.filter((d) => !d.isManuallyAdded);
       const manual = allCandidates.filter((d) => d.isManuallyAdded);
-      const filteredScanned = q ? scanned.filter((d) => matchesQuery(d.name, q)) : scanned;
-      const filteredManual = q ? manual.filter((d) => matchesQuery(d.name, q)) : manual;
+      const filteredScanned = q
+        ? scanned.filter((d) => matchesQuery(d.name, q))
+        : scanned;
+      const filteredManual = q
+        ? manual.filter((d) => matchesQuery(d.name, q))
+        : manual;
 
       if (!filteredScanned.length && !filteredManual.length) {
-        treeContainer.appendChild(dmEmptyRow(q ? "אין קבצים תואמים" : "כל הקבצים כבר מופיעים כתלות"));
+        treeContainer.appendChild(
+          dmEmptyRow(q ? "אין קבצים תואמים" : "כל הקבצים כבר מופיעים כתלות"),
+        );
         return;
       }
 
       if (filteredScanned.length) {
         const tree = buildTree(filteredScanned.map((d) => ({ name: d.name })));
-        dmRenderTreeNode(tree, treeContainer, 0, !!q, (p) => addDepEdge(p), refreshAddTree);
+        dmRenderTreeNode(
+          tree,
+          treeContainer,
+          0,
+          !!q,
+          (p) => addDepEdge(p),
+          refreshAddTree,
+        );
       }
-      if (filteredManual.length) renderAddTreeManualSection(filteredManual, treeContainer);
+      if (filteredManual.length)
+        renderAddTreeManualSection(filteredManual, treeContainer);
     }
 
     input.addEventListener("input", () => {
@@ -1104,7 +1300,9 @@
       "קבצים שתלויים בקובץ הזה — מחושב אוטומטית מהתלויות של הקבצים האחרים, לכן לא ניתן לערוך כאן; כדי להוסיף/להסיר קישור יש לפתוח את מסך ניהול התלויות של אותו קובץ אחר";
     body.appendChild(inHeader);
 
-    const dependents = Array.from(window.__ccbDepGraph.getDirectDependents(graph, path));
+    const dependents = Array.from(
+      window.__ccbDepGraph.getDirectDependents(graph, path),
+    );
     const inList = document.createElement("div");
     inList.className = "dm-dep-list";
     if (!dependents.length) inList.appendChild(dmEmptyRow("אין תלויים"));
@@ -1128,7 +1326,8 @@
   async function removeDepEdge(target) {
     const path = _dmDoc.name;
     const raw = (_project.depGraph || {})[path] || [];
-    const ov = (_project.depGraphOverrides && _project.depGraphOverrides[path]) || { added: [], removed: [] };
+    const ov = (_project.depGraphOverrides &&
+      _project.depGraphOverrides[path]) || { added: [], removed: [] };
     if (raw.includes(target)) {
       if (!ov.removed.includes(target)) ov.removed = [...ov.removed, target];
     } else {
@@ -1142,7 +1341,8 @@
     const path = _dmDoc.name;
     if (!target || target === path) return;
     const raw = (_project.depGraph || {})[path] || [];
-    const ov = (_project.depGraphOverrides && _project.depGraphOverrides[path]) || { added: [], removed: [] };
+    const ov = (_project.depGraphOverrides &&
+      _project.depGraphOverrides[path]) || { added: [], removed: [] };
     if (raw.includes(target)) {
       ov.removed = ov.removed.filter((p) => p !== target);
     } else if (!ov.added.includes(target)) {
@@ -1200,7 +1400,9 @@
   // Public API
   // ============================================================
   window.__ccbCodeTree = {
-    init(deps) { _deps = deps; },
+    init(deps) {
+      _deps = deps;
+    },
     renderInline,
     closeFilePreview,
     openDocumentPreview: openPreview,

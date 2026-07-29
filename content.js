@@ -37,14 +37,14 @@
   } = window.__ccbRawConfig;
 
   const CONFIG_PUBLIC = { AUTO_OPEN_URLS, SEND_BUTTON_SELECTOR, SIDEBAR_WIDTH };
-  const { loadBlocks: _loadBlocks, saveBlocks: _saveBlocks } = window.__ccbStorage;
+  const { loadBlocks: _loadBlocks, saveBlocks: _saveBlocks } =
+    window.__ccbStorage;
   const ccbInject = window.__ccbInject;
   const { pushPage } = window.__ccbPush;
   const CSS = window.__ccbCSS;
   const { IC, PANEL_HTML } = window.__ccbTpl;
   const isActiveSitePage = () =>
     CONFIG_PUBLIC.AUTO_OPEN_URLS.some((u) => location.href.startsWith(u));
-
 
   // ============================================================
   // Shared state — modules receive a reference and mutate directly
@@ -115,19 +115,53 @@
 
   // Live FRAMING getters — picks up edits from prompts.js automatically
   const framing = {
-    get manualPre()    { return window.__ccbRawConfig.FRAMING_MANUAL_PRE || window.__ccbRawConfig.FRAMING || ""; },
-    get manualPost()   { return window.__ccbRawConfig.FRAMING_MANUAL_POST || ""; },
-    get gmPre()        { return window.__ccbRawConfig.FRAMING_GM_PRE || window.__ccbRawConfig.FRAMING || ""; },
-    get gmPost()       { return window.__ccbRawConfig.FRAMING_GM_POST || ""; },
-    get convPre()      { return window.__ccbRawConfig.FRAMING_CONV_PRE || ""; },
-    get convPost()     { return window.__ccbRawConfig.FRAMING_CONV_POST || ""; },
-    get projPre()      { return window.__ccbRawConfig.FRAMING_PROJ_PRE || ""; },
-    get projPost()     { return window.__ccbRawConfig.FRAMING_PROJ_POST || ""; },
-    get docsPre()      { return window.__ccbRawConfig.FRAMING_DOCS_PRE || ""; },
-    get docsPost()     { return window.__ccbRawConfig.FRAMING_DOCS_POST || ""; },
-    get everyPre()     { return window.__ccbRawConfig.FRAMING_EVERY_PRE || ""; },
-    get everyPost()    { return window.__ccbRawConfig.FRAMING_EVERY_POST || ""; },
-    get summaryPrompt() { return window.__ccbRawConfig.SUMMARY_PROMPT || ""; },
+    get manualPre() {
+      return (
+        window.__ccbRawConfig.FRAMING_MANUAL_PRE ||
+        window.__ccbRawConfig.FRAMING ||
+        ""
+      );
+    },
+    get manualPost() {
+      return window.__ccbRawConfig.FRAMING_MANUAL_POST || "";
+    },
+    get gmPre() {
+      return (
+        window.__ccbRawConfig.FRAMING_GM_PRE ||
+        window.__ccbRawConfig.FRAMING ||
+        ""
+      );
+    },
+    get gmPost() {
+      return window.__ccbRawConfig.FRAMING_GM_POST || "";
+    },
+    get convPre() {
+      return window.__ccbRawConfig.FRAMING_CONV_PRE || "";
+    },
+    get convPost() {
+      return window.__ccbRawConfig.FRAMING_CONV_POST || "";
+    },
+    get projPre() {
+      return window.__ccbRawConfig.FRAMING_PROJ_PRE || "";
+    },
+    get projPost() {
+      return window.__ccbRawConfig.FRAMING_PROJ_POST || "";
+    },
+    get docsPre() {
+      return window.__ccbRawConfig.FRAMING_DOCS_PRE || "";
+    },
+    get docsPost() {
+      return window.__ccbRawConfig.FRAMING_DOCS_POST || "";
+    },
+    get everyPre() {
+      return window.__ccbRawConfig.FRAMING_EVERY_PRE || "";
+    },
+    get everyPost() {
+      return window.__ccbRawConfig.FRAMING_EVERY_POST || "";
+    },
+    get summaryPrompt() {
+      return window.__ccbRawConfig.SUMMARY_PROMPT || "";
+    },
   };
 
   let shadow = null;
@@ -197,7 +231,10 @@
     const data = await new Promise((r) =>
       chrome.storage.local.get("docMaxChars", r),
     );
-    state.docMaxChars = Number(data.docMaxChars) > 0 ? Number(data.docMaxChars) : DOC_MAX_CHARS_DEFAULT;
+    state.docMaxChars =
+      Number(data.docMaxChars) > 0
+        ? Number(data.docMaxChars)
+        : DOC_MAX_CHARS_DEFAULT;
     state.docMaxCharsLoaded = true;
   }
 
@@ -234,7 +271,11 @@
     if (state.autoInjectModeLoaded) return;
     const data = await new Promise((r) =>
       chrome.storage.local.get(
-        ["ccb_autoInjectModeGm", "ccb_autoInjectModeProject", "ccb_autoInjectMode"],
+        [
+          "ccb_autoInjectModeGm",
+          "ccb_autoInjectModeProject",
+          "ccb_autoInjectMode",
+        ],
         r,
       ),
     );
@@ -243,9 +284,13 @@
     // neither has been set yet, so a user who already chose "every" doesn't
     // silently revert to "start" the first time this loads post-split.
     const legacy = data.ccb_autoInjectMode === "every" ? "every" : "start";
-    const normalize = (v, fallback) => (v === "every" || v === "start" ? v : fallback);
+    const normalize = (v, fallback) =>
+      v === "every" || v === "start" ? v : fallback;
     state.autoInjectModeGm = normalize(data.ccb_autoInjectModeGm, legacy);
-    state.autoInjectModeProject = normalize(data.ccb_autoInjectModeProject, legacy);
+    state.autoInjectModeProject = normalize(
+      data.ccb_autoInjectModeProject,
+      legacy,
+    );
     state.autoInjectModeLoaded = true;
   }
 
@@ -275,7 +320,9 @@
   }
 
   function getAutoInjectMode(source) {
-    return source === "project" ? state.autoInjectModeProject : state.autoInjectModeGm;
+    return source === "project"
+      ? state.autoInjectModeProject
+      : state.autoInjectModeGm;
   }
 
   // Global code-project scan rules. On first ever load there's no stored
@@ -299,10 +346,19 @@
       );
     } else {
       state.scanSettings = {
-        denyDirs: Array.isArray(stored.denyDirs) ? stored.denyDirs : defaults.denyDirs,
-        denyFilenames: Array.isArray(stored.denyFilenames) ? stored.denyFilenames : defaults.denyFilenames,
-        codeExtensions: Array.isArray(stored.codeExtensions) ? stored.codeExtensions : defaults.codeExtensions,
-        maxFileSizeKb: Number(stored.maxFileSizeKb) > 0 ? Number(stored.maxFileSizeKb) : defaults.maxFileSizeKb,
+        denyDirs: Array.isArray(stored.denyDirs)
+          ? stored.denyDirs
+          : defaults.denyDirs,
+        denyFilenames: Array.isArray(stored.denyFilenames)
+          ? stored.denyFilenames
+          : defaults.denyFilenames,
+        codeExtensions: Array.isArray(stored.codeExtensions)
+          ? stored.codeExtensions
+          : defaults.codeExtensions,
+        maxFileSizeKb:
+          Number(stored.maxFileSizeKb) > 0
+            ? Number(stored.maxFileSizeKb)
+            : defaults.maxFileSizeKb,
       };
     }
     state.scanSettingsLoaded = true;
@@ -311,14 +367,25 @@
   async function saveScanSettings(next) {
     const defaults = window.__ccbDocHandler.getDefaultScanSettings();
     const val = {
-      denyDirs: Array.isArray(next?.denyDirs) ? next.denyDirs : defaults.denyDirs,
-      denyFilenames: Array.isArray(next?.denyFilenames) ? next.denyFilenames : defaults.denyFilenames,
-      codeExtensions: Array.isArray(next?.codeExtensions) ? next.codeExtensions : defaults.codeExtensions,
-      maxFileSizeKb: Math.max(1, Number(next?.maxFileSizeKb) || defaults.maxFileSizeKb),
+      denyDirs: Array.isArray(next?.denyDirs)
+        ? next.denyDirs
+        : defaults.denyDirs,
+      denyFilenames: Array.isArray(next?.denyFilenames)
+        ? next.denyFilenames
+        : defaults.denyFilenames,
+      codeExtensions: Array.isArray(next?.codeExtensions)
+        ? next.codeExtensions
+        : defaults.codeExtensions,
+      maxFileSizeKb: Math.max(
+        1,
+        Number(next?.maxFileSizeKb) || defaults.maxFileSizeKb,
+      ),
     };
     state.scanSettings = val;
     state.scanSettingsLoaded = true;
-    await new Promise((r) => chrome.storage.local.set({ ccb_scanSettings: val }, r));
+    await new Promise((r) =>
+      chrome.storage.local.set({ ccb_scanSettings: val }, r),
+    );
     return val;
   }
 
@@ -375,13 +442,15 @@
       CTX_WINDOW_DEFAULT,
       getCtxWindow: () => state.ctxWindow,
       closeDropdown: () => historyView.closeHiDropdown(),
-      setDropdownCleanup: (fn) => { state.hiDropdownCleanup = fn; },
+      setDropdownCleanup: (fn) => {
+        state.hiDropdownCleanup = fn;
+      },
     });
 
     modals.init({
       getShadow,
       setStatus,
-      refreshPromptsFromRawConfig: () => {},  // framing uses live getters; no-op
+      refreshPromptsFromRawConfig: () => {}, // framing uses live getters; no-op
       loadBlocks,
       loadCtxWindow,
       getCtxWindow: () => state.ctxWindow,
@@ -394,7 +463,8 @@
       // Never null: falls back to the built-in defaults if a scan somehow
       // fires before loadScanSettings() resolved, so a scan can't run with
       // every filter silently disabled.
-      getScanSettings: () => state.scanSettings || docHandler.getDefaultScanSettings(),
+      getScanSettings: () =>
+        state.scanSettings || docHandler.getDefaultScanSettings(),
       saveScanSettings,
       getDefaultScanSettings: () => docHandler.getDefaultScanSettings(),
       getOnboardingSeen: () => state.onboardingSeen,
@@ -412,6 +482,8 @@
       getShadow,
       historyView,
       modals,
+      loadBlocks,
+      saveBlocks,
       setStatus,
       render,
       getCtxWindow: () => state.ctxWindow,
@@ -440,13 +512,20 @@
       // Never null: falls back to the built-in defaults if a scan somehow
       // fires before loadScanSettings() resolved, so a scan can't run with
       // every filter silently disabled.
-      getScanSettings: () => state.scanSettings || docHandler.getDefaultScanSettings(),
+      getScanSettings: () =>
+        state.scanSettings || docHandler.getDefaultScanSettings(),
     });
 
     chat.init({
       getShadow,
       state,
-      config: { GM_ID, SEND_BUTTON_SELECTOR, NEW_CHAT_BTN_SELECTOR, MSG_SELECTORS, CHARS_PER_TOKEN },
+      config: {
+        GM_ID,
+        SEND_BUTTON_SELECTOR,
+        NEW_CHAT_BTN_SELECTOR,
+        MSG_SELECTORS,
+        CHARS_PER_TOKEN,
+      },
       framing,
       inject: ccbInject,
       modals,
@@ -559,7 +638,10 @@
       "click",
       () => void modals.savePromptsEditor(),
     );
-    $el("cancelPromptsBtn")?.addEventListener("click", modals.closePromptsEditor);
+    $el("cancelPromptsBtn")?.addEventListener(
+      "click",
+      modals.closePromptsEditor,
+    );
     $el("resetFramingBtn")?.addEventListener(
       "click",
       () => void modals.resetPromptsEditor("framingAll"),
@@ -616,7 +698,9 @@
     });
     $el("ccb-doc-max-chars").addEventListener("change", async () => {
       const input = $el("ccb-doc-max-chars");
-      const revert = () => { input.value = String(Math.round(state.docMaxChars / 1000)); };
+      const revert = () => {
+        input.value = String(Math.round(state.docMaxChars / 1000));
+      };
       const raw = input?.value?.trim() || "";
       if (!raw) return revert();
       const value = Number(raw);
@@ -642,16 +726,19 @@
         setStatus("לא ניתן לשמור את מצב הטעינה", true);
       }
     });
-    $el("ccb-auto-inject-mode-project")?.addEventListener("change", async (e) => {
-      try {
-        await setAutoInjectMode("project", e.target.value);
-        render(); // refresh the project-instructions card's live badge
-      } catch (err) {
-        console.error("Failed to save autoInjectModeProject", err);
-        e.target.value = state.autoInjectModeProject;
-        setStatus("לא ניתן לשמור את מצב הטעינה", true);
-      }
-    });
+    $el("ccb-auto-inject-mode-project")?.addEventListener(
+      "change",
+      async (e) => {
+        try {
+          await setAutoInjectMode("project", e.target.value);
+          render(); // refresh the project-instructions card's live badge
+        } catch (err) {
+          console.error("Failed to save autoInjectModeProject", err);
+          e.target.value = state.autoInjectModeProject;
+          setStatus("לא ניתן לשמור את מצב הטעינה", true);
+        }
+      },
+    );
     $el("closeBtn").addEventListener("click", async () => {
       if ($el("panel").classList.contains("editing") && hasUnsavedChanges()) {
         const ok = await modals.showConfirm({
@@ -663,8 +750,14 @@
       }
       setPanelOpen(false);
     });
-    $el("addProjectBtn").addEventListener("click", () => void historyView.addProject());
-    $el("addCodeProjectBtn").addEventListener("click", () => void historyView.createCodeProjectBookmark());
+    $el("addProjectBtn").addEventListener(
+      "click",
+      () => void historyView.addProject(),
+    );
+    $el("addCodeProjectBtn").addEventListener(
+      "click",
+      () => void historyView.createCodeProjectBookmark(),
+    );
     $el("projectSelectBtn").addEventListener("click", () => {
       historyView.toggleProjectSelectDropdown();
     });
@@ -693,7 +786,9 @@
     });
     $el("addBtn").addEventListener("click", () => openEdit(null));
     $el("injectBtn").addEventListener("click", () => chat.injectSelected());
-    $el("injectDocsBtn").addEventListener("click", () => historyView.injectProjectDocuments());
+    $el("injectDocsBtn").addEventListener("click", () =>
+      historyView.injectProjectDocuments(),
+    );
     $el("undoInjectBtn").addEventListener("click", () => undoLastInjection());
     // No manual "save chat" button anymore — auto-save (chat-features.js#
     // scheduleAutoSave) covers it. chat.saveChat() is still exported and still
@@ -737,45 +832,71 @@
     $el("projectEditBtn").addEventListener("click", (e) => {
       e.stopPropagation();
       const project = historyView.getProjectById(state.currentProjectId);
-      if (project) historyView.openProjectDropdown(project, $el("projectEditBtn"));
+      if (project)
+        historyView.openProjectDropdown(project, $el("projectEditBtn"));
     });
 
     // Conversation View
     $el("cvBack")?.addEventListener("click", historyView.closeConversationView);
-    $el("fpBack")?.addEventListener("click", () => window.__ccbCodeTree?.closeFilePreview?.());
-    $el("dmBack")?.addEventListener("click", () => window.__ccbCodeTree?.closeDepsManager?.());
+    $el("fpBack")?.addEventListener("click", () =>
+      window.__ccbCodeTree?.closeFilePreview?.(),
+    );
+    $el("dmBack")?.addEventListener("click", () =>
+      window.__ccbCodeTree?.closeDepsManager?.(),
+    );
 
     let cvSearchTimer = null;
     $el("cvSearch")?.addEventListener("input", () => {
       clearTimeout(cvSearchTimer);
       cvSearchTimer = setTimeout(() => {
-        const b = state.currentConversationViewId ? state.blocks[state.currentConversationViewId] : null;
-        if (b) historyView.renderConversationMessages(b, ($el("cvSearch")?.value || "").trim());
+        const b = state.currentConversationViewId
+          ? state.blocks[state.currentConversationViewId]
+          : null;
+        if (b)
+          historyView.renderConversationMessages(
+            b,
+            ($el("cvSearch")?.value || "").trim(),
+          );
       }, DEBOUNCE_MS);
     });
 
     $el("cvNavPrev")?.addEventListener("click", () => {
       if (!state.cvMatchElements.length) return;
       state.cvMatchIndex =
-        (state.cvMatchIndex - 1 + state.cvMatchElements.length) % state.cvMatchElements.length;
+        (state.cvMatchIndex - 1 + state.cvMatchElements.length) %
+        state.cvMatchElements.length;
       historyView.updateNavMatch();
     });
     $el("cvNavNext")?.addEventListener("click", () => {
       if (!state.cvMatchElements.length) return;
-      state.cvMatchIndex = (state.cvMatchIndex + 1) % state.cvMatchElements.length;
+      state.cvMatchIndex =
+        (state.cvMatchIndex + 1) % state.cvMatchElements.length;
       historyView.updateNavMatch();
     });
 
     $el("cvSelAll")?.addEventListener("click", () => {
-      const b = state.currentConversationViewId ? state.blocks[state.currentConversationViewId] : null;
+      const b = state.currentConversationViewId
+        ? state.blocks[state.currentConversationViewId]
+        : null;
       if (!b) return;
-      state.cvSelectedIndices = new Set(historyView.buildHistoryMessages(b).map((_, i) => i));
-      historyView.renderConversationMessages(b, ($el("cvSearch")?.value || "").trim());
+      state.cvSelectedIndices = new Set(
+        historyView.buildHistoryMessages(b).map((_, i) => i),
+      );
+      historyView.renderConversationMessages(
+        b,
+        ($el("cvSearch")?.value || "").trim(),
+      );
     });
     $el("cvSelNone")?.addEventListener("click", () => {
       state.cvSelectedIndices = new Set();
-      const b = state.currentConversationViewId ? state.blocks[state.currentConversationViewId] : null;
-      if (b) historyView.renderConversationMessages(b, ($el("cvSearch")?.value || "").trim());
+      const b = state.currentConversationViewId
+        ? state.blocks[state.currentConversationViewId]
+        : null;
+      if (b)
+        historyView.renderConversationMessages(
+          b,
+          ($el("cvSearch")?.value || "").trim(),
+        );
       else historyView.updateCvFooter();
     });
 
@@ -784,10 +905,14 @@
     // Deliberately does not auto-send — the user reviews/edits and sends
     // themselves, same as file loading (injectProjectDocuments).
     $el("cvLoadBtn")?.addEventListener("click", () => {
-      const b = state.currentConversationViewId ? state.blocks[state.currentConversationViewId] : null;
+      const b = state.currentConversationViewId
+        ? state.blocks[state.currentConversationViewId]
+        : null;
       if (!b || !state.cvSelectedIndices.size) return;
       const allMsgs = historyView.buildHistoryMessages(b);
-      const selectedMsgs = allMsgs.filter((_, i) => state.cvSelectedIndices.has(i));
+      const selectedMsgs = allMsgs.filter((_, i) =>
+        state.cvSelectedIndices.has(i),
+      );
       const text = historyView.buildConversationInjectionText(selectedMsgs);
       const r = injectTracked(text, "replace");
       if (r.ok) {
@@ -820,10 +945,14 @@
           t.classList.remove("active");
           t.setAttribute("aria-selected", "false");
         });
-        shadow.querySelectorAll(".tab-pane").forEach((p) => p.classList.remove("active"));
+        shadow
+          .querySelectorAll(".tab-pane")
+          .forEach((p) => p.classList.remove("active"));
         tab.classList.add("active");
         tab.setAttribute("aria-selected", "true");
-        shadow.getElementById("pane-" + tab.dataset.tab).classList.add("active");
+        shadow
+          .getElementById("pane-" + tab.dataset.tab)
+          .classList.add("active");
         moveTabIndicator(tab);
         render();
         window.__ccbCtxMeter.update();
@@ -908,7 +1037,9 @@
     const ctxMeterMs = Date.now() - t3;
     console.log("[ccb-timing] render", {
       totalBlocks: Object.keys(state.blocks || {}).length,
-      blocksListMs, historyViewMs, ctxMeterMs,
+      blocksListMs,
+      historyViewMs,
+      ctxMeterMs,
       totalMs: Date.now() - startedAt,
     });
   }
@@ -921,13 +1052,17 @@
     if (btn) {
       btn.classList.toggle("collapsed", collapsed);
       btn.title = collapsed ? "פתח פרומפטים" : "סגור פרומפטים";
-      btn.setAttribute("aria-label", collapsed ? "פתח פרומפטים" : "סגור פרומפטים");
+      btn.setAttribute(
+        "aria-label",
+        collapsed ? "פתח פרומפטים" : "סגור פרומפטים",
+      );
     }
 
     // Show context hint only in "no project" mode
     const hasProject = !!state.currentProjectId;
     const noProjectHint = $el("noProjectHint");
-    if (noProjectHint) noProjectHint.style.display = hasProject ? "none" : "block";
+    if (noProjectHint)
+      noProjectHint.style.display = hasProject ? "none" : "block";
   }
 
   // ============================================================
@@ -1025,7 +1160,9 @@
   function syncInjectDocsBtn() {
     const btn = $el("injectDocsBtn");
     if (!btn) return;
-    const project = state.currentProjectId ? state.blocks[state.currentProjectId] : null;
+    const project = state.currentProjectId
+      ? state.blocks[state.currentProjectId]
+      : null;
     const docs = project?.documents || [];
     if (!docs.length) {
       btn.style.display = "none";
@@ -1151,7 +1288,8 @@
       return;
     }
     btn.style.display = "flex";
-    btn.innerHTML = n > 1 ? IC.undo + ' <span class="count-pill">' + n + "</span>" : IC.undo;
+    btn.innerHTML =
+      n > 1 ? IC.undo + ' <span class="count-pill">' + n + "</span>" : IC.undo;
   }
 
   function undoLastInjection() {
@@ -1211,13 +1349,16 @@
     // behind #projectEditBtn's dropdown) that also cleans up child blocks/
     // conversation links — this generic delete doesn't, so it stays hidden
     // for kind:"project".
-    $el("deleteBtn").style.display = id && b?.kind !== "project" ? "block" : "none";
+    $el("deleteBtn").style.display =
+      id && b?.kind !== "project" ? "block" : "none";
 
     // Show which project this block belongs to: an existing block's own
     // projectId, or — for a brand-new block — the currently active project
     // it's about to be created into.
     const projectId = b ? b.projectId : state.currentProjectId;
-    const project = projectId ? window.__ccbHistoryView.getProjectById(projectId) : null;
+    const project = projectId
+      ? window.__ccbHistoryView.getProjectById(projectId)
+      : null;
     const tag = $el("editProjectTag");
     if (tag) {
       tag.style.display = project ? "flex" : "none";
@@ -1262,7 +1403,10 @@
       // also case-insensitive, so two triggers differing only by case would
       // otherwise both save fine yet be indistinguishable when typed.
       const conflict = Object.values(state.blocks).find(
-        (b) => b && b.id !== id && (b.trigger || "").toLowerCase() === trigger.toLowerCase(),
+        (b) =>
+          b &&
+          b.id !== id &&
+          (b.trigger || "").toLowerCase() === trigger.toLowerCase(),
       );
       if (conflict) {
         setStatus(`הקיצור ${trigger} כבר בשימוש ע"י "${conflict.title}"`, true);
@@ -1277,7 +1421,14 @@
     // instead of being silently dropped. Tags were retired 2026-07-28 — any
     // stale `tags` array on an old block rides along harmlessly via the
     // spread but is never read or rendered anymore.
-    state.blocks[id] = { ...existing, id, title, content, trigger, updated: Date.now() };
+    state.blocks[id] = {
+      ...existing,
+      id,
+      title,
+      content,
+      trigger,
+      updated: Date.now(),
+    };
     // A brand-new block is created into whichever project is currently
     // active (or general, if none is); an existing block keeps its own.
     if (!existing && state.currentProjectId)
@@ -1291,7 +1442,10 @@
     if (!state.editingId) return;
     const ok = await window.__ccbModals.showConfirm({
       title: "מחיקת בלוק",
-      msg: 'למחוק את "' + state.blocks[state.editingId].title + '"? לא ניתן לשחזר.',
+      msg:
+        'למחוק את "' +
+        state.blocks[state.editingId].title +
+        '"? לא ניתן לשחזר.',
       confirmLabel: "מחק",
       danger: true,
     });
@@ -1377,7 +1531,10 @@
     if (text.length <= maxLen) return text;
     const parts = text.split("/");
     let tail = parts.pop() || text;
-    while (parts.length && tail.length + parts[parts.length - 1].length + 1 < maxLen) {
+    while (
+      parts.length &&
+      tail.length + parts[parts.length - 1].length + 1 < maxLen
+    ) {
       tail = parts.pop() + "/" + tail;
     }
     return "…/" + tail;
@@ -1395,12 +1552,21 @@
 
     const total = Number(p.total) || 0;
     const done = Number(p.done) || 0;
-    $el("scanProgressPhase").textContent = p.label || PROGRESS_PHASE_LABELS[p.phase] || "";
-    $el("scanProgressCount").textContent = total ? `${done} / ${total}` : done ? String(done) : "";
-    $el("scanProgressCurrent").textContent = p.current ? shortenPath(p.current) : "";
+    $el("scanProgressPhase").textContent =
+      p.label || PROGRESS_PHASE_LABELS[p.phase] || "";
+    $el("scanProgressCount").textContent = total
+      ? `${done} / ${total}`
+      : done
+        ? String(done)
+        : "";
+    $el("scanProgressCurrent").textContent = p.current
+      ? shortenPath(p.current)
+      : "";
 
     const fill = $el("scanProgressFill");
-    fill.className = "scan-progress-fill" + (p.state === "done" ? " done" : p.state === "error" ? " error" : "");
+    fill.className =
+      "scan-progress-fill" +
+      (p.state === "done" ? " done" : p.state === "error" ? " error" : "");
     if (total > 0) {
       fill.style.width = Math.min(100, Math.round((done / total) * 100)) + "%";
     } else if (p.state === "done" || p.state === "error") {
@@ -1428,7 +1594,10 @@
     const hide = () => {
       // A newer operation started during the hold — leave its indicator alone.
       if (progressSeq !== seq) return;
-      if (progressTimer) { clearTimeout(progressTimer); progressTimer = 0; }
+      if (progressTimer) {
+        clearTimeout(progressTimer);
+        progressTimer = 0;
+      }
       progressPending = null;
       const box = $el("scanProgress");
       if (box) box.style.display = "none";
@@ -1628,7 +1797,9 @@
   // Init
   // ============================================================
   function shouldAutoOpen() {
-    return CONFIG_PUBLIC.AUTO_OPEN_URLS.some((u) => location.href.startsWith(u));
+    return CONFIG_PUBLIC.AUTO_OPEN_URLS.some((u) =>
+      location.href.startsWith(u),
+    );
   }
 
   async function init() {
