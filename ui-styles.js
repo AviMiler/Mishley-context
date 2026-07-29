@@ -582,18 +582,14 @@ window.__ccbCSS = (() => {
 
     /* ── Context hints (no project / project selected) ── */
     .context-hint {
-      display: flex; gap: 10px; padding: 10px 12px; margin-bottom: 8px;
-      background: linear-gradient(135deg, var(--bg-card), var(--bg-tag));
-      border: 1px solid var(--border-input);
-      border-radius: 8px;
-      font-size: 12px;
+      padding: 6px 10px; margin-bottom: 8px;
+      background: var(--bg-tag);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      font-size: 11px;
+      color: var(--text-faint);
     }
-    .hint-icon {
-      flex: 0 0 20px; text-align: center; line-height: 1.4; font-size: 14px;
-    }
-    .hint-content { flex: 1; min-width: 0; }
-    .hint-title { font-weight: 600; color: var(--text-strong); margin-bottom: 2px; }
-    .hint-text { color: var(--text-body); line-height: 1.4; }
+    .hint-text { margin: 0; }
 
     /* ── Block card ── */
     /* Checkbox and title share one line (the checkbox is a direct flex child

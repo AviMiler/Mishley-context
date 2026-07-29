@@ -102,18 +102,10 @@ window.__ccbTpl = (() => {
           </div>
           <div id="blocksSectionBody">
             <div id="noProjectHint" style="display:none" class="context-hint">
-              <div class="hint-icon">ℹ️</div>
-              <div class="hint-content">
-                <div class="hint-title">הגדרות כלליות</div>
-                <div class="hint-text">כל הפרומפטים שמוגדרים כאן יהיו זמינים בכל הפרויקטים. יצירת פרויקט תאפשר לך להגדיר פרומפטים ספציפיים לאותה משימה.</div>
-              </div>
+              <div class="hint-text">תקף לכל הפרויקטים</div>
             </div>
             <div id="projectHint" style="display:none" class="context-hint">
-              <div class="hint-icon">📋</div>
-              <div class="hint-content">
-                <div class="hint-title">הגדרות פרויקט</div>
-                <div class="hint-text">הפרומפטים שמוגדרים כאן זמינים רק בפרויקט זה. כדי להשתמש בפרומפטים כלליים, עמדו על "ללא פרויקט".</div>
-              </div>
+              <div class="hint-text">תקף רק לפרויקט זה</div>
             </div>
 
             <div id="gmCard"></div>
