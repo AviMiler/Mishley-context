@@ -186,7 +186,6 @@ window.__ccbTpl = (() => {
           <div class="doc-tabs">
             <button class="doc-tab active" data-tab="upload">העלאה</button>
             <button class="doc-tab" data-tab="paste">הדבקה</button>
-            <button class="doc-tab" data-tab="url">קישור</button>
           </div>
           <div class="doc-tab-content active" id="docTabUpload">
             <div class="doc-drop-zone" id="docDropZone">
@@ -203,10 +202,6 @@ window.__ccbTpl = (() => {
           <div class="doc-tab-content" id="docTabPaste">
             <textarea id="docPasteContent" class="doc-paste-textarea" placeholder="הדבק תוכן כאן..."></textarea>
             <div id="docPasteTokens" class="doc-tokens"></div>
-          </div>
-          <div class="doc-tab-content" id="docTabUrl">
-            <input type="text" id="docUrlInput" class="doc-url-input" placeholder="https://example.com/document.pdf" />
-            <input type="text" id="docUrlName" class="doc-url-input" placeholder="שם הקובץ (אופציונלי)" />
           </div>
           <div class="dialog-btns">
             <button class="dialog-confirm" id="docAddBtn">הוסף</button>
@@ -574,6 +569,7 @@ window.__ccbTpl = (() => {
           <button id="obClose" type="button" aria-label="סגור">${IC.x}</button>
           <div class="cv-title-wrap fp-title-wrap">
             <div class="fp-title">מדריך שימוש</div>
+            <div class="ob-header-subtitle">כל מה שצריך כדי לבנות הקשר מדויק לשיחה</div>
           </div>
         </div>
 
@@ -585,6 +581,26 @@ window.__ccbTpl = (() => {
         </div>
 
         <div class="fp-body-wrap ob-body-wrap" id="obBody">
+
+          <section class="ob-welcome" aria-label="התחלה מהירה">
+            <div class="ob-welcome-kicker">התחלה מהירה</div>
+            <h2>מבלוק ראשון לשיחה ממוקדת</h2>
+            <p>ההרחבה שומרת מידע שימושי מחוץ לצ׳אט, ומטעינה אותו רק כשצריך. כך אפשר לעבוד עם אותו עוזר בלי להדביק שוב ושוב את אותם פרטים.</p>
+            <ol class="ob-steps">
+              <li><span class="ob-step-number">1</span><div><b>צרו פרויקט</b><small>אם המידע שייך למשימה מסוימת, לחצו על <b>+ פרויקט</b>. לעבודה עם תיקיית קוד בחרו <b>+ פרויקט קוד</b>.</small></div></li>
+              <li><span class="ob-step-number">2</span><div><b>הוסיפו את ההקשר</b><small>כתבו הנחיות קבועות, שמרו פרומפטים חוזרים או צרפו מסמכים וקבצים.</small></div></li>
+              <li><span class="ob-step-number">3</span><div><b>בחרו מה להכניס לצ׳אט</b><small>סמנו את הבלוקים או הקבצים הרלוונטיים ולחצו על <b>טען פרומפטים</b> או <b>טען קבצים</b>.</small></div></li>
+              <li><span class="ob-step-number">4</span><div><b>בדקו, כתבו ושלחו</b><small>הטעינה אינה שולחת הודעה. אפשר לערוך את הטקסט בצ׳אט לפני שליחתו.</small></div></li>
+            </ol>
+          </section>
+
+          <div class="ob-concepts" role="note">
+            <div><b>פרומפט</b><span>הוראה או טקסט קצר שחוזרים אליו.</span></div>
+            <div><b>פרויקט</b><span>מקום אחד להנחיות, בלוקים, מסמכים והיסטוריה של משימה.</span></div>
+            <div><b>זיכרון כללי</b><span>מידע שרלוונטי לכל השיחות, בלי תלות בפרויקט.</span></div>
+          </div>
+
+          <div class="ob-section-label">פירוט לפי נושא</div>
 
           <div class="ob-section collapsed">
             <div class="ob-section-header">
@@ -654,7 +670,7 @@ window.__ccbTpl = (() => {
               </div>
             </div>
             <div class="ob-section-body">
-              <div class="ob-item"><b>פרויקט רגיל</b> — רשימת מסמכים שטוחה: קבצים שהועלו, טקסט מודבק, או כתובות URL, דרך דיאלוג "+ הוסף".</div>
+              <div class="ob-item"><b>פרויקט רגיל</b> — רשימת מסמכים שטוחה: קבצים שהועלו או טקסט מודבק, דרך דיאלוג "+ הוסף".</div>
               <div class="ob-item"><b>פרויקט קוד — עץ קבצים</b> — תיבת סימון לכל קובץ; תיבה על תיקייה שלמה מסמנת/מבטלת בבת אחת את כל הקבצים תחתיה.</div>
               <div class="ob-item"><b>חיפוש בתוך תיקייה</b> — הקלדת שם תיקייה בתיבת החיפוש מעלה את כל הקבצים תחתיה, לא רק התאמה מדויקת של שם קובץ.</div>
               <div class="ob-item"><b>תגי תלויות/תלויים</b> — בתפריט "אפשרויות תלויות" של קובץ מוצג מספר התלויות (קבצים שהוא תלוי בהם) והתלויים (קבצים שתלויים בו).</div>

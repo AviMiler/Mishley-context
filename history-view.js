@@ -1613,7 +1613,7 @@
 
     // Code projects render the original folder tree inline (checkboxes +
     // per-file dependency-linking), owned by code-tree.js. Regular projects
-    // keep the flat document list below.
+    // reuse its compact row language, without the folder/dependency layer.
     if (project.isCodeProject) {
       docsList.innerHTML = "";
       window.__ccbCodeTree.renderInline(project, docsList);
@@ -1633,13 +1633,16 @@
       return;
     }
 
+    const listBody = document.createElement("div");
+    listBody.className = "code-tree-body regular-documents-body";
     docs.forEach((doc) => {
       const item = document.createElement("div");
-      item.className = "doc-item";
+      item.className = "code-tree-row regular-document-row";
+      item.title = doc.name;
 
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
-      checkbox.className = "doc-item-checkbox";
+      checkbox.className = "code-tree-checkbox";
       checkbox.checked = doc.enabled;
       checkbox.addEventListener("change", () => {
         _deps.docHandler.toggleDocument(project.id, doc.id, checkbox.checked);
@@ -1647,23 +1650,23 @@
       });
 
       const icon = document.createElement("span");
-      icon.className = "doc-item-icon";
+      icon.className = "code-tree-icon";
       icon.innerHTML = getDocumentIcon(doc.type);
 
       const info = document.createElement("div");
-      info.className = "doc-item-info";
+      info.className = "code-tree-label regular-document-info";
 
       const name = document.createElement("div");
-      name.className = "doc-item-name";
+      name.className = "regular-document-name";
       name.textContent = doc.name;
 
       const meta = document.createElement("div");
-      meta.className = "doc-item-meta";
+      meta.className = "regular-document-meta";
       meta.textContent = `${doc.estimatedTokens} tokens · ${formatAge(doc.added)}`;
 
       if (doc.preview) {
         const preview = document.createElement("div");
-        preview.className = "doc-item-preview";
+        preview.className = "regular-document-snippet";
         preview.textContent = doc.preview;
         info.appendChild(preview);
       }
@@ -1671,8 +1674,27 @@
       info.insertBefore(meta, info.firstChild);
       info.insertBefore(name, info.firstChild);
 
-      const deleteBtn = document.createElement("span");
-      deleteBtn.className = "doc-item-delete";
+      const previewBtn = document.createElement("button");
+      previewBtn.type = "button";
+      previewBtn.className = "code-tree-preview-btn";
+      previewBtn.innerHTML = window.__ccbTpl.IC.eye;
+      previewBtn.title = "תצוגה מקדימה";
+      previewBtn.setAttribute("aria-label", "תצוגה מקדימה");
+      previewBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const content = await _deps.docHandler.getOrExtractContent(project.id, doc.id);
+        if (typeof content !== "string") {
+          _deps.setStatus("אין תוכן טקסטואלי זמין לתצוגה מקדימה", true);
+          return;
+        }
+        void window.__ccbCodeTree.openDocumentPreview(doc, content);
+      });
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "regular-document-delete";
+      deleteBtn.title = "מחק קובץ";
+      deleteBtn.setAttribute("aria-label", "מחק קובץ");
       deleteBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>';
       deleteBtn.addEventListener("click", async () => {
         const ok = await _deps.modals.showConfirm({
@@ -1686,13 +1708,19 @@
         _deps.render();
       });
 
-      item.appendChild(checkbox);
-      item.appendChild(icon);
-      item.appendChild(info);
-      item.appendChild(deleteBtn);
-      docsList.appendChild(item);
+      const actions = document.createElement("span");
+      actions.className = "code-tree-file-actions";
+      actions.append(previewBtn, deleteBtn);
+      item.append(checkbox, icon, info, actions);
+      item.addEventListener("click", (e) => {
+        if (e.target === checkbox || previewBtn.contains(e.target) || deleteBtn.contains(e.target)) return;
+        checkbox.checked = !checkbox.checked;
+        checkbox.dispatchEvent(new Event("change"));
+      });
+      listBody.appendChild(item);
     });
 
+    docsList.appendChild(listBody);
     appendDocsBudgetBar(docsList, docs);
   }
 
@@ -1760,8 +1788,6 @@
     tabContents.forEach((c, i) => c.classList.toggle("active", i === 0));
     fileInput.value = "";
     pasteContent.value = "";
-    $el("docUrlInput").value = "";
-    $el("docUrlName").value = "";
     uploadPreview.style.display = "none";
     $el("docPasteTokens").textContent = "";
 
@@ -1771,8 +1797,6 @@
       overlay.classList.remove("show");
       fileInput.value = "";
       pasteContent.value = "";
-      $el("docUrlInput").value = "";
-      $el("docUrlName").value = "";
       uploadPreview.style.display = "none";
     }
 
@@ -1845,15 +1869,6 @@
           const content = freshPaste.value.trim();
           if (!content) { _deps.setStatus("הדבק תוכן", true); return; }
           await _deps.docHandler.addDocument({ name: "תוכן מודבק", size: content.length, type: "text/plain" }, project.id, content);
-        } else if (activeTab === "url") {
-          const url = $el("docUrlInput").value.trim();
-          if (!url) { _deps.setStatus("הוסף URL", true); return; }
-          let name = $el("docUrlName").value.trim();
-          if (!name) {
-            try { name = new URL(url).pathname.split("/").filter(Boolean).pop() || url; }
-            catch { name = url; }
-          }
-          await _deps.docHandler.addDocument({ name, size: 0, type: "text/uri-list" }, project.id, url);
         }
         closeDialog();
         _deps.setStatus("קובץ נוסף ✓");

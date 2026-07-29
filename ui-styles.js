@@ -1155,9 +1155,89 @@ window.__ccbCSS = (() => {
       cursor: pointer;
     }
     .ob-body-wrap { padding: 0; }
+    .ob-header-subtitle {
+      margin-top: 2px;
+      color: var(--text-ghost);
+      font-size: 11px;
+      font-weight: 400;
+    }
+    .ob-welcome {
+      margin: 14px 14px 10px;
+      padding: 16px;
+      border: 1px solid var(--border-input);
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--bg-card), var(--bg-tag));
+    }
+    .ob-welcome-kicker {
+      color: var(--text-faint);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .ob-welcome h2 {
+      margin: 4px 0 6px;
+      color: var(--text-strong);
+      font-size: 16px;
+      line-height: 1.3;
+    }
+    .ob-welcome > p {
+      margin: 0;
+      color: var(--text-body);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .ob-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      padding: 0;
+      margin: 14px 0 0;
+      list-style: none;
+    }
+    .ob-steps li { display: flex; align-items: flex-start; gap: 9px; }
+    .ob-step-number {
+      display: inline-flex;
+      flex: 0 0 20px;
+      width: 20px;
+      height: 20px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background: var(--text-strong);
+      color: var(--bg-card);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .ob-steps b { color: var(--text-strong); font-size: 12px; }
+    .ob-steps small { display: block; margin-top: 1px; color: var(--text-body); font-size: 11.5px; line-height: 1.45; }
+    .ob-concepts {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+      padding: 0 14px 14px;
+    }
+    .ob-concepts > div {
+      min-width: 0;
+      padding: 9px 8px;
+      border: 1px solid var(--border-subtle);
+      border-radius: 9px;
+      background: var(--bg-card);
+    }
+    .ob-concepts b { display: block; color: var(--text-strong); font-size: 11px; }
+    .ob-concepts span { display: block; margin-top: 3px; color: var(--text-faint); font-size: 10.5px; line-height: 1.4; }
+    .ob-section-label {
+      padding: 0 18px 8px;
+      color: var(--text-ghost);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .04em;
+    }
     .ob-section { border-bottom: 1px solid var(--border-subtle); }
     .ob-section:last-child { border-bottom: none; }
-    .ob-section-header { cursor: pointer; }
+    .ob-section-header { cursor: pointer; transition: background var(--t-fast); }
+    .ob-section-header:hover { background: var(--bg-tag); }
     .ob-section-icon { display: flex; align-items: center; color: var(--text-faint); }
     .ob-section-body {
       padding: 2px 18px 14px 42px;
@@ -1885,19 +1965,25 @@ window.__ccbCSS = (() => {
 
     /* Document management */
     .project-documents-list { padding: 8px 18px 14px; }
-    .doc-item {
-      display: flex; align-items: center; gap: 8px; padding: 8px;
-      background: var(--bg-app); border-radius: 4px; margin-bottom: 6px;
-      border: 1px solid var(--border-light);
+    /* Regular-project documents use the same compact row system as code
+       files; only folders and dependency controls are absent. */
+    .regular-document-row { min-width: 0; }
+    .regular-document-info { display: block; }
+    .regular-document-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .regular-document-meta {
+      display: block; margin-top: 2px; color: var(--text-ghost);
+      font-size: 10px; font-weight: 400; direction: ltr; text-align: right;
     }
-    .doc-item-checkbox { width: 16px; height: 16px; cursor: pointer; }
-    .doc-item-icon { width: 20px; height: 20px; color: var(--text-faint); flex-shrink: 0; }
-    .doc-item-info { flex: 1; min-width: 0; }
-    .doc-item-name { font-size: 12px; font-weight: 500; color: var(--text-body); word-break: break-word; }
-    .doc-item-meta { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
-    .doc-item-preview { font-size: 11px; color: var(--text-faint); margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--border-light); max-height: 40px; overflow: hidden; }
-    .doc-item-delete { width: 20px; height: 20px; color: #c53030; cursor: pointer; opacity: 0.6; transition: opacity var(--t-fast); flex-shrink: 0; }
-    .doc-item-delete:hover { opacity: 1; }
+    .regular-document-snippet { display: none; }
+    .regular-document-delete {
+      width: 20px; height: 20px; flex-shrink: 0; border: none; background: none;
+      color: #c53030; cursor: pointer; border-radius: 4px; display: flex;
+      align-items: center; justify-content: center; opacity: .55;
+      transition: opacity var(--t-fast), background var(--t-fast);
+    }
+    .regular-document-delete svg { width: 14px; height: 14px; }
+    .regular-document-row:hover .regular-document-delete { opacity: 1; }
+    .regular-document-delete:hover { background: #fff1f1; }
 
     .doc-dialog { max-width: 500px; }
     .doc-tabs {

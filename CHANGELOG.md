@@ -2,6 +2,23 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-29 — Fix: regular-document preview integration
+
+Synced the regular-documents preview feature implementation across all modules. Regular documents (uploaded files, pasted text) now support inline preview via the same `openPreview` handler used by code-tree files, with extracted content passed via `contentOverride` parameter.
+
+- `code-tree.js#openPreview` — now accepts optional `contentOverride` parameter; when provided, uses it directly instead of calling `getCodeContents`. Falls back to `doc.content` for non-code documents when no override is given. Exported as `openDocumentPreview` alongside the existing code-tree export.
+- `history-view.js` — regular-project documents now render with the code-tree row styling (`.code-tree-row`, `.code-tree-checkbox`, etc.) instead of custom `.doc-item-*` classes. Each document row gained a preview button that calls `docHandler.getOrExtractContent`, then passes the result to `window.__ccbCodeTree.openDocumentPreview(doc, content)`.
+- `ui-template.js` — removed the now-unused URL input tab from the add-document dialog (URL documents were manually typed URLs only, no fetching; feature removed per user decision).
+- `ui-styles.js` — replaced `.doc-item-*` CSS with `.regular-document-*` modifiers on the shared `.code-tree-row` base class. Styling for delete button and hover states aligned with code-tree files.
+- `AGENT_CONTEXT.md` — updated "Last Changes" section.
+- Verified with `node --check` on all modified JS files and `git diff --check`.
+
+### 2026-07-29 — Onboarding guide: clearer starting path and visual hierarchy
+
+- `ui-template.js` — added a concise guide subtitle, a four-step quick-start path, and a compact explanation of the three main concepts (prompt, project, and general memory) before the existing feature-by-feature sections.
+- `ui-styles.js` — added a visually distinct quick-start card, numbered steps, concept cards, and section-header hover feedback. The existing collapsed-section, dismissal, and scroll behavior is unchanged.
+- Verified with `node --check ui-template.js`, `node --check ui-styles.js`, and `git diff --check`.
+
 ### 2026-07-28 — Advanced Options: reordered, widened to full panel width, compacted
 
 User specified the exact order for the "Advanced Options" popover (`#settingsBox`) and asked for it to span the panel's full width with more compact rows — confirmed two ambiguous points (where backup export/import go, and that "help" just meant the existing guide button) via clarifying questions before building.

@@ -442,13 +442,19 @@
     });
   }
 
-  async function openPreview(doc) {
+  async function openPreview(doc, contentOverride = null) {
     if (!doc) return;
     const shadow = _deps.getShadow?.();
     if (!shadow) return;
     try {
-      const map = await _deps.docHandler.getCodeContents([doc.id]);
-      const content = map.get(doc.id);
+      let content;
+      if (typeof contentOverride === "string") {
+        content = contentOverride;
+      } else if (doc.type === "code") {
+        content = (await _deps.docHandler.getCodeContents([doc.id])).get(doc.id);
+      } else {
+        content = doc.content || null;
+      }
       if (typeof content !== "string") {
         _deps.setStatus("לא נמצא תוכן לקובץ — ייתכן שנדרש רענון סריקה", true);
         return;
@@ -1016,6 +1022,7 @@
     init(deps) { _deps = deps; },
     renderInline,
     closeFilePreview,
+    openDocumentPreview: openPreview,
     closeDepsManager,
   };
 })();
