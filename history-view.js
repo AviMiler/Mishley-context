@@ -663,7 +663,9 @@
       const graphStartedAt = Date.now();
       proj.depGraph = await window.__ccbDepGraph.buildGraph(included);
       const graphMs = Date.now() - graphStartedAt;
-      await _deps.docHandler.syncCodeProjectDocuments(proj, included, dirHandle.name, _deps.setProgress);
+      const { removedManualFiles } = await _deps.docHandler.syncCodeProjectDocuments(
+        proj, included, dirHandle.name, _deps.setProgress,
+      );
       // Do NOT touch proj.title here — it's already set (folder name as the
       // default at creation, or whatever the user renamed it to via
       // renameProject). Rescanning is about files/structure, not the
@@ -674,9 +676,12 @@
       const saveMs = Date.now() - saveStartedAt;
       _deps.setProgress({ label: `נסרקו ${counts.included} קבצים`, done: counts.included, total: counts.included, state: "done" });
       _deps.clearProgress(2500);
-      _deps.setStatus(`נסרקו ${counts.included} קבצים ✓`);
+      let statusMsg = `נסרקו ${counts.included} קבצים ✓`;
+      if (removedManualFiles?.length) statusMsg += " · " + removedManualFilesMessage(removedManualFiles);
+      _deps.setStatus(statusMsg, !!removedManualFiles?.length);
       console.log("[ccb-timing] rescanCodeProject", {
         filesIncluded: counts.included,
+        manualFilesRemoved: removedManualFiles?.length || 0,
         permMs, graphMs, saveMs,
         totalMs: Date.now() - startedAt,
       });
@@ -685,6 +690,44 @@
       _deps.setProgress({ label: "שגיאה בסריקה מחדש", state: "error" });
       _deps.clearProgress(4000);
       _deps.setStatus("שגיאה בסריקה מחדש", true);
+      return;
+    }
+    _deps.render();
+  }
+
+  // Short, capped summary for a rescan's "manually-added file is no longer
+  // readable" notification — never lets a large batch of removed files blow
+  // up the status toast.
+  function removedManualFilesMessage(names) {
+    const shown = names.slice(0, 3).join(", ");
+    const extra = names.length > 3 ? ` ועוד ${names.length - 3}` : "";
+    return `⚠️ הוסרו קבצים שנוספו ידנית (לא נגישים יותר): ${shown}${extra}`;
+  }
+
+  // Manual file picking for code projects — lets the user attach individual
+  // files the folder scan wouldn't otherwise find (outside the bookmarked
+  // folder, or filtered out by extension/ignore rules), on top of the
+  // scanned tree. Must run from a real user gesture (button click) — that's
+  // what showOpenFilePicker() requires.
+  async function addManualCodeFiles(projectId) {
+    if (!window.showOpenFilePicker) {
+      _deps.setStatus("הדפדפן לא תומך בבחירת קבצים", true);
+      return;
+    }
+    let handles;
+    try {
+      handles = await window.showOpenFilePicker({ multiple: true });
+    } catch (e) {
+      return; // user cancelled the picker
+    }
+    if (!handles?.length) return;
+    _deps.setStatus("מוסיף קבצים...");
+    try {
+      const { added } = await _deps.docHandler.addManualCodeFiles(projectId, handles);
+      _deps.setStatus(added ? `נוספו ${added} קבצים ✓` : "לא נוספו קבצים", !added);
+    } catch (e) {
+      console.error("[history-view] Failed to add manual code files", e);
+      _deps.setStatus("שגיאה בהוספת קבצים", true);
       return;
     }
     _deps.render();
@@ -929,6 +972,11 @@
         const ignoreCount = (project.ignorePatterns || []).length;
         ignoreBtn.title = ignoreCount ? `קבצים/תיקיות להתעלמות (${ignoreCount})` : "קבצים/תיקיות להתעלמות";
         ignoreBtn.onclick = () => openIgnorePatternsDialog(project);
+      }
+      const addFileBtn = $el("codeProjectAddFileBtn");
+      if (addFileBtn) {
+        addFileBtn.style.display = project.isCodeProject ? "flex" : "none";
+        addFileBtn.onclick = () => addManualCodeFiles(project.id);
       }
       syncProjectDocumentsSection();
     } else {

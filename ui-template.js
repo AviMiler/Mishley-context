@@ -120,6 +120,7 @@ window.__ccbTpl = (() => {
               <span class="section-label">קבצים</span>
             </div>
             <div class="section-head-right">
+              <button id="codeProjectAddFileBtn" type="button" class="doc-refresh-btn" aria-label="הוסף קובץ ידנית" title="הוסף קובץ ידנית" style="display:none">${IC.plus}</button>
               <button id="codeProjectIgnoreBtn" type="button" class="doc-refresh-btn" aria-label="קבצים/תיקיות להתעלמות" title="קבצים/תיקיות להתעלמות" style="display:none">${IC.ban}</button>
               <button id="codeProjectRefreshBtn" type="button" class="doc-refresh-btn" aria-label="רענן" title="רענן" style="display:none">${IC.refresh}</button>
               <button id="projectAddDocumentBtn" type="button" class="gm-edit-btn">${IC.plus} הוסף</button>

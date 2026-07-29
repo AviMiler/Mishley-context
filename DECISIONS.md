@@ -1,5 +1,13 @@
 # Decisions
 
+## [2026-07-29] Manual code-project files: refresh silently on content change, only notify on deletion
+
+**Decision:** When a manually-added file is found to have changed content (or size/timestamp) during a rescan, silently refresh the file's content into the stored doc (`doc.content = await file.text()`, same as any scanned file receiving a normal update). Do NOT notify the user, do NOT remove the doc, and do NOT treat "changed" as a removal trigger. Only file deletion/inaccessibility (`FileSystemFileHandle.getFile()` throws) triggers doc removal + user notification.
+
+**Alternatives considered:** Treat any file content change as staleness, remove the doc, and notify the user — requiring deliberate re-add if the file was genuinely modified (not moved/deleted, just edited). This would have required storing comparison metadata (size/lastModified/hash) at manual-add time and detecting changes via that metadata on each rescan.
+
+**Why:** The File System Access API's `FileSystemFileHandle.getFile()` naturally produces fresh file content on every read (no opt-in needed to detect updates). Storing metadata specifically to treat change as a removal trigger would add complexity (extra storage, comparison logic) without a clear benefit — a manually-added file that's being edited is doing exactly what the user expects (the file updates, the project reflects the latest version). Deletion is unambiguous and warrants notification; changes are just normal workflow and should be transparent. This keeps the rescan logic simple and mirrors how scanned files handle updates (silently).
+
 ## [2026-07-28] Onboarding guide: extend existing modules, not a new `onboarding.js`
 **Decision:** Implement the Phase 5 onboarding guide entirely across the four pre-existing modules — static markup in `ui-template.js`, CSS in `ui-styles.js`, open/close/interaction logic in `ui-modals.js`, and storage (`ccb_onboardingSeen`) in `content.js` — rather than creating a new `onboarding.js` module.
 

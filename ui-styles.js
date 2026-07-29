@@ -2135,6 +2135,15 @@ window.__ccbCSS = (() => {
     .code-tree-deps-btn:hover, .code-tree-preview-btn:hover { background: var(--bg-clear); color: var(--text-strong); }
     .code-tree-children { display: flex; flex-direction: column; }
     .code-tree-children.collapsed { display: none; }
+    /* Manually-added files (addManualCodeFiles) — a flat list below the
+       scanned tree, separated by a small uppercase label, same visual
+       language as .code-tree-structure-row's separator above the tree. */
+    .code-tree-manual-label {
+      margin: 8px 0 4px; padding-top: 6px;
+      border-top: 1px solid var(--border-subtle);
+      color: var(--text-ghost); font-size: 10px; font-weight: 700; letter-spacing: .03em;
+    }
+    .code-tree-remove-btn:hover { background: #fff1f1; color: #c53030; }
     .code-tree-link-btn {
       background: none; border: none; padding: 0; cursor: pointer;
       color: var(--text-faint); font-size: 11px; font-family: var(--font-he);

@@ -6,7 +6,7 @@
 // Exposes: window.__ccbCodeTree
 //
 // Public API:
-//   init(deps)                  — { docHandler, getShadow, historyView, setStatus,
+//   init(deps)                  — { docHandler, getShadow, historyView, modals, setStatus,
 //                                    render, getCtxWindow }
 //   renderInline(project, mount) — (re)build the file tree inside `mount`
 //                                  (an element inside #projectDocumentsList)
@@ -326,11 +326,18 @@
     const structureDoc = (_project.documents || []).find((d) => d.type === "structure");
     if (structureDoc) _bodyEl.appendChild(renderStructureRow(structureDoc));
 
-    const docs = (_project.documents || []).filter((d) => d.type === "code");
+    const allDocs = (_project.documents || []).filter((d) => d.type === "code");
+    // Manually-added files (see addManualCodeFiles in document-handler.js)
+    // aren't part of the scanned folder structure, so they're kept out of
+    // buildTree()'s path hierarchy and rendered as a flat list below it
+    // instead — see renderManualFilesSection.
+    const scannedDocs = allDocs.filter((d) => !d.isManuallyAdded);
+    const manualDocs = allDocs.filter((d) => d.isManuallyAdded);
     const q = _query.trim().toLowerCase();
-    const filtered = q ? docs.filter((d) => matchesQuery(d.name, q)) : docs;
+    const filteredScanned = q ? scannedDocs.filter((d) => matchesQuery(d.name, q)) : scannedDocs;
+    const filteredManual = q ? manualDocs.filter((d) => matchesQuery(d.name, q)) : manualDocs;
 
-    if (!filtered.length) {
+    if (!filteredScanned.length && !filteredManual.length) {
       const empty = document.createElement("div");
       empty.className = "project-view-label";
       empty.style.color = "var(--text-faint)";
@@ -341,9 +348,100 @@
       return;
     }
 
-    const tree = buildTree(filtered);
-    renderNode(tree, _bodyEl, 0, !!q);
+    if (filteredScanned.length) {
+      const tree = buildTree(filteredScanned);
+      renderNode(tree, _bodyEl, 0, !!q);
+    }
+    if (filteredManual.length) renderManualFilesSection(filteredManual, _bodyEl);
+
     updateTokenCount();
+  }
+
+  // Flat list of manually-added files, always after the scanned tree. Each
+  // row mirrors a scanned file row (checkbox, preview) but swaps the
+  // dependency-menu button for a remove button — manual files aren't part
+  // of the dependency graph (buildGraph only sees files the folder scan
+  // discovered), and removal here is immediate/explicit rather than the
+  // scan-driven path-based cleanup that governs scanned files.
+  function renderManualFilesSection(docs, container) {
+    const label = document.createElement("div");
+    label.className = "code-tree-manual-label";
+    label.textContent = "קבצים שנוספו ידנית";
+    container.appendChild(label);
+
+    const sorted = [...docs].sort((a, b) => a.name.localeCompare(b.name));
+    for (const doc of sorted) {
+      const row = document.createElement("div");
+      row.className = "code-tree-row code-tree-manual-row";
+
+      const spacer = document.createElement("span");
+      spacer.className = "code-tree-spacer";
+      row.appendChild(spacer);
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "code-tree-checkbox";
+      checkbox.checked = !!doc.enabled;
+      checkbox.addEventListener("change", () => {
+        _deps.docHandler.toggleDocument(_project.id, doc.id, checkbox.checked);
+        _deps.render();
+      });
+      row.appendChild(checkbox);
+
+      const icon = document.createElement("span");
+      icon.className = "code-tree-icon";
+      icon.innerHTML = IC().file;
+      row.appendChild(icon);
+
+      const label2 = document.createElement("span");
+      label2.className = "code-tree-label";
+      label2.textContent = doc.name;
+      row.appendChild(label2);
+      row.title = doc.name;
+
+      const previewBtn = document.createElement("button");
+      previewBtn.type = "button";
+      previewBtn.className = "code-tree-preview-btn";
+      previewBtn.innerHTML = IC().eye;
+      previewBtn.title = "תצוגה מקדימה";
+      previewBtn.setAttribute("aria-label", "תצוגה מקדימה");
+      previewBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        void openPreview(doc);
+      });
+
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "code-tree-preview-btn code-tree-remove-btn";
+      removeBtn.innerHTML = IC().trash;
+      removeBtn.title = "הסר קובץ";
+      removeBtn.setAttribute("aria-label", "הסר קובץ");
+      removeBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const ok = await _deps.modals.showConfirm({
+          title: "הסרת קובץ",
+          msg: `להסיר את "${doc.name}" מהפרויקט?`,
+        });
+        if (!ok) return;
+        await _deps.docHandler.removeDocument(_project.id, doc.id);
+        await _deps.docHandler.removeCodeContent(doc.id);
+        if (doc.fileHandleId) window.__ccbFsHandles.remove(doc.fileHandleId).catch(() => {});
+        _deps.render();
+      });
+
+      const fileActions = document.createElement("span");
+      fileActions.className = "code-tree-file-actions";
+      fileActions.appendChild(previewBtn);
+      fileActions.appendChild(removeBtn);
+      row.appendChild(fileActions);
+
+      row.addEventListener("click", (e) => {
+        if (e.target === checkbox || previewBtn.contains(e.target) || removeBtn.contains(e.target)) return;
+        checkbox.checked = !checkbox.checked;
+        checkbox.dispatchEvent(new Event("change"));
+      });
+      container.appendChild(row);
+    }
   }
 
   function setAllEnabled(enabled) {

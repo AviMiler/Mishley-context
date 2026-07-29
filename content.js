@@ -411,6 +411,7 @@
       docHandler,
       getShadow,
       historyView,
+      modals,
       setStatus,
       render,
       getCtxWindow: () => state.ctxWindow,

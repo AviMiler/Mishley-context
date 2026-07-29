@@ -2,6 +2,21 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-29 — Feature: manual file-add for code projects
+
+Users can now manually select individual files to add to code projects (in addition to the automatic folder-scanning feature). New button `#codeProjectAddFileBtn` next to the refresh/ignore buttons in the code-project documents section header.
+
+- `document-handler.js` — new `addManualCodeFiles(projectId, fileHandles)`: reads each `FileSystemFileHandle`, dedupes by filename (numeric suffix on collision), persists handle in IndexedDB (`fh_manual_<docId>`), creates a `type:"code"` doc with `isManuallyAdded:true, fileHandleId`, batches storage writes, saves project once. Returns `{ added }`. Modified `syncCodeProjectDocuments`: new phase after normal scan checks each manually-added file via `fs-handles.get(doc.fileHandleId)` → `handle.getFile()` → `file.text()`. On success, silently refreshes content/tokens/size (no notification for mere changes, per user specification). On failure (file deleted/moved/permission denied), removes the doc + cleans up `codeContent_<id>` storage + the fs-handle, collects name in `removedManualFiles`. Excludes `isManuallyAdded` docs from the existing path-based matching/removal logic (would've been silently deleted on next rescan otherwise, since manual files often live outside the bookmarked folder). Returns `{ removedManualFiles }` appended to rescan toast and `[ccb-timing]` log.
+- `history-view.js` — new `#codeProjectAddFileBtn` button rendered in `renderProjectContext()` next to refresh/ignore. Feature-detects `showOpenFilePicker`, shows file picker, delegates to `docHandler.addManualCodeFiles`, shows status toast ("X קבצים נוספו"), re-renders. New `removedManualFilesMessage(names)` caps removal toast to 3 names + "ועוד N". `rescanCodeProject()` surfaces `removedManualFiles` in success toast and logs.
+- `code-tree.js` — `render()` now splits `type:"code"` docs: `scannedDocs` fed to existing `buildTree`/`renderNode` (unchanged), `manualDocs` rendered by new `renderManualFilesSection` as a flat list below the tree with a separator label. Manual rows get checkbox + preview (reusing `openPreview`) + NEW remove button (confirm dialog → `removeDocument` + `removeCodeContent` cleanup + `fsHandles.remove`). Manual rows deliberately omit "dependencies" button (out-of-project files have no deps to graph).
+- `content.js` — `window.__ccbCodeTree.init({...})` gained `modals` dep (needed for remove-button confirm dialog).
+- `ui-template.js` — new `#codeProjectAddFileBtn` (plus icon, same `.doc-refresh-btn` class) in `#projectDocumentsCard` header.
+- `ui-styles.js` — added `.code-tree-manual-label` (separator style), `.code-tree-remove-btn:hover` (red foreground for delete action).
+
+**Storage schema:** Two new optional fields on `type:"code"` docs (manually-added only): `isManuallyAdded: boolean`, `fileHandleId: string` (IndexedDB key). No migration — pre-existing docs simply lack these fields.
+
+**Verify:** `verify-agent` confirmed regression prevention (manual doc survives rescan, not silently deleted by path-based logic), no dangling handles/storage on either removal path, dedup-by-name termination, UI wiring consistency. Advisory: first use of `showOpenFilePicker` and first UI-driven `type:"code"` deletion — real-browser smoke test advisable. See [AGENT_CONTEXT.md](AGENT_CONTEXT.md).
+
 ### 2026-07-29 — Fix: regular-document preview integration
 
 Synced the regular-documents preview feature implementation across all modules. Regular documents (uploaded files, pasted text) now support inline preview via the same `openPreview` handler used by code-tree files, with extracted content passed via `contentOverride` parameter.
