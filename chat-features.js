@@ -34,6 +34,14 @@
   function renderGeneralMemory() {
     const card = $el("gmCard");
     if (!card) return;
+    // General Memory only shows in "no project" mode
+    const hasProject = !!_deps.state.currentProjectId;
+    if (hasProject) {
+      card.innerHTML = "";
+      card.style.display = "none";
+      return;
+    }
+    card.style.display = "";
     const GM_ID = _deps.config.GM_ID;
     const gm = getGM();
     const on = !!gm.autoLoad;
@@ -571,7 +579,10 @@
   let _qcQuery = "";
 
   function _qcCandidates() {
-    return Object.values(_deps.state.blocks).filter((b) => b && b.trigger);
+    const candidates = Object.values(_deps.state.blocks).filter((b) => b && b.trigger);
+    // Include general blocks + current project blocks; exclude other projects
+    const currentProjectId = _deps.state.currentProjectId;
+    return candidates.filter((b) => !b.projectId || b.projectId === currentProjectId);
   }
 
   function _qcRelevantSuffix(raw) {
