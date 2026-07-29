@@ -664,6 +664,11 @@
   }
 
   function _openQuickCommandMenu(el, query, matches) {
+    // If no matches, close the menu instead of showing "no matches" message
+    if (!matches.length) {
+      _closeQuickCommandMenu();
+      return;
+    }
     _qcQuery = query;
     _qcMatches = matches;
     _qcSelectedIndex = 0;
