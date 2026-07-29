@@ -1,5 +1,13 @@
 # Decisions
 
+## [2026-07-29] Manual-file dependencies: manual declaration only, not real import-resolution
+
+**Decision:** Give manually-added code-project files a "declare dependencies" capability by re-enabling the existing deps button/dependency-manager UI (`code-tree.js`), letting the user manually assert edges via the pre-existing `project.depGraphOverrides` mechanism. Do NOT feed manual files into `dep-graph.js#buildGraph` and do NOT attempt real import-resolution for them.
+
+**Alternatives considered:** Real auto-detection — feed manual files into `buildGraph()` (new call sites in `history-view.js`/`document-handler.js`) and resolve their imports for real. Since manual files are keyed by bare filename (no relative path under the bookmarked folder), this would have required computing a true relative path via `dirHandle.resolve(fileHandle)` when a manual file happens to live inside the bookmarked folder, plus deciding explicit fallback behavior for files genuinely elsewhere on disk (where relative-path resolution is structurally impossible).
+
+**Why:** Presented to the user as an explicit choice between the two paths (Stage 1 of `enforcing-coding-workflow`, since the request was genuinely ambiguous between them). User picked manual declaration explicitly for speed and because it reuses machinery that already exists and already works correctly for a path with no base-graph entry (`applyOverrides` merges override deltas onto an empty set with no special-casing needed) — same kind of two-real-engineering-paths tradeoff as the decision directly below, at the same bar for a DECISIONS.md entry.
+
 ## [2026-07-29] Manual code-project files: refresh silently on content change, only notify on deletion
 
 **Decision:** When a manually-added file is found to have changed content (or size/timestamp) during a rescan, silently refresh the file's content into the stored doc (`doc.content = await file.text()`, same as any scanned file receiving a normal update). Do NOT notify the user, do NOT remove the doc, and do NOT treat "changed" as a removal trigger. Only file deletion/inaccessibility (`FileSystemFileHandle.getFile()` throws) triggers doc removal + user notification.

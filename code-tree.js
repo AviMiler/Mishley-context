@@ -358,11 +358,14 @@
   }
 
   // Flat list of manually-added files, always after the scanned tree. Each
-  // row mirrors a scanned file row (checkbox, preview) but swaps the
-  // dependency-menu button for a remove button — manual files aren't part
-  // of the dependency graph (buildGraph only sees files the folder scan
-  // discovered), and removal here is immediate/explicit rather than the
-  // scan-driven path-based cleanup that governs scanned files.
+  // row mirrors a scanned file row (checkbox, preview, deps menu) plus a
+  // remove button — removal here is immediate/explicit rather than the
+  // scan-driven path-based cleanup that governs scanned files. The deps menu
+  // works for manual files too, but only via manually-declared overrides
+  // (project.depGraphOverrides, see the dependency manager) — buildGraph
+  // itself is still only ever run over the scanned folder's `included` set,
+  // so a manual file starts with zero auto-detected edges (see openDepsMenu's
+  // isManuallyAdded-aware copy, which explains the "(0)" isn't a failure).
   function renderManualFilesSection(docs, container) {
     const label = document.createElement("div");
     label.className = "code-tree-manual-label";
@@ -410,6 +413,17 @@
         void openPreview(doc);
       });
 
+      const depsBtn = document.createElement("button");
+      depsBtn.type = "button";
+      depsBtn.className = "code-tree-deps-btn";
+      depsBtn.innerHTML = IC().link;
+      depsBtn.title = "אפשרויות תלויות (ציון ידני בלבד — קובץ שנוסף ידנית אינו נסרק אוטומטית)";
+      depsBtn.setAttribute("aria-label", "אפשרויות תלויות");
+      depsBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openDepsMenu(doc, depsBtn);
+      });
+
       const removeBtn = document.createElement("button");
       removeBtn.type = "button";
       removeBtn.className = "code-tree-preview-btn code-tree-remove-btn";
@@ -432,11 +446,12 @@
       const fileActions = document.createElement("span");
       fileActions.className = "code-tree-file-actions";
       fileActions.appendChild(previewBtn);
+      fileActions.appendChild(depsBtn);
       fileActions.appendChild(removeBtn);
       row.appendChild(fileActions);
 
       row.addEventListener("click", (e) => {
-        if (e.target === checkbox || previewBtn.contains(e.target) || removeBtn.contains(e.target)) return;
+        if (e.target === checkbox || previewBtn.contains(e.target) || depsBtn.contains(e.target) || removeBtn.contains(e.target)) return;
         checkbox.checked = !checkbox.checked;
         checkbox.dispatchEvent(new Event("change"));
       });
@@ -725,10 +740,16 @@
     // dependency of a dependency isn't something this file itself depends
     // on). Tooltips spell this out — reported as confusing when the two
     // numbers didn't match ("3 outside, 2 direct inside").
+    // Manual files never get scan-detected edges (buildGraph only sees the
+    // scanned folder's `included` set) — a "(0)" here is a correct "nothing
+    // declared yet", not a failed analysis. The suffix on each tooltip makes
+    // that distinction explicit instead of leaving it to look like the deps
+    // feature silently doesn't work for these files.
+    const manualNote = doc.isManuallyAdded ? " (קובץ שנוסף ידנית — רק תלויות שסומנו ידנית ב'ניהול תלויות' יופיעו כאן)" : "";
     dd.innerHTML = "";
-    dd.appendChild(mkItem(ic.link, `תלויות${countLabel(depsCount)}`, () => { closeDepsMenu(); loadWithDependencies(doc, "dependencies"); }, "טוען את כל שרשרת התלויות של הקובץ — כולל תלויות של תלויות, לא רק ישירות"));
-    dd.appendChild(mkItem(ic.download, `תלויים${countLabel(dependentsCount)}`, () => { closeDepsMenu(); loadWithDependencies(doc, "dependents"); }, "קבצים שתלויים ישירות בקובץ הזה"));
-    dd.appendChild(mkItem(ic.context, `הקשר מלא${countLabel(fullCount)}`, () => { closeDepsMenu(); loadWithDependencies(doc, "full"); }, "כל שרשרת התלויות (כולל עקיפות) יחד עם התלויים הישירים"));
+    dd.appendChild(mkItem(ic.link, `תלויות${countLabel(depsCount)}`, () => { closeDepsMenu(); loadWithDependencies(doc, "dependencies"); }, "טוען את כל שרשרת התלויות של הקובץ — כולל תלויות של תלויות, לא רק ישירות" + manualNote));
+    dd.appendChild(mkItem(ic.download, `תלויים${countLabel(dependentsCount)}`, () => { closeDepsMenu(); loadWithDependencies(doc, "dependents"); }, "קבצים שתלויים ישירות בקובץ הזה" + manualNote));
+    dd.appendChild(mkItem(ic.context, `הקשר מלא${countLabel(fullCount)}`, () => { closeDepsMenu(); loadWithDependencies(doc, "full"); }, "כל שרשרת התלויות (כולל עקיפות) יחד עם התלויים הישירים" + manualNote));
     const sep = document.createElement("div");
     sep.className = "hd-sep";
     dd.appendChild(sep);

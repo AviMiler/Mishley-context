@@ -2,6 +2,15 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-29 — Feature: dependency-declaration button re-enabled for manually-added files
+
+Manually-added code-project files (see the feature right below) can now have dependencies manually declared for them, via the same "אפשרויות תלויות" menu/"ניהול תלויות" screen scanned files already have. Previously omitted by deliberate design (`dep-graph.js#buildGraph` only ever sees the scanned-folder array, so a manual file — possibly outside the bookmarked folder — could never get an auto-detected edge). User asked for it to work anyway; Stage 1 found a genuine two-path ambiguity and got the user's explicit choice: **manual-declaration only** (reuse the existing `project.depGraphOverrides` mechanism) over real auto-detection (would've needed `buildGraph`/path-resolution changes).
+
+- `code-tree.js` — `renderManualFilesSection`: added a `depsBtn` per manual row, identical construction to the scanned-row deps button, calling the same `openDepsMenu(doc, depsBtn)`. Tooltip: "אפשרויות תלויות (ציון ידני בלבד — קובץ שנוסף ידנית אינו נסרק אוטומטית)". Row click-guard extended to exclude it. `openDepsMenu` now appends a `manualNote` to its three tooltip texts when `doc.isManuallyAdded`, so a legitimate `(0)` transitive/dependents/full-context count reads as "nothing declared yet" rather than "broken."
+- No changes to `dep-graph.js`, `document-handler.js`, `history-view.js`, `ui-styles.js`, `ui-template.js` — confirmed via `git diff --stat` that scope held exactly to the user's chosen option, no `buildGraph()` call site added, no import-resolution work.
+
+**Verify:** `verify-agent` Go — independently re-traced `openDepsMenu → effectiveGraph → applyOverrides → getTransitiveClosure/getDirectDependents/getFullContext`, confirmed all generic (plain-object/Set fallbacks for absent keys), so a manual doc with no scan-graph entry produces empty closures safely with no throw risk. Confirmed click-guard excludes all three action buttons. ~21 net lines, no dead code, no code-quality concerns. See [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md).
+
 ### 2026-07-29 — Feature: manual file-add for code projects
 
 Users can now manually select individual files to add to code projects (in addition to the automatic folder-scanning feature). New button `#codeProjectAddFileBtn` next to the refresh/ignore buttons in the code-project documents section header.
