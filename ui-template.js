@@ -104,9 +104,6 @@ window.__ccbTpl = (() => {
             <div id="noProjectHint" style="display:none" class="context-hint">
               <div class="hint-text">תקף לכל הפרויקטים</div>
             </div>
-            <div id="projectHint" style="display:none" class="context-hint">
-              <div class="hint-text">תקף רק לפרויקט זה</div>
-            </div>
 
             <div id="gmCard"></div>
 

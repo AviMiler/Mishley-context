@@ -923,12 +923,10 @@
       btn.setAttribute("aria-label", collapsed ? "פתח פרומפטים" : "סגור פרומפטים");
     }
 
-    // Show/hide context hints based on project selection
+    // Show context hint only in "no project" mode
     const hasProject = !!state.currentProjectId;
     const noProjectHint = $el("noProjectHint");
-    const projectHint = $el("projectHint");
-    if (noProjectHint) noProjectHint.style.display = hasProject ? "none" : "flex";
-    if (projectHint) projectHint.style.display = hasProject ? "flex" : "none";
+    if (noProjectHint) noProjectHint.style.display = hasProject ? "none" : "block";
   }
 
   // ============================================================
