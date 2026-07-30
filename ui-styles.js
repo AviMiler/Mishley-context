@@ -2096,6 +2096,12 @@ window.__ccbCSS = (() => {
     /* Code project file tree — rendered inline inside the open project's
        documents section (#projectDocumentsList), owned by code-tree.js. */
     .code-tree-actions { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+    /* .dp-actions reuses .code-tree-actions/.code-tree-link-btn verbatim for
+       the custom deps picker's "בחר הכל"/"נקה הכל" pair, but sits directly
+       inside .cv-shell (a full-pane view) rather than the inline tree's own
+       padded mount container, so it needs its own horizontal padding to
+       match the header/search bars above/below it. */
+    .dp-actions { padding: 10px 18px 0; margin-bottom: 0; }
     .code-tree-search-wrap { margin-bottom: 10px; }
     .code-tree-body {
       border: 1px solid var(--border-light); border-radius: 6px; padding: 6px;

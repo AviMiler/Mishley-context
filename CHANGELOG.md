@@ -2,6 +2,10 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-30 — Small addition: "בחר הכל"/"נקה הכל" buttons in the "התאמה אישית" (custom) dependency picker
+
+Added a select-all/clear-all button pair to the custom picker described directly below, mirroring the main inline file tree's own existing `.code-tree-actions`/`setAllEnabled` pattern. `ui-template.js` (`.dp-actions` row with `#dpSelectAll`/`#dpSelectNone`), `ui-styles.js` (one additive CSS rule), `code-tree.js` (`wireDepPickerOnce` — select-all sets `_dpPicked` to every current direct+indirect candidate, including ignore-listed indirect files; clear-all empties it; both re-render). 30 lines across 3 files. Stage 1 found no ambiguity (direct precedent already in the codebase). `verify-agent` Go. Not yet browser-verified.
+
 ### 2026-07-30 — Feature: "התאמה אישית" (custom) per-file dependency-candidate picker in the dependency-loading menu (4th feature, same-day batch; scope corrected same day — see below)
 
 User asked for a 5th `openDepsMenu` item that opens a full-pane view "similar to the management window, with all the files," lets the user check what they want, and a Save button that marks those files in the tree — without saving anything as a permanent preset. Stage 1 (`spec-doc-agent`) flagged a genuine ambiguity with real data-loss risk — additive (only turn ON the checked files) vs. full-replace (checked set becomes the entire enabled set, turning everything else off) — and relayed the exact question to the coordinator; user confirmed **additive**, matching the other 4 menu options exactly.

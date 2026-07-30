@@ -578,6 +578,11 @@ window.__ccbTpl = (() => {
           </div>
         </div>
 
+        <div class="code-tree-actions dp-actions">
+          <button id="dpSelectAll" type="button" class="code-tree-link-btn">בחר הכל</button>
+          <button id="dpSelectNone" type="button" class="code-tree-link-btn">נקה הכל</button>
+        </div>
+
         <div class="fp-body-wrap dm-body-wrap" id="dpBody"></div>
 
         <div class="cv-footer">

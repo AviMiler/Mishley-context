@@ -1595,6 +1595,25 @@
     if (!shadow) return;
     const saveBtn = shadow.getElementById("dpSaveBtn");
     saveBtn?.addEventListener("click", () => void saveDepPicker());
+    const selectAllBtn = shadow.getElementById("dpSelectAll");
+    selectAllBtn?.addEventListener("click", () => {
+      if (!_dpDoc) return;
+      // Explicit "select all" always means literally everything currently
+      // shown — including an indirect file that started unchecked because
+      // it's on this path's load-ignore list. That default is a suggestion,
+      // not a limit on what this one click can select.
+      const { direct, indirect } = dpComputeCandidates(_dpDoc);
+      _dpPicked = new Set([
+        ...direct.map((d) => d.path),
+        ...indirect.map((d) => d.path),
+      ]);
+      renderDepPicker();
+    });
+    const selectNoneBtn = shadow.getElementById("dpSelectNone");
+    selectNoneBtn?.addEventListener("click", () => {
+      _dpPicked = new Set();
+      renderDepPicker();
+    });
   }
 
   async function saveDepPicker() {
