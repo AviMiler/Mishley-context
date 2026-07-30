@@ -917,16 +917,31 @@
       state.blocks[state.currentConversationId]
     ) {
       const block = state.blocks[state.currentConversationId];
-      const prev = Array.isArray(block.messages) ? block.messages : [];
+      // Change detection WITHOUT reading the stored messages back: compare the
+      // message count and the last message's length, both of which are kept on
+      // the block as metadata precisely so this 2.5s tick never has to touch
+      // conv_<id> just to decide it has nothing to do. Slightly weaker than
+      // the old last-message-text equality (an edit that preserves the exact
+      // length reads as "no change"), which is acceptable here — the previous
+      // check was already an approximation over the last message only, and a
+      // streaming response changes length on essentially every tick.
+      const lastLen = _deps.lastMessageLength(messages);
       if (
-        prev.length === messages.length &&
-        prev[prev.length - 1]?.text === messages[messages.length - 1]?.text
+        block.messageCount === messages.length &&
+        block.lastMsgLen === lastLen
       ) {
         return false; // no change
       }
-      block.messages = messages;
+      // Messages go to their own key; the block keeps metadata only, so this
+      // write no longer re-serializes every other conversation in the profile.
+      const ok = await _deps.saveConvMessages(block.id, messages);
+      if (!ok) return false;
+      state.convCache.set(block.id, messages);
       block.messageCount = messages.length;
+      block.lastMsgLen = lastLen;
       block.updated = Date.now();
+      // Defensive: strip any inline copy left by a pre-v2 block.
+      if (block.messages) delete block.messages;
       await _deps.saveBlocks();
       return true;
     }
@@ -940,14 +955,17 @@
     const currentProject = _deps.historyView.getProjectById(state.currentProjectId);
     const projectId = currentProject ? state.currentProjectId : null;
     const id = "b_" + Date.now() + "_conv";
+    const ok = await _deps.saveConvMessages(id, messages);
+    if (!ok) return false;
+    state.convCache.set(id, messages);
     state.blocks[id] = {
       id,
       title: autoTitle,
-      messages,
       kind: "conversation",
       projectId,
       updated: Date.now(),
       messageCount: messages.length,
+      lastMsgLen: _deps.lastMessageLength(messages),
       savedAt: Date.now(),
     };
     state.currentConversationId = id;

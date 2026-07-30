@@ -159,9 +159,19 @@
     "Files loaded",
   ]);
 
+  // Stays SYNCHRONOUS on purpose. Since A1 the messages live in `conv_<id>`
+  // rather than inline on the block, but rather than turn every reader async,
+  // the few entry points that open/inject/search a conversation await
+  // _deps.ensureConvMessages(b) first, which populates state.convCache — and
+  // everything downstream (this, renderConversationMessages, the selection
+  // handlers) still just reads. `b.messages` is only ever present on a block
+  // that predates the v2 migration, and wins while it is.
   function buildHistoryMessages(b) {
-    if (Array.isArray(b.messages) && b.messages.length) {
-      return b.messages.filter(
+    const raw = Array.isArray(b.messages)
+      ? b.messages
+      : _deps.state.convCache.get(b.id);
+    if (Array.isArray(raw) && raw.length) {
+      return raw.filter(
         (m) =>
           !(m && m.role === "ai" && INJECTION_AUTORESPONSES.has((m.text || "").trim())),
       );
@@ -373,11 +383,17 @@
     //   to the same query so highlights appear, and scroll to the matched
     //   message. Re-clicking a different message hit on the same conversation
     //   re-scrolls without closing.
-    row.addEventListener("click", () => {
+    // Async since A1: openConversationView now loads the conversation's
+    // messages from `conv_<id>` first. The search-hit branch below MUST await
+    // it — renderConversationMessages/scrollToMessageIndex operate on the DOM
+    // that opening the view produces. (In practice the await is instant here:
+    // a content-search hit only exists because the search already pulled that
+    // conversation into state.convCache.)
+    row.addEventListener("click", async () => {
       const isMessageHit = kind === "message" && messageIndex != null;
       if (isMessageHit) {
         if (_deps.state.currentConversationViewId !== b.id) {
-          openConversationView(b, { openedFromProject });
+          await openConversationView(b, { openedFromProject });
         }
         const cvSearch = $el("cvSearch");
         if (cvSearch && searchQuery && cvSearch.value !== searchQuery) {
@@ -390,7 +406,7 @@
       if (_deps.state.currentConversationViewId === b.id) {
         closeConversationView();
       } else {
-        openConversationView(b, { openedFromProject });
+        await openConversationView(b, { openedFromProject });
       }
     });
 
@@ -606,7 +622,10 @@
       // graph itself is just path strings, so it stays cheap to persist.
       _deps.setProgress({ phase: "graph", done: included.length, total: included.length });
       const graphStartedAt = Date.now();
-      _deps.state.blocks[id].depGraph = await window.__ccbDepGraph.buildGraph(included);
+      // A2: the graph goes to its own `depGraph_<projectId>` key, not onto the
+      // block. It only ever changes on a scan, so keeping it inline meant
+      // every unrelated saveBlocks() re-serialized megabytes of path strings.
+      await _deps.saveDepGraph(id, await window.__ccbDepGraph.buildGraph(included));
       const graphMs = Date.now() - graphStartedAt;
       await _deps.docHandler.syncCodeProjectDocuments(
         _deps.state.blocks[id], included, dirHandle.name, _deps.setProgress,
@@ -672,7 +691,9 @@
       });
       _deps.setProgress({ phase: "graph", done: included.length, total: included.length });
       const graphStartedAt = Date.now();
-      proj.depGraph = await window.__ccbDepGraph.buildGraph(included);
+      // A2 — see createCodeProjectBookmark. Written on scan only.
+      await _deps.saveDepGraph(proj.id, await window.__ccbDepGraph.buildGraph(included));
+      if (proj.depGraph) delete proj.depGraph; // strip any pre-v2 inline copy
       const graphMs = Date.now() - graphStartedAt;
       const { removedManualFiles } = await _deps.docHandler.syncCodeProjectDocuments(
         proj, included, dirHandle.name, _deps.setProgress,
@@ -853,6 +874,9 @@
     unlinkProjectChildren(project.id);
     if (_deps.state.currentProjectId === project.id) await setActiveProjectId(null);
     await _deps.saveBlocks();
+    // A2: a regular project has no scanned graph, but one may exist from
+    // before it was converted — removing a key that isn't there is a no-op.
+    await _deps.removeDepGraph(project.id);
     _deps.render();
   }
 
@@ -880,6 +904,9 @@
     await Promise.all(
       codeDocIds.map((id) => _deps.docHandler.removeCodeContent(id).catch(() => {})),
     );
+    // A2: the scanned graph lives in its own key and would otherwise outlive
+    // the project it belongs to.
+    await _deps.removeDepGraph(project.id);
     _deps.render();
   }
 
@@ -1031,7 +1058,7 @@
   // ============================================================
   // Conversation preview panel
   // ============================================================
-  function openConversationView(b, { openedFromProject = false } = {}) {
+  async function openConversationView(b, { openedFromProject = false } = {}) {
     if (!b) return;
 
     // This view, the file-preview full-pane view, the dependency manager
@@ -1043,6 +1070,10 @@
     window.__ccbCodeTree?.closeDepPicker?.();
     window.__ccbModals?.closeOnboarding?.();
     _deps.state.cvOpenedFromProject = !!openedFromProject;
+
+    // A1: pull this conversation's messages into state.convCache before any
+    // of the synchronous readers below run.
+    await _deps.ensureConvMessages(b);
 
     const messages = buildHistoryMessages(b);
     _deps.state.currentConversationViewId = b.id;
@@ -1343,6 +1374,10 @@
       });
       if (!ok) return;
       delete _deps.state.blocks[b.id];
+      // A1: the messages are their own storage key now — deleting the block
+      // alone would orphan them permanently.
+      _deps.forgetConvMessages(b.id);
+      await _deps.removeConvMessages(b.id);
       await _deps.saveBlocks();
       renderHistoryList();
     });
@@ -1404,6 +1439,27 @@
     if (cb) cb.checked = !!_deps.state.historyShowAll;
   }
 
+  // Batched background load backing the async content search above. Guarded
+  // by a token so a superseded query (the user kept typing) neither reports
+  // progress nor forces a re-render over the newer one's results.
+  let _contentSearchToken = 0;
+
+  async function loadConversationsForSearch(blocks, q) {
+    const token = ++_contentSearchToken;
+    const label = "טוען שיחות לחיפוש…";
+    _deps.setProgress({ phase: "load", label, done: 0, total: 0 });
+    await _deps.ensureConvMessagesMany(blocks, (done, total) => {
+      if (token !== _contentSearchToken) return;
+      _deps.setProgress({ phase: "load", label, done, total });
+    });
+    if (token !== _contentSearchToken) return;
+    _deps.clearProgress(400);
+    const current = ($el("searchHistory")?.value || "").trim().toLowerCase();
+    if (current === q && _deps.state.historySearchMode !== "title") {
+      renderHistoryList();
+    }
+  }
+
   function renderHistoryList() {
     const state = _deps.state;
     if (state.currentProjectId && !getProjectById(state.currentProjectId)) {
@@ -1436,6 +1492,11 @@
     }
 
     const rows = [];
+    const isContentSearch = !!q && state.historySearchMode !== "title";
+    // Outside an active content search nothing here needs message bodies, so
+    // release whatever the last search pulled in (see trimConvCache).
+    if (!isContentSearch) _deps.trimConvCache();
+
     if (!q) {
       for (const b of all) rows.push({ block: b, kind: "conversation" });
     } else if (state.historySearchMode === "title") {
@@ -1444,8 +1505,23 @@
           rows.push({ block: b, kind: "conversation" });
       }
     } else {
+      // Content search (A1). Messages are no longer resident in memory, so the
+      // conversations in scope have to be read from their own keys first. That
+      // load is async and batched; meanwhile this pass renders hits from
+      // whatever is already cached, and the load re-renders when it finishes —
+      // so the list fills in progressively instead of blocking the panel.
+      // Cost is paid only when the user actually types a content query, and
+      // only over the conversations already narrowed by the project filter.
+      const pending = all.filter(
+        (b) => !Array.isArray(b.messages) && !state.convCache.has(b.id),
+      );
+      if (pending.length) loadConversationsForSearch(all, q);
+
       for (const b of all) {
-        for (const [index, m] of (b.messages || []).entries()) {
+        const stored = Array.isArray(b.messages)
+          ? b.messages
+          : state.convCache.get(b.id) || [];
+        for (const [index, m] of stored.entries()) {
           const text = (m?.text || "").trim();
           if (!text) continue;
           let fromIndex = 0;

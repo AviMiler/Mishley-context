@@ -140,7 +140,7 @@ state: {
 
 Both `INJECTION_AUTORESPONSES` sets still list `"Files loaded."` too, but it's dead for anything captured after 2026-07-22: `FRAMING_DOCS_POST` no longer instructs a canned reply (see "`FRAMING_DOCS_POST` wording" under "Runtime config keys patched by prompts.js"), so the model never says it for new injections. Kept only in `history-view.js`'s copy, which is explicitly for filtering **legacy** saved blocks from before the change.
 
-One conversation block per page load. The first message in a fresh chat creates a `kind: "conversation"` block with a default title (`שיחה — date time`) and stores its id in `state.currentConversationId`. Every subsequent message triggers an auto-save (debounced 2.5s) that **updates the same block** in place — no new block is created. The binding is cleared in two ways:
+One conversation block per page load. The first message in a fresh chat creates a `kind: "conversation"` block with a default title (`שיחה — date time`) and stores its id in `state.currentConversationId`. Every subsequent message triggers an auto-save (debounced 2.5s) that **updates the same block** in place — no new block is created. Since Storage layout v2 (2026-07-30, see "Storage shape"), the block itself holds only `messageCount`/`lastMsgLen`/`savedAt`; the actual `messages[]` is written to its own `conv_<id>` key. The binding is cleared in two ways:
 
 - **Page refresh** — content scripts reload, `state.currentConversationId` is null again, next message creates a new block.
 - **SPA navigation** (URL change) — the `ccb:urlchange` handler in `content.js` explicitly clears `state.currentConversationId`.
@@ -254,6 +254,9 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | `chrome.storage.local.ccb_scanSettings`          | content.js | `{ denyDirs, denyFilenames, codeExtensions, maxFileSizeKb }` — the GLOBAL code-project scan rules (see below)                                                                                                                                                                                          |
 | `chrome.storage.local.ccb_autoInjectModeGm`      | content.js | `"start"` \| `"every"` — WHEN General Memory auto-injects (conversation start vs prepended to every outgoing message). Loaded by `loadAutoInjectMode()` **before the first `tryAutoInject()`**, written by `setAutoInjectMode("gm", mode)`. See "Per-message auto-inject" in the chat-features section |
 | `chrome.storage.local.ccb_autoInjectModeProject` | content.js | Same, for the active project's instructions — independent of GM's mode (2026-07-22 split). Written by `setAutoInjectMode("project", mode)`. If neither new key is set yet, `loadAutoInjectMode()` seeds both from the pre-split single key (`ccb_autoInjectMode`) as a one-time migration              |
+| `chrome.storage.local.ccb_storageVersion`        | storage.js / content.js | `number`, currently `2`. Guards the one-time `content.js#migrateStorageV2` split of the (formerly single, ~138MB for one real user) `blocks` map into the per-item keys below — see "Storage shape"'s "Storage layout v2" paragraph for the full rationale. Importing a v1 backup rewinds this to `1` so the migration re-runs. |
+| `chrome.storage.local["conv_<id>"]`              | storage.js | one conversation's `messages[]` (2026-07-30, Storage layout v2) — `storage.js#loadConvMessages`/`saveConvMessages`/`removeConvMessages`, plus batched `loadConvMessagesBatch(ids)` |
+| `chrome.storage.local["depGraph_<projectId>"]`   | storage.js | one code project's scanned import graph (2026-07-30, Storage layout v2) — `storage.js#loadDepGraph`/`saveDepGraph`/`removeDepGraph`, written only on scan |
 
 ## content.js — function index
 
@@ -708,30 +711,45 @@ Dedupes by content fingerprint (length + first/last 80 chars). Gated to the acti
 
 ## Storage shape
 
-All data lives under `chrome.storage.local["blocks"]` as a flat object:
+**Storage layout v2 (2026-07-30).** Historically all data lived under `chrome.storage.local["blocks"]` as a single flat object, including a conversation's full `messages[]` and a code project's entire scanned `depGraph`. For one real user that key reached ~138MB, and `storage.js#saveBlocks` (`chrome.storage.local.set({ blocks })`) re-serializes/rewrites the WHOLE map on every call — ~30 call sites, including the 2.5s conversation auto-save tick and every file checkbox in the code tree — so the panel froze on ordinary use. `messages[]` and `depGraph` now live in their own per-item keys (mirroring the pre-existing `codeContent_<id>`/`docBlob_<id>` precedent below), and `blocks` holds metadata only:
 
 ```js
 {
   "b_<timestamp>_<rand>": {
     id, title,
     content?: string,                          // legacy summary blocks / project instructions
-    messages?: [{role:"user"|"ai", text}],     // full-conversation blocks
     kind?: "conversation" | "general_memory" | "project",  // "ctx-project" retired (migrated to "project")
     projectId?: string | null,                 // only on conversation / project-owned text blocks
     updated: number,
     pinned?: boolean,
     autoLoad?: boolean,                        // only on GM_ID block
 
+    // kind: "conversation" only (Storage layout v2) — messages[] moved to its own key, see below
+    messageCount?: number,
+    lastMsgLen?: number,                        // change-detection field, see below
+    savedAt?: number,
+
     // kind: "project" only
     documents?: Document[],                    // see Document shape below
     isCodeProject?: boolean,                   // true for folder-backed projects
     dirHandleId?: string,                      // key into __ccbFsHandles (IndexedDB), == block id
     lastScanned?: number | null,               // timestamp of last scanCodeProject run
-    depGraph?: { [relativePath: string]: string[] }, // built by dep-graph.js#buildGraph
+    depGraphOverrides?: object,                 // manual per-file edits, stays on the block — see below
     ignorePatterns?: string[],                 // user-defined file/folder names or *-globs excluded from scanCodeProject; edited via openIgnorePatternsDialog
   }
 }
 ```
+
+Per-item keys (`storage.js`):
+
+- **`conv_<id>`** — the conversation's `messages[]` (`[{role:"user"|"ai", text}]`). `loadConvMessages(id)` / `saveConvMessages(id, messages)` / `removeConvMessages(ids)`, plus a batched `loadConvMessagesBatch(ids)` (one round-trip for many conversations — what makes async content-search affordable instead of one `get` per conversation). `content.js#persistConversation`'s no-op check compares the block's `messageCount`+`lastMsgLen` instead of re-reading message text, so the debounce tick never has to load messages back off disk just to decide there's nothing to do.
+- **`depGraph_<projectId>`** — the code project's scanned import graph (`{ [relativePath]: string[] }`, same shape as before, just relocated). `loadDepGraph(projectId)` / `saveDepGraph(projectId, graph)` / `removeDepGraph(projectId)`, written only on scan (`createCodeProjectBookmark`, `rescanCodeProject`). `depGraphOverrides` (see below) is unaffected and stays on the block.
+
+**Lazy loading + the synchronous-reader tradeoff:** `content.js#state.convCache` (a per-tab `Map`) plus `ensureConvMessages`/`ensureConvMessagesMany`/`forgetConvMessages`/`trimConvCache` load a conversation's messages on demand and cache them for the tab's lifetime. `history-view.js#buildHistoryMessages(b)` was deliberately kept **synchronous** — it reads `b.messages || state.convCache.get(b.id)` (the `b.messages` branch exists only for defense against any code path that hasn't been touched by the migration, which should be none in practice) — so the async blast radius is limited to the 3 real entry points that need to `await` a load first: `history-view.js#openConversationView`, the History row click handler, and content-search (`ensureConvMessagesMany`). Every other reader of a conversation's messages is unchanged. See DECISIONS.md for why this shape was chosen over making every reader async.
+
+**Migration.** `content.js#migrateStorageV2` runs inside `loadBlocks()` immediately after the pre-existing `migrateCtxProjects()` (idempotent, guarded by `chrome.storage.local["ccb_storageVersion"]`, see "Storage keys used"). It processes the existing v1 `blocks` map in batches of 50: for each batch, it writes the batch's `conv_<id>`/`depGraph_<projectId>` keys first, and only then strips the inline `messages`/`depGraph` fields from those blocks — so an interruption mid-migration can leave a conversation's data in both places, never in neither. Runs automatically on first load (not as an explicit user-triggered action — confirmed with the user during Stage 1 given the progress indicator already existed to cover a long-running operation like this). Progress shown via the existing `setProgress`/`clearProgress` indicator. Real-browser verification against the user's actual ~138MB profile is still pending as of 2026-07-30 (see AGENT_CONTEXT.md).
+
+**`saveBlocks()` coalescing.** Now a trailing 150ms throttle (the timer is not reset on subsequent calls within the window, the same pattern already used by `chat-features.js#scheduleAutoSave`), returning a shared promise so multiple close-together callers await the same write. `flushSaveBlocks()` bypasses the throttle for cases that must not be delayed: the migration, backup import, and a fire-and-forget call on `beforeunload`.
 
 **Document shape** (`project.documents[]`):
 

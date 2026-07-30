@@ -37,8 +37,8 @@
   } = window.__ccbRawConfig;
 
   const CONFIG_PUBLIC = { AUTO_OPEN_URLS, SEND_BUTTON_SELECTOR, SIDEBAR_WIDTH };
-  const { loadBlocks: _loadBlocks, saveBlocks: _saveBlocks } =
-    window.__ccbStorage;
+  const storage = window.__ccbStorage;
+  const { loadBlocks: _loadBlocks, saveBlocks: _saveBlocks } = storage;
   const ccbInject = window.__ccbInject;
   const { pushPage } = window.__ccbPush;
   const CSS = window.__ccbCSS;
@@ -99,6 +99,14 @@
     // Cleared on URL change (SPA new chat); page refresh naturally resets it
     // because content scripts re-execute.
     currentConversationId: null,
+    // In-memory cache of conversation messages, keyed by conversation id.
+    // Since A1 the messages live in their own `conv_<id>` storage key rather
+    // than inline on the block, so anything that wants to READ them must load
+    // them first (ensureConvMessages / ensureConvMessagesMany). This cache is
+    // what keeps buildHistoryMessages() synchronous — only the few entry
+    // points that open/inject/search a conversation await the load; every
+    // downstream reader still just reads. Transient, per tab.
+    convCache: new Map(),
     // Undo stack for the chat input's own text box (Phase 4.1). Array of
     // injection ids, oldest first — each undo click pops the most recent one
     // and surgically removes just that block's marked text from the box (see
@@ -194,16 +202,212 @@
     if (changed) await saveBlocks();
   }
 
+  // ============================================================
+  // Storage v2 migration — split the one giant `blocks` key
+  // ============================================================
+  // Until v2, a conversation's messages[] and a code project's depGraph were
+  // stored INLINE on their block. Since `blocks` is a single storage key that
+  // is rewritten in full on every saveBlocks(), that meant the 2.5s auto-save
+  // tick and every file checkbox re-serialized every conversation and every
+  // dependency graph in the profile. This migration moves both out to their
+  // own keys (see storage.js's layout comment) exactly once.
+  //
+  // Resumable by construction: each batch's own keys are written and
+  // confirmed BEFORE the inline copies are stripped from the blocks, so an
+  // interrupted migration can only ever leave data in both places (harmless —
+  // the next load re-migrates whatever is still inline), never in neither.
+  const STORAGE_VERSION_KEY = "ccb_storageVersion";
+  const STORAGE_VERSION = 2;
+  // Keys per chrome.storage.local call. Each call is an IPC round-trip, so
+  // bulk reads/writes are chunked rather than sent one key at a time.
+  const STORAGE_BATCH = 50;
+
+  async function migrateStorageV2() {
+    let stored;
+    try {
+      stored = await storage.get([STORAGE_VERSION_KEY]);
+    } catch {
+      return false;
+    }
+    if ((stored[STORAGE_VERSION_KEY] || 1) >= STORAGE_VERSION) return false;
+
+    const convs = [];
+    const graphs = [];
+    for (const b of Object.values(state.blocks)) {
+      if (!b) continue;
+      if (b.kind === "conversation" && Array.isArray(b.messages)) convs.push(b);
+      if (b.depGraph && typeof b.depGraph === "object") graphs.push(b);
+    }
+
+    const total = convs.length + graphs.length;
+    let done = 0;
+    if (total) {
+      setProgress({ phase: "save", label: "מעדכן אחסון…", done: 0, total });
+
+      for (let i = 0; i < convs.length; i += STORAGE_BATCH) {
+        const batch = convs.slice(i, i + STORAGE_BATCH);
+        const items = {};
+        for (const b of batch) items[storage.convKey(b.id)] = b.messages;
+        await storage.setBatched(items);
+        // Only now is it safe to drop the inline copy.
+        for (const b of batch) {
+          b.messageCount = b.messages.length;
+          b.lastMsgLen = lastMessageLength(b.messages);
+          delete b.messages;
+        }
+        done += batch.length;
+        setProgress({ phase: "save", label: "מעדכן אחסון…", done, total });
+      }
+
+      for (let i = 0; i < graphs.length; i += STORAGE_BATCH) {
+        const batch = graphs.slice(i, i + STORAGE_BATCH);
+        const items = {};
+        for (const b of batch) items[storage.depGraphKey(b.id)] = b.depGraph;
+        await storage.setBatched(items);
+        for (const b of batch) delete b.depGraph;
+        done += batch.length;
+        setProgress({ phase: "save", label: "מעדכן אחסון…", done, total });
+      }
+
+      await flushSaveBlocks();
+    }
+
+    try {
+      await storage.setBatched({ [STORAGE_VERSION_KEY]: STORAGE_VERSION });
+    } catch {}
+    if (total) {
+      setProgress({
+        phase: "save",
+        label: "האחסון עודכן",
+        done: total,
+        total,
+        state: "done",
+      });
+      clearProgress(2000);
+      console.log("[ccb-timing] storage.migrateV2", {
+        conversations: convs.length,
+        depGraphs: graphs.length,
+      });
+    }
+    return total > 0;
+  }
+
+  function lastMessageLength(messages) {
+    if (!Array.isArray(messages) || !messages.length) return 0;
+    return (messages[messages.length - 1]?.text || "").length;
+  }
+
   async function loadBlocks() {
     if (state.blocksLoaded) return;
     state.blocks = await _loadBlocks(STORAGE_KEY);
     await migrateCtxProjects();
+    await migrateStorageV2();
     await window.__ccbHistoryView.loadActiveProjectId();
     state.blocksLoaded = true;
   }
 
-  async function saveBlocks() {
+  // ============================================================
+  // saveBlocks — coalesced
+  // ============================================================
+  // A bulk action (folder select-all in the code tree, "load with
+  // dependencies", a rescan's document sync) mutates state.blocks many times
+  // and calls saveBlocks() after each mutation. Each of those calls used to
+  // re-serialize and rewrite the whole map. Writes within the coalesce window
+  // are therefore merged into one.
+  //
+  // Trailing throttle, NOT a resetting debounce (same pattern, and same
+  // reason, as chat-features.js#scheduleAutoSave): the first call schedules
+  // the flush and later calls join it without pushing the deadline back, so a
+  // continuous stream of writes still lands on disk instead of starving.
+  const SAVE_COALESCE_MS = 150;
+  let _saveTimer = null;
+  let _savePending = null;
+
+  function saveBlocks() {
+    if (!_savePending) {
+      let resolve;
+      const promise = new Promise((r) => (resolve = r));
+      _savePending = { promise, resolve };
+    }
+    const pending = _savePending;
+    if (!_saveTimer) {
+      _saveTimer = setTimeout(() => {
+        flushSaveBlocks();
+      }, SAVE_COALESCE_MS);
+    }
+    return pending.promise;
+  }
+
+  // Write immediately, bypassing the coalesce window. Used by the migration
+  // (which must know the stripped map is durable before marking the version)
+  // and on page unload.
+  async function flushSaveBlocks() {
+    if (_saveTimer) {
+      clearTimeout(_saveTimer);
+      _saveTimer = null;
+    }
+    const pending = _savePending;
+    _savePending = null;
     await _saveBlocks(STORAGE_KEY, state.blocks);
+    pending?.resolve();
+  }
+
+  // ============================================================
+  // Conversation messages — load-on-demand into state.convCache
+  // ============================================================
+  // Returns the messages for one conversation, loading them from `conv_<id>`
+  // on first access. Blocks that predate the v2 migration may still carry an
+  // inline messages[] — that copy is authoritative until the migration runs,
+  // so it wins here.
+  async function ensureConvMessages(b) {
+    if (!b || b.kind !== "conversation") return [];
+    if (Array.isArray(b.messages)) return b.messages;
+    const cached = state.convCache.get(b.id);
+    if (cached) return cached;
+    const loaded = (await storage.loadConvMessages(b.id)) || [];
+    state.convCache.set(b.id, loaded);
+    return loaded;
+  }
+
+  // Batched sibling — one round-trip per 50 conversations instead of one per
+  // conversation. This is what makes History content-search affordable now
+  // that messages aren't resident in memory.
+  async function ensureConvMessagesMany(blocks, onProgress) {
+    const missing = [];
+    for (const b of blocks) {
+      if (!b || b.kind !== "conversation") continue;
+      if (Array.isArray(b.messages) || state.convCache.has(b.id)) continue;
+      missing.push(b.id);
+    }
+    if (!missing.length) return;
+    let done = 0;
+    for (let i = 0; i < missing.length; i += STORAGE_BATCH) {
+      const chunk = missing.slice(i, i + STORAGE_BATCH);
+      const loaded = await storage.loadConvMessagesBatch(chunk);
+      for (const id of chunk) state.convCache.set(id, loaded.get(id) || []);
+      done += chunk.length;
+      onProgress?.(done, missing.length);
+    }
+  }
+
+  function forgetConvMessages(ids) {
+    for (const id of Array.isArray(ids) ? ids : [ids]) {
+      state.convCache.delete(id);
+    }
+  }
+
+  // Drop everything the panel isn't currently showing. A content search pulls
+  // every in-scope conversation into the cache on purpose — that's what makes
+  // the search exact — but holding all of it afterwards would give back the
+  // memory that moving messages out of `blocks` just reclaimed. Called when
+  // the History list renders in any mode OTHER than content search, so the
+  // cache is bounded to the open conversation during normal use and only
+  // grows while a content query is actually active.
+  function trimConvCache() {
+    const keep = state.currentConversationViewId;
+    for (const id of state.convCache.keys()) {
+      if (id !== keep) state.convCache.delete(id);
+    }
   }
 
   async function loadCtxWindow() {
@@ -487,6 +691,8 @@
       setStatus,
       render,
       getCtxWindow: () => state.ctxWindow,
+      // A2: the scanned graph is no longer inline on the project block.
+      loadDepGraph: (projectId) => storage.loadDepGraph(projectId),
     });
 
     historyView.init({
@@ -505,6 +711,18 @@
       openEdit,
       updateInjectBtn,
       injectTracked,
+      // Conversation messages live in their own `conv_<id>` key since A1 —
+      // these load them on demand into state.convCache, which is what
+      // buildHistoryMessages() reads.
+      ensureConvMessages,
+      ensureConvMessagesMany,
+      forgetConvMessages,
+      trimConvCache,
+      removeConvMessages: (ids) => storage.removeConvMessages(ids),
+      // Same reasoning for a code project's scanned graph (A2) — written only
+      // on scan, so it must not ride along on every saveBlocks().
+      saveDepGraph: (projectId, graph) => storage.saveDepGraph(projectId, graph),
+      removeDepGraph: (projectId) => storage.removeDepGraph(projectId),
       getDocMaxChars: () => state.docMaxChars,
       getCtxWindow: () => state.ctxWindow,
       getAutoInjectMode,
@@ -542,6 +760,10 @@
       clearInjectionStack,
       getAutoInjectMode,
       setAutoInjectMode,
+      // A1: auto-save writes the messages to `conv_<id>`, never inline on the
+      // block — that write is the 2.5s hot path this whole change exists for.
+      saveConvMessages: (id, messages) => storage.saveConvMessages(id, messages),
+      lastMessageLength,
     });
   }
 
@@ -1456,8 +1678,15 @@
       danger: true,
     });
     if (!ok) return;
-    delete state.blocks[state.editingId];
-    state.selected.delete(state.editingId);
+    const deletedId = state.editingId;
+    const wasConversation = state.blocks[deletedId]?.kind === "conversation";
+    delete state.blocks[deletedId];
+    state.selected.delete(deletedId);
+    // A1: a conversation's messages are a separate key and would be orphaned.
+    if (wasConversation) {
+      forgetConvMessages(deletedId);
+      await storage.removeConvMessages(deletedId);
+    }
     await saveBlocks();
     closeEdit();
     render();
@@ -1615,9 +1844,48 @@
   // ============================================================
   // Backup export/import (uses modals.showConfirm, mutates state.blocks)
   // ============================================================
+  // Backup format v2. Since A1/A2 a conversation's messages and a code
+  // project's dependency graph no longer live on their block, so exporting
+  // `blocks` alone would silently produce a backup with every conversation
+  // emptied out. They're collected into their own sections here and restored
+  // to their own keys on import.
+  //
+  // Still assembled as one JSON string (chunked/streamed export, and
+  // including codeContent_*/docBlob_*, is D1 and not yet built) — that's
+  // unchanged from before this refactor rather than a new limitation.
+  const BACKUP_VERSION = 2;
+
   async function exportBackup() {
     await loadBlocks();
-    const blob = new Blob([JSON.stringify(state.blocks, null, 2)], {
+    const convIds = Object.values(state.blocks)
+      .filter((b) => b && b.kind === "conversation")
+      .map((b) => b.id);
+    const projectIds = Object.values(state.blocks)
+      .filter((b) => b && b.isCodeProject)
+      .map((b) => b.id);
+
+    setProgress({ phase: "read", label: "מכין גיבוי…", done: 0, total: 0 });
+    const conversations = {};
+    const stored = await storage.loadConvMessagesBatch(convIds);
+    for (const id of convIds) {
+      const messages = state.blocks[id].messages || stored.get(id);
+      if (messages) conversations[id] = messages;
+    }
+    const depGraphs = {};
+    for (const id of projectIds) {
+      const graph = state.blocks[id].depGraph || (await storage.loadDepGraph(id));
+      if (graph) depGraphs[id] = graph;
+    }
+    clearProgress();
+
+    const payload = {
+      __ccbBackupVersion: BACKUP_VERSION,
+      exportedAt: Date.now(),
+      blocks: state.blocks,
+      conversations,
+      depGraphs,
+    };
+    const blob = new Blob([JSON.stringify(payload)], {
       type: "application/json;charset=utf-8",
     });
     const url = URL.createObjectURL(blob);
@@ -1656,11 +1924,43 @@
     });
     if (!ok) return;
 
-    state.blocks = parsed;
+    // A v1 backup is a bare { [id]: block } map with messages/depGraph inline
+    // on the blocks; a v2 backup separates them, matching the v2 storage
+    // layout. Both are accepted — an inline copy from a v1 file is simply
+    // migrated on the next load, exactly like any other pre-v2 block.
+    const isV2 = parsed.__ccbBackupVersion >= 2 && parsed.blocks;
+    const blocks = isV2 ? parsed.blocks : parsed;
+    if (!blocks || typeof blocks !== "object" || Array.isArray(blocks)) {
+      setStatus("מבנה קובץ לא תקין", true);
+      return;
+    }
+
+    setProgress({ phase: "save", label: "מייבא…", done: 0, total: 0 });
+    if (isV2) {
+      const convItems = {};
+      for (const [id, messages] of Object.entries(parsed.conversations || {})) {
+        convItems[storage.convKey(id)] = messages;
+      }
+      for (const [id, graph] of Object.entries(parsed.depGraphs || {})) {
+        convItems[storage.depGraphKey(id)] = graph;
+      }
+      await storage.setBatched(convItems);
+    }
+
+    state.blocks = blocks;
     state.blocksLoaded = true;
     state.selected.clear();
     state.editingId = null;
-    await saveBlocks();
+    state.convCache.clear();
+    await flushSaveBlocks();
+    if (!isV2) {
+      // A v1 file just put inline messages/graphs back on the blocks. Rewind
+      // the version marker so the migration runs over them instead of leaving
+      // them inline forever (which is exactly the bloat v2 exists to remove).
+      await storage.setBatched({ [STORAGE_VERSION_KEY]: 1 });
+      await migrateStorageV2();
+    }
+    clearProgress();
     closeEdit();
     window.__ccbModals.closeSettings();
     render();
@@ -1674,6 +1974,10 @@
   window.addEventListener("beforeunload", () => {
     window.__ccbChat?.stopMsgObserver();
     window.__ccbCtxMeter?.cleanup();
+    // Don't let a write still sitting in the 150ms coalesce window die with
+    // the page. Fire-and-forget — unload can't await, but issuing the set()
+    // here is strictly better than dropping it.
+    if (_savePending) flushSaveBlocks();
   });
 
   // ============================================================

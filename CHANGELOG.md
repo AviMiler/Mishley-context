@@ -2,6 +2,29 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-30 — Fix (critical): storage write-amplification froze the panel — Phase A of a 6-phase plan, full `enforcing-coding-workflow` pass
+
+User reported the panel permanently freezes; root cause traced to the single `chrome.storage.local["blocks"]` key reaching ~138MB for this user and `storage.js#saveBlocks` rewriting the ENTIRE map on every one of ~30 call sites (worst offender: the conversation auto-save tick, every 2.5s during AI streaming). Stage 1 (`spec-doc-agent`) validated a 6-phase fix plan (A: stop the write amplification; B: bound conversation growth; C: History-tab render cost; D: backup/orphan hygiene; E: cross-tab sync; F: deferred) against CLAUDE.md/ARCHITECTURE.md (the project's de-facto spec — no dedicated spec.md exists) and raised 4 questions the spec itself couldn't answer. **Only Phase A shipped this round** — see DECISIONS.md for why it was deliberately scoped alone rather than built alongside B–F.
+
+**User's answers to Stage 1's 4 questions:**
+- Retention default (Phase B, **not built**): age cap, 90 days.
+- Migration UX (Phase A, built): automatic on first load, with the progress bar.
+- Content-search after messages move off the block (Phase A, built): full async search with progress — accuracy preserved over speed.
+- Bundle approval (B3 autosave-off toggle / D1 full backup completeness / D4 automatic orphan GC): all three approved as **permanent requirements, none of the three is built yet** — pending, not shipped.
+
+**What shipped (Phase A):** `storage.js`, `content.js`, `history-view.js`, `chat-features.js`, `code-tree.js` — ~640 lines added, no files created/deleted.
+- **A1** — conversation `messages[]` moved off the block into its own `conv_<id>` key. The block keeps `messageCount`/`lastMsgLen`/`savedAt` only. `content.js` gained `state.convCache` + `ensureConvMessages`/`ensureConvMessagesMany`/`forgetConvMessages`/`trimConvCache`. `history-view.js#buildHistoryMessages` deliberately stayed synchronous behind the cache (see DECISIONS.md) — only 3 entry points (`openConversationView`, the History row click, content-search) actually `await` a load. `chat-features.js#persistConversation`'s no-op check now compares `messageCount`+`lastMsgLen` instead of re-reading message text (see DECISIONS.md). Conversation deletion removes `conv_<id>` too.
+- **A2** — `depGraph` moved off the project block into its own `depGraph_<projectId>` key, written only on scan. `depGraphOverrides` stays on the block, unchanged rationale. `code-tree.js` gained a raw-graph cache (`loadRawGraph`/`rawGraph`/`hasRawGraph`); `effectiveGraph()`/`openDepsMenu` now read through it (the latter is now async). Both project-deletion paths remove `depGraph_<projectId>` too.
+- **A3** — `saveBlocks()` is now a trailing 150ms throttle (shared promise) instead of a write per call; `flushSaveBlocks()` bypasses it for the migration, import, and `beforeunload`.
+- **Migration** — `content.js#migrateStorageV2`, idempotent, guarded by new `chrome.storage.local["ccb_storageVersion"]`, batches of 50, writes-new-keys-before-stripping-old (interruption-safe), runs automatically on first load with the existing progress indicator.
+- **Forced, unplanned slice of D1** — `exportBackup` would have silently produced backups with every conversation emptied out (messages no longer on `state.blocks`). Backup format bumped to v2 (`{ blocks, conversations, depGraphs }`); import accepts both v1 and v2, re-running the migration after a v1 import. This is backup-completeness for conversations/depGraphs ONLY — full D1 (chunked/streamed export, `codeContent_*`/`docBlob_*` inclusion) is still not built.
+
+**Verify:** `verify-agent` — **Go**, no defects. Independently confirmed: no cold-cache path reaches a synchronous message reader before an await populates it; `trimConvCache` can't evict an open conversation or an in-flight search; the search token guard has no runaway loop; the migration is interruption-safe and `messageCount`/`lastMsgLen` can never describe data not actually on disk; the coalesced-save promise has no lost write/unresolved promise; A2 has no remaining reader assuming the graph is on the block. One cosmetic naming nit (`MIGRATE_BATCH` reused for a non-migration path) fixed, renamed `STORAGE_BATCH`. `node --check` passes on all five files. **No test suite exists for this change and it has not been run in a real browser against the user's actual ~138MB profile** — verification is static only; this is the standing next step, not a formality.
+
+**Not built this round (approved, pending):** B1 (90-day retention/auto-prune), B2 (multi-select delete), B3 (autosave-off toggle), C1/C2 (History-tab pagination/render-skip), full D1 (streamed export + blob inclusion), D2 (import orphan cleanup), D3 (storage panel UI), D4 (automatic orphan GC), E1 (cross-tab `storage.onChanged`), F1/F2 (deferred). See AGENT_CONTEXT.md.
+
+See [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md), [ARCHITECTURE.md](ARCHITECTURE.md), [DECISIONS.md](DECISIONS.md), [PROJECT_MAP.md](PROJECT_MAP.md).
+
 ### 2026-07-30 — Small addition: "בחר הכל"/"נקה הכל" buttons in the "התאמה אישית" (custom) dependency picker
 
 Added a select-all/clear-all button pair to the custom picker described directly below, mirroring the main inline file tree's own existing `.code-tree-actions`/`setAllEnabled` pattern. `ui-template.js` (`.dp-actions` row with `#dpSelectAll`/`#dpSelectNone`), `ui-styles.js` (one additive CSS rule), `code-tree.js` (`wireDepPickerOnce` — select-all sets `_dpPicked` to every current direct+indirect candidate, including ignore-listed indirect files; clear-all empties it; both re-render). 30 lines across 3 files. Stage 1 found no ambiguity (direct precedent already in the codebase). `verify-agent` Go. Not yet browser-verified.

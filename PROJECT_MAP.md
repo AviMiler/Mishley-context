@@ -1,5 +1,5 @@
 # Project Map
-_Last updated: 2026-07-26_
+_Last updated: 2026-07-30_
 
 ## File Tree
 ```
@@ -59,7 +59,7 @@ _Last updated: 2026-07-26_
 | `tokenizer.js` | Real BPE token counting (o200k_base) in pure JS over the vendored ranks in `tokenizer/`. Lazily loaded on active-site pages only. Exports `window.__ccbTokenizer`. |
 | `config.js` | Site selectors (Gemini vs. internal chat) behind `ACTIVE_SITE`, plus `FRAMING_*`/`SUMMARY_PROMPT` defaults, other config constants, and the canonical token counter (`estimateTextTokens` — delegates to `tokenizer.js`, falls back to the Hebrew-aware chars→tokens heuristic). Exports `window.__ccbRawConfig`. |
 | `prompts.js` | Loads user overrides for the editable parts of the framing/summary prompts from storage and patches `__ccbRawConfig`; keeps technical markers locked. Exports `window.__ccbPromptsAPI`. |
-| `storage.js` | Thin `loadBlocks`/`saveBlocks` wrapper over `chrome.storage.local["blocks"]`. Exports `window.__ccbStorage`. |
+| `storage.js` | Owns the v2 storage layout (2026-07-30): `blocks` (metadata only) plus per-item `conv_<id>` (conversation messages) and `depGraph_<projectId>` (scanned import graphs) keys, with batched (`setBatched`, `loadConvMessagesBatch`) load/save/remove helpers for each — no longer a thin wrapper. The write *coalescing* on top of it (`saveBlocks`/`flushSaveBlocks`) lives in `content.js`, not here. See ARCHITECTURE.md "Storage shape". Exports `window.__ccbStorage`. |
 | `inject.js` | Finds the page's chat input and injects text into it (prepend/append/replace). Exports `window.__ccbInject`. |
 | `push.js` | Shifts the host page's layout right when the sidebar opens. Exports `window.__ccbPush`. |
 | `ui-styles.js` | All Shadow DOM CSS as a single string. Exports `window.__ccbCSS`. |

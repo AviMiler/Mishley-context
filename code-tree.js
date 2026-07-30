@@ -717,22 +717,53 @@
   // reloads `blocks` from storage, which replaces the project object in
   // memory, so `_project` must be re-fetched afterward or it'd point at an
   // orphaned copy that never receives the new depGraph.
+  //
+  // A2: the scanned graph lives in its own `depGraph_<projectId>` storage key
+  // rather than on the project block, so it has to be read in before any of
+  // the synchronous graph consumers below run. Cached per project for the
+  // lifetime of the view; invalidated in renderInline when the project
+  // changes, and re-read after a rescan (which rewrites the key).
+  let _rawGraph = null;
+  let _rawGraphProjectId = null;
+
+  async function loadRawGraph() {
+    if (!_project) return false;
+    if (_rawGraphProjectId === _project.id && _rawGraph) return true;
+    _rawGraph = await _deps.loadDepGraph(_project.id);
+    _rawGraphProjectId = _project.id;
+    // A project scanned before the v2 migration may still carry the inline
+    // copy; it stays authoritative until the migration moves it.
+    if (!_rawGraph && _project.depGraph) _rawGraph = _project.depGraph;
+    return !!_rawGraph;
+  }
+
+  function rawGraph() {
+    return _rawGraph || _project?.depGraph || {};
+  }
+
+  function hasRawGraph() {
+    return !!(_rawGraph || _project?.depGraph);
+  }
+
   async function ensureDepGraph() {
-    if (_project.depGraph) return;
+    if (await loadRawGraph()) return;
     _deps.setStatus?.("בונה גרף תלויות...");
     await _deps.historyView.rescanCodeProject(_project.id);
     const refreshed = _deps.historyView.getProjectById(_project.id);
     if (refreshed) _project = refreshed;
+    _rawGraph = null;
+    _rawGraphProjectId = null;
+    await loadRawGraph();
   }
 
   // The graph with any manual per-file edits (dependency manager, below)
   // applied on top — every reader of the graph (this menu's counts, "load
-  // with dependencies", the manager itself) must go through this, not
-  // _project.depGraph directly, or a user's manual edit would silently not
-  // show up outside the screen that made it.
+  // with dependencies", the manager itself) must go through this, not the raw
+  // graph directly, or a user's manual edit would silently not show up
+  // outside the screen that made it.
   function effectiveGraph() {
     return window.__ccbDepGraph.applyOverrides(
-      _project.depGraph || {},
+      rawGraph(),
       _project.depGraphOverrides,
     );
   }
@@ -803,17 +834,19 @@
     _deps.historyView.closeHiDropdown();
   }
 
-  function openDepsMenu(doc, btn) {
+  async function openDepsMenu(doc, btn) {
     closeDepsMenu();
     const dd = _deps.getShadow?.()?.getElementById("hiDropdown");
     if (!dd) return;
+    // A2: pull the scanned graph in before computing the counts below.
+    await loadRawGraph();
     const ic = window.__ccbTpl.IC;
 
     // הספירה מוצגת כאן — בתפריט הפעולה עצמו, לא כתג על שורת העץ — כי כאן
     // המשתמש בפועל מחליט מה להזריק, ולא רק סוקר את העץ. ללא גרף (טרם
     // נסרק) לא מציגים מספר בדוי; loadWithDependencies כבר יודע לסרוק
     // מחדש בעצמו במקרה הזה.
-    const graph = _project.depGraph ? effectiveGraph() : null;
+    const graph = hasRawGraph() ? effectiveGraph() : null;
     const loadIgnores = graph ? getLoadIgnores(doc.name) : null;
     const countLabel = (n) => (graph ? ` (${n})` : "");
     const dg = window.__ccbDepGraph;
@@ -1176,7 +1209,7 @@
     const graph = effectiveGraph();
     const path = _dmDoc.name;
     const effectiveDeps = graph[path] || [];
-    const raw = (_project.depGraph || {})[path] || [];
+    const raw = rawGraph()[path] || [];
     const ov = (_project.depGraphOverrides &&
       _project.depGraphOverrides[path]) || { added: [], removed: [] };
     const loadIgnores = getLoadIgnores(path);
@@ -1391,7 +1424,7 @@
   // just clears the removal instead of double-recording it.
   async function removeDepEdge(target) {
     const path = _dmDoc.name;
-    const raw = (_project.depGraph || {})[path] || [];
+    const raw = rawGraph()[path] || [];
     const ov = (_project.depGraphOverrides &&
       _project.depGraphOverrides[path]) || { added: [], removed: [] };
     if (raw.includes(target)) {
@@ -1406,7 +1439,7 @@
   async function addDepEdge(target) {
     const path = _dmDoc.name;
     if (!target || target === path) return;
-    const raw = (_project.depGraph || {})[path] || [];
+    const raw = rawGraph()[path] || [];
     const ov = (_project.depGraphOverrides &&
       _project.depGraphOverrides[path]) || { added: [], removed: [] };
     if (raw.includes(target)) {
@@ -1486,7 +1519,7 @@
     // automatically or manually" means currently counted as a dependency,
     // not everything ever detected.
     const effectiveDeps = graph[path] || [];
-    const raw = (_project.depGraph || {})[path] || [];
+    const raw = rawGraph()[path] || [];
     const direct = effectiveDeps.map((dep) => ({
       path: dep,
       auto: raw.includes(dep),
@@ -1679,11 +1712,18 @@
         ),
       );
       _searchCollapsedPaths = new Set();
+      // A2: the cached scanned graph belongs to the previous project.
+      _rawGraph = null;
+      _rawGraphProjectId = null;
     }
     _project = project;
     _mountEl = mount;
     buildShell();
     render();
+    // Warm the graph cache in the background so the per-file deps menu opens
+    // without a visible wait. Every consumer still awaits it for correctness —
+    // this only removes the latency in the common case.
+    if (project.isCodeProject) loadRawGraph();
   }
 
   // ============================================================

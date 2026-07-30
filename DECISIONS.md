@@ -1,5 +1,53 @@
 # Decisions
 
+## [2026-07-30] Storage/perf fix ships as Phase A only — B/C/D/E/F deferred, not descoped
+
+**Decision:** Of the 6-phase plan validated at Stage 1 (spec-doc-agent) for the ~138MB `blocks`-key write-amplification bug, only Phase A (stop the write amplification itself: move `messages[]`/`depGraph` off the block, coalesce `saveBlocks()`, migrate existing data) shipped this round. Phases B (bounded conversation growth/retention), C (History-tab render perf), D (backup/orphan hygiene, except a forced partial slice — see the backup decision below), E (cross-tab sync), and F (deferred low-priority items) were not built.
+
+**Alternatives considered:** Building all 6 phases in one pass, since they were already scoped together and Phase A's async-ification of `messages[]` access touches some of the same call paths B/C would touch.
+
+**Why:** Phase A is the one that actually removes the freeze — the user's core complaint — and it changes a synchronous contract (in-memory `b.messages`, always resident) to an asynchronous one across roughly 30 call sites. That's a large enough behavioral change to verify and ship on its own before layering further changes (retention deletion, render virtualization, cross-tab listeners) on top of a not-yet-real-world-tested foundation. Shipping it alone also means if something is wrong with Phase A once tested against the user's actual 138MB profile, the fix is isolated rather than tangled with five other concurrent changes.
+
+## [2026-07-30] Conversation content-search: full async search with progress, not an inline snippet-index or a scoped-down search
+
+**Decision:** After Phase A moved `messages[]` off the block (so it's no longer synchronously scannable in memory), History-tab content-search now awaits `ensureConvMessagesMany`/`storage.js#loadConvMessagesBatch` to load the messages of conversations in scope, with progress shown while it runs, rather than scanning an in-memory copy.
+
+**Alternatives considered:** (1) Keep a lightweight snippet/index (e.g. first ~200 chars) inline on the block for instant search, trading full accuracy for speed. (2) Scope content-search down to only the currently-open conversation preview, dropping cross-conversation content-search entirely.
+
+**Why:** This was a genuine spec contradiction flagged by `spec-doc-agent` at Stage 1 (not something inferable from the existing spec) and put to the user directly. The user chose full accuracy over speed — search should never miss a real match or search stale/truncated text — accepting that a content query now costs more than a title query and takes visibly longer on a large history, mitigated by the progress indicator already built for exactly this kind of long-running operation.
+
+## [2026-07-30] Migration (`migrateStorageV2`) runs automatically on first load, with a progress bar — not as an explicit user-triggered action
+
+**Decision:** The one-time split of the existing (potentially ~138MB) `blocks` map into per-item `conv_<id>`/`depGraph_<projectId>` keys runs automatically inside `loadBlocks()`, guarded by `ccb_storageVersion`, showing progress via the pre-existing `setProgress`/`clearProgress` indicator — the same one built for long-running scans.
+
+**Alternatives considered:** Requiring an explicit user-triggered action (e.g., a button in Advanced Options) before running the migration, given its potential size/duration and that this is the first migration in this codebase operating at this scale (the existing `migrateCtxProjects()` precedent runs on small, near-instant data).
+
+**Why:** `spec-doc-agent` flagged this as genuinely ambiguous at Stage 1 — no existing spec precedent covers a migration at this scale. Presented to the user directly; the user chose automatic-with-progress, reasoning that an extra manual step before the extension is even usable again adds friction without adding safety (the migration is interruption-safe by construction — batched writes-before-strip — so there's no real risk an explicit trigger would have mitigated).
+
+## [2026-07-30] Auto-save no-op check: compare `messageCount`+`lastMsgLen`, not the last message's text
+
+**Decision:** `chat-features.js#persistConversation`'s debounced auto-save now decides whether anything actually changed by comparing the block's `messageCount` and `lastMsgLen` fields, instead of re-reading and comparing the last message's actual text.
+
+**Alternatives considered:** Keep comparing last-message text directly, which is simpler and was already correct — but would require loading the conversation's `messages[]` back into memory (via `ensureConvMessages`) on every single 2.5s tick just to perform the comparison, defeating a meaningful part of Phase A's point (the tick is the single hottest `saveBlocks()`-adjacent call site).
+
+**Why:** A metadata-only proxy (message count + last message's length) is cheap to keep on the block already-loaded in memory, and false positives (same count+length but different text) are not a realistic concern for a monotonically-growing chat transcript where each tick either appends a new message or extends the in-progress streaming one.
+
+## [2026-07-30] `buildHistoryMessages` kept synchronous behind a per-tab cache, rather than making every reader `async`
+
+**Decision:** `history-view.js#buildHistoryMessages(b)` still returns synchronously (`b.messages || state.convCache.get(b.id)`), instead of becoming `async` and reading `conv_<id>` directly. Only 3 call sites (`openConversationView`, the History row click handler, and content-search) `await` a load into `state.convCache` first; every other existing reader is untouched.
+
+**Alternatives considered:** Making `buildHistoryMessages` itself `async` and pushing `await` up through every call site that (transitively) reads a conversation's messages — the more "textbook correct" refactor once the underlying storage read became asynchronous.
+
+**Why:** The async blast radius of Phase A was already large (~30 `saveBlocks()` call sites plus every messages-reader); keeping the read path synchronous behind an explicitly-populated cache confined the actual `async`/`await` changes to the 3 places that generate real UI transitions (opening a view, clicking a row, searching), while every quieter internal reader of `buildHistoryMessages` needed zero changes. `verify-agent` confirmed no cold-cache path reaches the synchronous branch without an intervening await having populated it first.
+
+## [2026-07-30] Backup v2 scoped to conversations + depGraphs only — not the full originally-planned backup-completeness fix
+
+**Decision:** `content.js#exportBackup`/`importBackupFile` now include `conversations`/`depGraphs` alongside `blocks` (format `{ __ccbBackupVersion: 2, exportedAt, blocks, conversations, depGraphs }`), fixing the fact that Phase A alone would have made every exported conversation silently empty (messages live in `conv_<id>`, not on the block, so the old bare-`blocks` export would no longer capture them). `codeContent_<id>`/`docBlob_<id>` (file blobs/code text) are still NOT included, and export is still a single synchronous, non-chunked `JSON.stringify`.
+
+**Alternatives considered:** Shipping Phase A without touching backup at all, and separately flagging the now-broken backup as a regression to fix in a later task; or building the full originally-scoped D1 (chunked/streamed export + full content-blob inclusion) in this same round since it was already touched.
+
+**Why:** Shipping Phase A with a silently-broken backup was not acceptable — an export that looks successful but discards every conversation's content is worse than not touching backup at all, so this was treated as a forced, in-scope consequence of A1/A2 rather than an optional nice-to-have. Going further to the full D1 scope (streaming, full blob inclusion) was deliberately left out since it wasn't required to keep backup *correct*, only to make it more *complete* — that's still approved (see AGENT_CONTEXT.md/CHANGELOG.md) but pending its own build/verify pass.
+
 ## [2026-07-30] "Custom" dependency-load picker scope corrected same day: per-file candidates, not whole-project browsing
 
 **Decision:** Rebuilt the picker opened by the new "התאמה אישית" menu item to be scoped to the specific file whose "אפשרויות תלויות" menu opened it (`openDepPicker(doc)` — the missing `doc` argument in the first version was literally the bug). It now shows exactly two sections mirroring that file's own "ניהול תלויות" (dependency manager) screen — direct dependencies and indirect dependencies (`code-tree.js#dpComputeCandidates`/`dpRenderRow`, reusing `effectiveGraph()`/`computeIndirectDeps()` rather than reimplementing them) — with checkboxes starting **pre-checked** (except an indirect file already on that path's ignore list, which starts unchecked), and Save now always includes the clicked file itself in addition to whatever's checked. Dependents are out of scope, covered separately by the existing "תלויים" menu item.
