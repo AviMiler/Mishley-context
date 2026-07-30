@@ -2,6 +2,16 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-30 — Fix: per-message "every mode" GM/project-instructions context silently dropped by unrelated manual injections
+
+Code-review-found bug (not a live user repro): `chat-features.js#_interceptSend`'s dedup guard checked for `[[CCB:INJECTED]]`, a marker shared by five unrelated framing pairs (GM/manual-prompts/conversation-load/project-instructions/files injection — all in `config.js`), not just the per-message prefix's own `[[CCB:CTX]]` marker. So loading files ("טען קבצים"), prompts ("טען פרומפטים"), or a conversation ("טען נבחרים") without immediately sending — then typing a real message and sending — silently suppressed that turn's every-mode GM/project-instructions context, since the guard bailed on the unrelated leftover marker before ever building the every-mode prefix.
+
+Stage 1 (`spec-doc-agent`) found the fix scope genuinely ambiguous: the guard's `[[CCB:INJECTED]]` check was deliberate, documented in its own code comment as double-wrap prevention for the case where GM (or project instructions) is loaded ALONE via "טען פרומפטים" — which reuses the same `<memory>`/`<project>` tags every-mode uses — while that source is also in every-mode. Removing the check fixes the reported bug but reopens that narrower duplicate-content case. Presented both options to the user; **user explicitly chose the narrow fix**, accepting the trade-off. See [DECISIONS.md](DECISIONS.md) for the full reasoning.
+
+- `chat-features.js` — line 339: `if (current.includes("[[CCB:CTX]]") || current.includes("[[CCB:INJECTED]]")) return;` → `if (current.includes("[[CCB:CTX]]")) return;`. Adjacent comment rewritten to explain the new rationale and the accepted trade-off. No other files touched.
+
+**Verify:** `verify-agent` Go — confirmed via `git diff` that only `chat-features.js` changed, only within that one guard block. Hand-traced 6 scenarios: files-then-send with every-mode now correctly attaches context (the fix); an ordinary send is unaffected; GM-alone-via-"טען פרומפטים"-then-every-mode-send produces the accepted duplicate `<memory>` block exactly as expected; an already-present `[[CCB:CTX]]` still correctly blocks re-wrapping; the stray-marker strip immediately above is independent and unaffected; `captureConversation`'s separate `[[CCB:INJECTED]]`-based history-capture logic is untouched. Matched Stage 1's confirmed scope exactly, no deviation. Not yet browser-verified. See [AGENT_CONTEXT.md](AGENT_CONTEXT.md).
+
 ### 2026-07-29 — Fix: deps-options popup could overflow off-screen
 
 User reported the deps-options popup (`code-tree.js#openDepsMenu`, opened via a file row's "אפשרויות תלויות" button) could extend below the bottom of the screen with no way to reach its lower items. Root cause: `#hiDropdown` (the shared dropdown host also used by `history-view.js#openHiDropdown` and `history-view.js#openProjectDropdown`) had no `max-height`/scroll in its base CSS rule, and all three positioning call sites set only `top`/`left` from the trigger button's `getBoundingClientRect()` with no clamping against the panel/viewport bottom — unlike `ui-modals.js#openSettings`, which already clamps `top` and computes a `maxHeight` from the remaining panel space.

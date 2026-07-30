@@ -334,9 +334,19 @@
 
     if (!_hasEveryModeSource()) return;
 
-    // Already carries an injection (a manual "טען פרומפטים"/conversation load,
-    // or a previous prepend whose send didn't go through) — don't wrap twice.
-    if (current.includes("[[CCB:CTX]]") || current.includes("[[CCB:INJECTED]]")) return;
+    // Only bail on OUR OWN every-mode marker (a previous prepend whose send
+    // didn't go through) — [[CCB:CTX]] is unique to buildPerMessagePrefix's
+    // own framing (FRAMING_EVERY_PRE), so this can't false-positive on it.
+    // Deliberately NOT checking [[CCB:INJECTED]] here (2026-07-30 fix): that
+    // marker is shared by FIVE unrelated framing pairs (GM/manual-prompt/
+    // conversation/project/docs — see config.js), so a manually-loaded-but-
+    // unsent injection (e.g. "טען קבצים") used to sit in the box and silently
+    // block every-mode's own prefix from ever being added on the next real
+    // send — the reported bug. Accepted trade-off, confirmed with the user:
+    // if GM (or project instructions) is manually loaded ALONE via "טען
+    // פרומפטים" while that same source is in every-mode, its content can now
+    // appear twice in the next send (existing undo button covers it).
+    if (current.includes("[[CCB:CTX]]")) return;
 
     const prefix = buildPerMessagePrefix();
     if (!prefix) return;
