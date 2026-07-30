@@ -1,6 +1,16 @@
 # Decisions
 
+## [2026-07-30] "Custom" dependency-load picker scope corrected same day: per-file candidates, not whole-project browsing
+
+**Decision:** Rebuilt the picker opened by the new "התאמה אישית" menu item to be scoped to the specific file whose "אפשרויות תלויות" menu opened it (`openDepPicker(doc)` — the missing `doc` argument in the first version was literally the bug). It now shows exactly two sections mirroring that file's own "ניהול תלויות" (dependency manager) screen — direct dependencies and indirect dependencies (`code-tree.js#dpComputeCandidates`/`dpRenderRow`, reusing `effectiveGraph()`/`computeIndirectDeps()` rather than reimplementing them) — with checkboxes starting **pre-checked** (except an indirect file already on that path's ignore list, which starts unchecked), and Save now always includes the clicked file itself in addition to whatever's checked. Dependents are out of scope, covered separately by the existing "תלויים" menu item.
+
+**Alternatives considered:** None at design time this round — this replaced the first version outright rather than choosing between competing designs, since the first version's whole-project checkbox tree was rejected by the user as pointless/redundant with the main inline tree (which already supports the same manual multi-select, one row/folder at a time).
+
+**Why:** The first version was built on a misreading of the request, confirmed directly by the user's rejection after trying it — not a spec ambiguity `spec-doc-agent` could have caught at Stage 1 (both readings of the original request text were plausible on paper; only hands-on use surfaced that a whole-project browser added nothing over the existing tree). This correction went through a full plan-mode review + write-up with the user, including two follow-up `AskUserQuestion` rounds resolving the candidate-list scope (direct+indirect, no dependents) and the default-checked-state (pre-checked, with the ignore-list exception), then explicit approval via `ExitPlanMode` — treated as Stage 1 (spec-validate) for this correction in place of a fresh `spec-doc-agent` Invocation 1, per the coordinator's explicit note. The additive-only Save decision directly below is **unchanged** by this correction — only the picker's candidate scope and default-checked state changed, not whether Save can turn files off.
+
 ## [2026-07-30] "Custom" dependency-load picker Save is additive only, not a full-replace of the enabled set
+
+**Corrected, same day:** see the decision directly above — the picker's *candidate scope* (whole-project → this file's own direct+indirect dependencies) and *default-checked state* (blank → pre-checked, with an ignore-list exception) were both corrected after the user rejected the first version as redundant with the main tree. The additive-only Save semantics described below were **not** part of that correction and still hold exactly as decided here.
 
 **Decision:** The new "התאמה אישית" full-pane file picker's Save button is additive only — it calls `enableFilesForProject(project.id, checkedPaths)` (default `enabled = true`), the exact same call other 4 deps-menu options already use. Every file the user left unchecked keeps whatever `enabled` state it already had; nothing is ever turned off by this feature.
 
