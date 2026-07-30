@@ -75,6 +75,23 @@
     return out;
   }
 
+  // Every folder path implied by a flat doc-name list (each "/"-separated
+  // prefix except the filename itself) — used to seed _collapsedPaths so
+  // every folder starts collapsed on first view of a project, without
+  // building a full tree object just to walk it for directory nodes.
+  function allFolderPaths(docs) {
+    const paths = new Set();
+    for (const doc of docs) {
+      const parts = doc.name.split("/");
+      let pathSoFar = "";
+      for (let i = 0; i < parts.length - 1; i++) {
+        pathSoFar = pathSoFar ? `${pathSoFar}/${parts[i]}` : parts[i];
+        paths.add(pathSoFar);
+      }
+    }
+    return paths;
+  }
+
   function renderNode(node, container, depth, forceExpand) {
     const names = Object.keys(node.children).sort((a, b) => {
       const aIsDir = !node.children[a].doc;
@@ -675,9 +692,11 @@
 
   // Static dependency graph (built at scan time, see dep-graph.js) — follows
   // this file's detected imports/references and enables every file reached,
-  // in one bulk save. `mode` picks the direction:
+  // in one bulk save. `mode` picks the direction/depth:
+  //   "direct"       — this file's own outgoing edges only, one hop (no
+  //     dependencies of dependencies).
   //   "dependencies" — transitive closure of what this file imports (no
-  //     depth limit, cycle-safe).
+  //     depth limit, cycle-safe) — i.e. "direct" plus everything indirect.
   //   "dependents"   — files that directly import this one (one hop only;
   //     transitive dependents of a low-level file would often pull in most
   //     of the project).
@@ -721,9 +740,13 @@
     } else if (mode === "full") {
       closure = window.__ccbDepGraph.getFullContext(graph, doc.name);
       label = "הקשר מלא";
+    } else if (mode === "direct") {
+      closure = window.__ccbDepGraph.getDirectDependencies(graph, doc.name);
+      closure.add(doc.name);
+      label = "תלויות ישירות";
     } else {
       closure = window.__ccbDepGraph.getTransitiveClosure(graph, doc.name);
-      label = "תלויות";
+      label = "תלויות (כולל עקיפות)";
     }
 
     if (mode !== "dependents") {
@@ -783,6 +806,13 @@
     const loadIgnores = graph ? getLoadIgnores(doc.name) : null;
     const countLabel = (n) => (graph ? ` (${n})` : "");
     const dg = window.__ccbDepGraph;
+    const directDepsCount = graph
+      ? (() => {
+          const set = dg.getDirectDependencies(graph, doc.name);
+          for (const ignored of loadIgnores) set.delete(ignored);
+          return set.size;
+        })()
+      : 0;
     const depsCount = graph
       ? (() => {
           const set = dg.getTransitiveClosure(graph, doc.name);
@@ -810,13 +840,15 @@
       return item;
     };
 
-    // These counts are the TRANSITIVE closure (dependencies of dependencies,
-    // arbitrarily deep) — by design, since clicking the item loads that whole
-    // chain into the chat. This is deliberately larger than "ניהול תלויות"'s
-    // own list below, which only ever shows this file's DIRECT edges (a
-    // dependency of a dependency isn't something this file itself depends
-    // on). Tooltips spell this out — reported as confusing when the two
-    // numbers didn't match ("3 outside, 2 direct inside").
+    // "תלויות (כולל עקיפות)"/"תלויים"/"הקשר מלא" show the TRANSITIVE closure
+    // (dependencies of dependencies, arbitrarily deep) — by design, since
+    // clicking the item loads that whole chain into the chat. This is
+    // deliberately larger than "ניהול תלויות"'s own list below, which only
+    // ever shows this file's DIRECT edges (a dependency of a dependency isn't
+    // something this file itself depends on) — "תלויות ישירות בלבד" above is
+    // the one row here that DOES match that direct-only count exactly.
+    // Tooltips spell this out — reported as confusing when the two numbers
+    // didn't match ("3 outside, 2 direct inside").
     // Manual files never get scan-detected edges (buildGraph only sees the
     // scanned folder's `included` set) — a "(0)" here is a correct "nothing
     // declared yet", not a failed analysis. The suffix on each tooltip makes
@@ -829,7 +861,18 @@
     dd.appendChild(
       mkItem(
         ic.link,
-        `תלויות${countLabel(depsCount)}`,
+        `תלויות ישירות בלבד${countLabel(directDepsCount)}`,
+        () => {
+          closeDepsMenu();
+          loadWithDependencies(doc, "direct");
+        },
+        "טוען רק את מה שהקובץ מייבא ישירות — לא תלויות של תלויות" + manualNote,
+      ),
+    );
+    dd.appendChild(
+      mkItem(
+        ic.link,
+        `תלויות (כולל עקיפות)${countLabel(depsCount)}`,
         () => {
           closeDepsMenu();
           loadWithDependencies(doc, "dependencies");
@@ -1387,7 +1430,15 @@
     // search text / collapsed folders survive a same-project re-render.
     if (!_project || _project.id !== project.id) {
       _query = "";
-      _collapsedPaths = new Set();
+      // Seeded with every folder path (not left empty) so the tree defaults
+      // to fully collapsed on first view — membership in this set means
+      // collapsed (see renderNode), so an empty set used to mean "nothing
+      // collapsed", i.e. everything expanded.
+      _collapsedPaths = allFolderPaths(
+        (project.documents || []).filter(
+          (d) => d.type === "code" && !d.isManuallyAdded,
+        ),
+      );
       _searchCollapsedPaths = new Set();
     }
     _project = project;

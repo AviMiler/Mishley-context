@@ -46,6 +46,14 @@
     const gm = getGM();
     const on = !!gm.autoLoad;
     const content = (gm.content || "").trim();
+    const everyMode = _deps.getAutoInjectMode?.("gm") === "every";
+    // Manual injection ("טען פרומפטים") is redundant once every-mode is
+    // already prepending GM to every send — and combined with it, would
+    // duplicate GM's content in the next message (the trade-off accepted
+    // when the every-mode send guard was fixed, see DECISIONS.md). Drop any
+    // stale selection made before the mode switched to "every", so it can't
+    // linger and get included next time injectSelected() runs.
+    if (everyMode) _deps.state.selected.delete(GM_ID);
     const selectedForInject = _deps.state.selected.has(GM_ID);
 
     card.innerHTML = "";
@@ -61,9 +69,14 @@
     const selectLabel = document.createElement("label");
     selectLabel.className = "cb-wrap gm-select";
     selectLabel.addEventListener("click", (e) => e.stopPropagation());
+    if (everyMode) {
+      selectLabel.title =
+        "במצב 'נטען בכל הודעה' אין צורך בטעינה ידנית — התוכן מוזרק אוטומטית לכל הודעה";
+    }
     const selectInput = document.createElement("input");
     selectInput.type = "checkbox";
     selectInput.checked = selectedForInject;
+    selectInput.disabled = everyMode;
     selectInput.setAttribute("aria-label", "הוסף זיכרון כללי להזרקה");
     selectInput.addEventListener("change", () => {
       if (selectInput.checked) _deps.state.selected.add(GM_ID);
@@ -109,7 +122,6 @@
     // split into separate settings 2026-07-22.
     const badge = document.createElement("span");
     badge.className = "auto-badge auto-badge-live";
-    const everyMode = _deps.getAutoInjectMode?.("gm") === "every";
     badge.textContent = everyMode ? "נטען בכל הודעה" : "נטען בתחילת שיחה";
     badge.title = "לחץ למעבר בין טעינה בתחילת שיחה לטעינה בכל הודעה";
     badge.addEventListener("click", async (e) => {

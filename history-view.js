@@ -211,6 +211,15 @@
     const card = $el("projectInstructionsCard");
     if (!card) return;
     const on = project.autoLoad !== false; // missing autoLoad defaults to ON
+    const everyMode = _deps.getAutoInjectMode?.("project") === "every";
+    // Manual injection ("טען פרומפטים") is redundant once every-mode is
+    // already prepending the project's instructions to every send — and
+    // combined with it, would duplicate that content in the next message
+    // (the trade-off accepted when the every-mode send guard was fixed, see
+    // DECISIONS.md). Drop any stale selection made before the mode switched
+    // to "every", so it can't linger and get included next time
+    // injectSelected() runs.
+    if (everyMode) _deps.state.selected.delete(project.id);
     const selectedForInject = _deps.state.selected.has(project.id);
 
     card.innerHTML = "";
@@ -223,11 +232,14 @@
 
     const selectLabel = document.createElement("label");
     selectLabel.className = "cb-wrap gm-select";
-    selectLabel.title = "סמן כדי לטעון את ההנחיות עם 'טען פרומפטים'";
+    selectLabel.title = everyMode
+      ? "במצב 'נטען בכל הודעה' אין צורך בטעינה ידנית — התוכן מוזרק אוטומטית לכל הודעה"
+      : "סמן כדי לטעון את ההנחיות עם 'טען פרומפטים'";
     selectLabel.addEventListener("click", (e) => e.stopPropagation());
     const selectInput = document.createElement("input");
     selectInput.type = "checkbox";
     selectInput.checked = selectedForInject;
+    selectInput.disabled = everyMode;
     selectInput.setAttribute("aria-label", "הוסף את הנחיות הפרויקט להזרקה");
     selectInput.addEventListener("change", () => {
       if (selectInput.checked) _deps.state.selected.add(project.id);
@@ -270,7 +282,6 @@
     // split, so e.g. GM can ride every message while this stays start-only.
     const badge = document.createElement("span");
     badge.className = "auto-badge auto-badge-live";
-    const everyMode = _deps.getAutoInjectMode?.("project") === "every";
     badge.textContent = everyMode ? "נטען בכל הודעה" : "נטען בתחילת שיחה";
     badge.title = "לחץ למעבר בין טעינה בתחילת שיחה לטעינה בכל הודעה";
     badge.addEventListener("click", async (e) => {

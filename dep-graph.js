@@ -755,6 +755,15 @@
     return graph;
   }
 
+  // One hop only — the file's own outgoing edges, not dependencies of
+  // dependencies. Doesn't include startPath itself, matching
+  // getDirectDependents' shape; callers that need it in the result add it
+  // themselves (same convention loadWithDependencies already uses for the
+  // "dependents" mode).
+  function getDirectDependencies(graph, startPath) {
+    return new Set(graph[startPath] || []);
+  }
+
   function getTransitiveClosure(graph, startPath) {
     const visited = new Set();
     const queue = [startPath];
@@ -821,6 +830,7 @@
 
   window.__ccbDepGraph = {
     buildGraph,
+    getDirectDependencies,
     getTransitiveClosure,
     getDirectDependents,
     getFullContext,

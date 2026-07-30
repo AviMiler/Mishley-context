@@ -2,6 +2,33 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-30 — Feature: code-project file tree defaults to collapsed (1 of 3, same-day batch)
+
+User asked for the code-project file tree's folders to start collapsed on first view of a project, not expanded.
+
+- `code-tree.js` — new `allFolderPaths(docs)` helper derives folder paths from `doc.name` splits (filtered to `type === "code" && !isManuallyAdded`, matching `buildTree`'s own filter — narrowed after `verify-agent`'s report that manually-added files, which render flat outside the tree, were seeding a few superfluous paths). `renderInline`'s per-project reset now seeds `_collapsedPaths` with this set instead of leaving it empty. No other collapse/expand/search logic touched.
+
+**Verify:** `verify-agent` Go. Not yet browser-verified. See [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md).
+
+### 2026-07-30 — Feature: dependency-loading menu split into direct-only vs. including-indirect (2 of 3, same-day batch)
+
+User asked for the per-file "load with dependencies" menu's dependencies option to distinguish direct-only from transitive (including indirect). Stage 1 (`spec-doc-agent`) found this genuinely ambiguous between two scopes — split just "תלויות" into two rows, or trim the whole 3-item menu to 2 (dropping "תלויים"/"הקשר מלא") — and, lacking `AskUserQuestion` tool access that session, relayed the exact question to the coordinator; user confirmed via the coordinator: split only "תלויות," leave "תלויים"/"הקשר מלא" untouched, two separate rows (not a toggle).
+
+- `dep-graph.js` — new `getDirectDependencies(graph, startPath)` (one-hop, `new Set(graph[startPath]||[])`, mirrors `getDirectDependents`'s shape), exported via `window.__ccbDepGraph`.
+- `code-tree.js` — `loadWithDependencies` gained mode `"direct"` (adds `startPath` itself, same pattern as the existing "dependents" branch; applies `loadIgnores` the same way "dependencies" already does). `openDepsMenu` now renders 4 rows: new "תלויות ישירות בלבד" (mode "direct") first, "תלויות (כולל עקיפות)" (existing "dependencies" mode, only the label string changed), then unchanged "תלויים"/"הקשר מלא".
+
+**Verify:** `verify-agent` Go — confirmed the existing dependencies/dependents/full behavior is byte-for-byte unchanged except the one relabeled string. Not yet browser-verified. See [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md).
+
+### 2026-07-30 — Feature: manual GM/project-instructions injection disabled during every-mode (3 of 3, same-day batch)
+
+Closes the duplicate-content trade-off explicitly accepted in the per-message dedup-guard fix directly below (same day): manually loading GM or project instructions ALONE via "טען פרומפטים" while that same source was already in every-mode could duplicate its content on the next send. Rather than only accept that risk, the source's own manual-injection checkbox is now disabled outright whenever its mode is "every."
+
+- `chat-features.js` (`renderGeneralMemory`) / `history-view.js` (`renderProjectInstructionsCard`) — `everyMode` now computed earlier in each render; when true, `selectInput.disabled = true` with an explanatory tooltip, and that source's id is defensively removed from `_deps.state.selected` both on render (whenever `everyMode` is true) and in the mode-badge's own click handler when it flips start→every.
+- `ui-styles.js` — new `.cb-wrap input:disabled` rule (dimmed, `cursor: not-allowed`); confirmed scoped to only these checkboxes.
+- `injectSelected()` itself deliberately left unmodified — see [DECISIONS.md](DECISIONS.md).
+
+**Verify:** `verify-agent` Go — traced all `state.selected` call sites, confirmed no path reaches `injectSelected()` with a stale every-mode selection without an intervening render already clearing it. Not yet browser-verified. See [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md), [DECISIONS.md](DECISIONS.md).
+
 ### 2026-07-30 — Fix: per-message "every mode" GM/project-instructions context silently dropped by unrelated manual injections
 
 Code-review-found bug (not a live user repro): `chat-features.js#_interceptSend`'s dedup guard checked for `[[CCB:INJECTED]]`, a marker shared by five unrelated framing pairs (GM/manual-prompts/conversation-load/project-instructions/files injection — all in `config.js`), not just the per-message prefix's own `[[CCB:CTX]]` marker. So loading files ("טען קבצים"), prompts ("טען פרומפטים"), or a conversation ("טען נבחרים") without immediately sending — then typing a real message and sending — silently suppressed that turn's every-mode GM/project-instructions context, since the guard bailed on the unrelated leftover marker before ever building the every-mode prefix.

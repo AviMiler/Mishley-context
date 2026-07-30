@@ -628,6 +628,8 @@ window.__ccbCSS = (() => {
     }
     .cb-check { display: none; }
     .cb-wrap input:checked + .cb-box .cb-check { display: block; }
+    .cb-wrap input:disabled { cursor: not-allowed; }
+    .cb-wrap input:disabled + .cb-box { opacity: .4; }
 
     /* Card body */
     .block-main { flex: 1; min-width: 0; }
