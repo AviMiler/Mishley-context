@@ -605,6 +605,7 @@
         modals.closeOnboarding();
         window.__ccbCodeTree?.closeFilePreview?.();
         window.__ccbCodeTree?.closeDepsManager?.();
+        window.__ccbCodeTree?.closeDepPicker?.();
       }
     });
     $el("scanSettingsOverlay")?.addEventListener("click", (e) => {
@@ -844,6 +845,9 @@
     $el("dmBack")?.addEventListener("click", () =>
       window.__ccbCodeTree?.closeDepsManager?.(),
     );
+    $el("dpBack")?.addEventListener("click", () =>
+      window.__ccbCodeTree?.closeDepPicker?.(),
+    );
 
     let cvSearchTimer = null;
     $el("cvSearch")?.addEventListener("input", () => {
@@ -928,6 +932,7 @@
         historyView.closeConversationView();
         window.__ccbCodeTree?.closeFilePreview?.();
         window.__ccbCodeTree?.closeDepsManager?.();
+        window.__ccbCodeTree?.closeDepPicker?.();
         historyView.closeProjectSelectDropdown();
         resetTabDefaults(tab.dataset.tab);
         if ($el("panel").classList.contains("editing")) {
@@ -993,6 +998,7 @@
       window.__ccbHistoryView.closeConversationView();
       window.__ccbCodeTree?.closeFilePreview?.();
       window.__ccbCodeTree?.closeDepsManager?.();
+      window.__ccbCodeTree?.closeDepPicker?.();
       window.__ccbModals?.closeOnboarding();
       window.__ccbHistoryView.closeProjectSelectDropdown();
       $el("panel").classList.remove("open");

@@ -1064,7 +1064,7 @@ window.__ccbCSS = (() => {
     /* ── Conversation Preview Panel (also hosts the file-preview full-pane
        view, #filePreviewView, and the per-file dependency manager,
        #depManagerView — same takeover layout, different body) ── */
-    #conversationView, #filePreviewView, #depManagerView, #onboardingView {
+    #conversationView, #filePreviewView, #depManagerView, #depPickerView, #onboardingView {
       position: fixed;
       top: 0;
       left: ${w}px;
@@ -1080,7 +1080,7 @@ window.__ccbCSS = (() => {
       flex-direction: column;
       pointer-events: auto;
     }
-    #conversationView.cv-open, #filePreviewView.cv-open, #depManagerView.cv-open, #onboardingView.cv-open { display: flex; }
+    #conversationView.cv-open, #filePreviewView.cv-open, #depManagerView.cv-open, #depPickerView.cv-open, #onboardingView.cv-open { display: flex; }
     /* Dependency manager body — Hebrew section labels stay RTL (inherited),
        file paths within rows are forced LTR (source paths, not UI text). */
     .dm-body-wrap { direction: rtl; }
@@ -1273,7 +1273,7 @@ window.__ccbCSS = (() => {
       border-bottom: 1px solid var(--border-subtle);
       flex-shrink: 0;
     }
-    #cvBack, #fpBack, #dmBack, #obClose {
+    #cvBack, #fpBack, #dmBack, #dpBack, #obClose {
       width: 30px;
       height: 30px;
       border: none;
@@ -1286,7 +1286,7 @@ window.__ccbCSS = (() => {
       justify-content: center;
       flex-shrink: 0;
     }
-    #cvBack:hover, #fpBack:hover, #dmBack:hover, #obClose:hover { background: rgba(0,0,0,.04); color: var(--text-strong); }
+    #cvBack:hover, #fpBack:hover, #dmBack:hover, #dpBack:hover, #obClose:hover { background: rgba(0,0,0,.04); color: var(--text-strong); }
     /* #dmBack was missing from the rule above entirely, so it rendered with
        the browser's default button chrome (bordered square) — reported as
        "ugly". Also moves it to the opposite side of the header from

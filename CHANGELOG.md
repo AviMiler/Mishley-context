@@ -2,6 +2,17 @@
 
 ## Unreleased (pending commit)
 
+### 2026-07-30 — Feature: "התאמה אישית" (custom) bulk file-selection picker in the dependency-loading menu (4th feature, same-day batch)
+
+User asked for a 5th `openDepsMenu` item that opens a full-pane view "similar to the management window, with all the files," lets the user check what they want, and a Save button that marks those files in the tree — without saving anything as a permanent preset. Stage 1 (`spec-doc-agent`) flagged a genuine ambiguity with real data-loss risk — additive (only turn ON the checked files) vs. full-replace (checked set becomes the entire enabled set, turning everything else off) — and relayed the exact question to the coordinator; user confirmed **additive**, matching the other 4 menu options exactly.
+
+- `ui-template.js` — new `#depPickerView` full-pane block, same `.cv-shell`/`.cv-header` pattern as `#conversationView`/`#filePreviewView`/`#depManagerView`.
+- `ui-styles.js` — `#depPickerView` added to the shared fixed-positioning/`.cv-open` selectors; `#dpBack` added to the shared close-button selectors. No other new CSS — everything else reuses pre-existing generic classes.
+- `code-tree.js` (+295 lines) — new 5th menu item "התאמה אישית" (icon `ic.settings`). New `dpRenderNode` (own tree walker, same precedent as the pre-existing `dmRenderTreeNode` — writes only to a local `_dpPicked` Set, never touches storage), `dpRenderManualSection`, `renderDepPicker`, `wireDepPickerOnce` (one-time listener guard for the static `#dpSearch`/`#dpSaveBtn`), `saveDepPicker` (`enableFilesForProject(project.id, checkedPaths)`, default `enabled=true` — identical call shape to the other 4 options; `setAllCodeDocsEnabled` not used anywhere in this feature), `openDepPicker`/`closeDepPicker` (folder tree defaults collapsed via the existing `allFolderPaths` helper; mutual exclusion with the other 3 full-pane views + onboarding wired at every existing site).
+- Checkboxes always start entirely blank (never pre-populated from current `enabled` state) — an automatic, confirmed consequence of the additive decision.
+
+**Verify:** `verify-agent` Go on 9 checks — additive-only confirmed by tracing every `_dpPicked` write site, blank-start confirmed, mutual exclusion exhaustive/bidirectional, one-time wiring guard never resets, folder-checkbox indeterminate math correct, CSS reuse sound, `git diff --stat` confirms only the 6 named files changed. Not yet browser-verified. See [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md), [DECISIONS.md](DECISIONS.md).
+
 ### 2026-07-30 — Feature: code-project file tree defaults to collapsed (1 of 3, same-day batch)
 
 User asked for the code-project file tree's folders to start collapsed on first view of a project, not expanded.

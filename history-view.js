@@ -1040,6 +1040,7 @@
     // one at a time.
     window.__ccbCodeTree?.closeFilePreview?.();
     window.__ccbCodeTree?.closeDepsManager?.();
+    window.__ccbCodeTree?.closeDepPicker?.();
     window.__ccbModals?.closeOnboarding?.();
     _deps.state.cvOpenedFromProject = !!openedFromProject;
 

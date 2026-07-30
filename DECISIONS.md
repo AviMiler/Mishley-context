@@ -1,5 +1,13 @@
 # Decisions
 
+## [2026-07-30] "Custom" dependency-load picker Save is additive only, not a full-replace of the enabled set
+
+**Decision:** The new "התאמה אישית" full-pane file picker's Save button is additive only — it calls `enableFilesForProject(project.id, checkedPaths)` (default `enabled = true`), the exact same call other 4 deps-menu options already use. Every file the user left unchecked keeps whatever `enabled` state it already had; nothing is ever turned off by this feature.
+
+**Alternatives considered:** Full-replace — after Save, the project's entire enabled-set becomes EXACTLY the checked files, turning off everything else (including files enabled before the picker was opened). This was the more "obviously useful" reading at first glance: a purely additive picker is largely redundant with the checkboxes already available in the main inline tree, so the main argument FOR building a dedicated full-screen picker at all is that it can do something the inline tree can't — namely, replace the whole selection in one action instead of manually unchecking dozens of files first.
+
+**Why:** Stage 1 (`spec-doc-agent`) flagged this as a genuine ambiguity with real data-loss risk if guessed wrong (full-replace could silently disable many already-enabled files) and required an explicit user answer before Build rather than inferring intent, despite the agent's own lean toward full-replace for the reason above. Presented to the user directly; **the user confirmed additive**, matching the literal wording of their own request ("יסמן... את הקבצים שנבחרו" — "will mark the files selected") and the mental model of the other 4 menu options, none of which ever turn a file off. The blank-start-checkbox behavior (picker never pre-populates from current `enabled` state) followed automatically from this decision — additive semantics mean a checked box unambiguously means "add this," so pre-checking already-enabled files would have implied "uncheck to disable," which Save doesn't actually do.
+
 ## [2026-07-30] Manual GM/project-instructions injection disabled during every-mode — closes the trade-off accepted below; no second-layer filter added to `injectSelected()`
 
 **Decision:** Disable the manual-injection checkbox for GM/project instructions outright whenever that source's own auto-inject mode is `"every"` (`chat-features.js#renderGeneralMemory`, `history-view.js#renderProjectInstructionsCard`), with defensive `state.selected` cleanup both at render time and at the mode-badge's start→every click transition. Do **not** additionally filter `state.selected` for every-mode sources inside `injectSelected()` itself as a second defensive layer.

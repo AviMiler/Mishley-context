@@ -568,6 +568,28 @@ window.__ccbTpl = (() => {
       </div>
     </div>
 
+    <div id="depPickerView" aria-hidden="true">
+      <div class="cv-shell">
+        <div class="cv-header">
+          <button id="dpBack" type="button" aria-label="סגור">${IC.x}</button>
+          <div class="cv-title-wrap fp-title-wrap">
+            <div class="fp-title">התאמה אישית — בחירת קבצים</div>
+          </div>
+        </div>
+
+        <div class="cv-search-wrap">
+          <input id="dpSearch" type="search" class="code-tree-search-input" placeholder="חיפוש לפי נתיב..." autocomplete="off" />
+          <span class="search-icon">${IC.search}</span>
+        </div>
+
+        <div class="fp-body-wrap dm-body-wrap" id="dpBody"></div>
+
+        <div class="cv-footer">
+          <button id="dpSaveBtn" type="button" class="cv-load-btn" disabled>${IC.upload} <span id="dpSaveLabel">שמור</span></button>
+        </div>
+      </div>
+    </div>
+
     <div id="onboardingView" aria-hidden="true">
       <div class="cv-shell">
         <div class="cv-header">

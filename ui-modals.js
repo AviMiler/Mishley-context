@@ -636,6 +636,7 @@
     window.__ccbHistoryView?.closeConversationView?.();
     window.__ccbCodeTree?.closeFilePreview?.();
     window.__ccbCodeTree?.closeDepsManager?.();
+    window.__ccbCodeTree?.closeDepPicker?.();
 
     wireOnboardingOnce();
     // Once dismissed, the row never comes back — this only ever hides it,

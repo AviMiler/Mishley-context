@@ -33,6 +33,19 @@
   let _collapsedPaths = new Set();
   let _searchCollapsedPaths = new Set(); // tracks per-folder collapse state during search, separate from normal browse mode
 
+  // "התאמה אישית" (custom) dependency-load picker — a full-pane checkbox
+  // tree over ALL of the project's files (not graph-derived), opened from
+  // the per-file deps menu. _dpPicked is purely local/in-memory state: it
+  // never touches project.documents until Save, and Save itself only ever
+  // ADDS the checked paths (enableFilesForProject's default), the exact
+  // same additive semantics as the other 4 deps-menu options — nothing
+  // about this picker's own selection is persisted as a named/reusable
+  // preset. Reset every time the picker opens (see openDepPicker).
+  let _dpQuery = "";
+  let _dpCollapsedPaths = new Set();
+  let _dpPicked = new Set();
+  let _dpWired = false;
+
   const IC = () => window.__ccbTpl.IC;
 
   // ============================================================
@@ -669,6 +682,7 @@
       // same-z-index panels being open together.
       _deps.historyView?.closeConversationView?.();
       closeDepsManager();
+      closeDepPicker();
       window.__ccbModals?.closeOnboarding?.();
       const view = shadow.getElementById("filePreviewView");
       view?.classList.add("cv-open");
@@ -901,6 +915,17 @@
           loadWithDependencies(doc, "full");
         },
         "כל שרשרת התלויות (כולל עקיפות) יחד עם התלויים הישירים" + manualNote,
+      ),
+    );
+    dd.appendChild(
+      mkItem(
+        ic.settings,
+        "התאמה אישית",
+        () => {
+          closeDepsMenu();
+          openDepPicker();
+        },
+        "בחירה ידנית מכל קבצי הפרויקט — הקבצים שתסמן ותשמור שם יתווספו לרשימת הקבצים הנטענים, בדיוק כמו שאר האפשרויות כאן (לא נשמר כתבנית קבועה)",
       ),
     );
     const sep = document.createElement("div");
@@ -1403,6 +1428,7 @@
     _dmExpandedPaths = new Set();
     _deps.historyView?.closeConversationView?.();
     closeFilePreview();
+    closeDepPicker();
     window.__ccbModals?.closeOnboarding?.();
     const shadow = _deps.getShadow?.();
     if (!shadow) return;
@@ -1417,6 +1443,274 @@
     const shadow = _deps.getShadow?.();
     if (!shadow) return;
     const view = shadow.getElementById("depManagerView");
+    view?.classList.remove("cv-open");
+    view?.setAttribute("aria-hidden", "true");
+  }
+
+  // ============================================================
+  // "התאמה אישית" (custom) dependency-load picker — a full-pane checkbox
+  // tree over every one of the project's files, opened from a file's own
+  // "אפשרויות תלויות" menu ("openDepsMenu" above). Unlike that menu's other
+  // 4 options, the result here is project-wide, not graph-derived from the
+  // clicked file — the picker exists purely so the user can hand-pick an
+  // arbitrary set in one screen instead of scrolling the inline tree. Save
+  // is additive only (enableFilesForProject's default), identical to the
+  // other 4 options — nothing here ever turns a file OFF, and the picked
+  // set itself is never persisted as a reusable preset.
+  // ============================================================
+
+  // All code docs, scanned or manual — "all the files", matching what the
+  // main inline tree renders in total (scanned tree + manual flat section).
+  function dpAllDocs() {
+    return (_project.documents || []).filter((d) => d.type === "code");
+  }
+
+  // Own tree walker, deliberately not a shared abstraction with renderNode()
+  // above — same reasoning already established for dmRenderTreeNode (see its
+  // comment): renderNode is wired to doc.enabled + immediate
+  // toggleDocument()/enableFilesForProject() writes, neither of which
+  // applies here. This one writes only to the local _dpPicked Set; nothing
+  // reaches storage until saveDepPicker().
+  function dpRenderNode(node, container, depth, forceExpand) {
+    const names = Object.keys(node.children).sort((a, b) => {
+      const aIsDir = !node.children[a].doc;
+      const bIsDir = !node.children[b].doc;
+      if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+      return a.localeCompare(b);
+    });
+
+    for (const name of names) {
+      const child = node.children[name];
+      const isDir = !child.doc;
+      const row = document.createElement("div");
+      row.className = "code-tree-row";
+      row.style.marginInlineStart = `${depth * 14}px`;
+
+      if (isDir) {
+        // Simpler than the main tree's collapse handling: a search here
+        // always force-expands with no separate "collapsed despite search"
+        // override set — this picker is a transient, one-off tool, not
+        // worth the extra state the main tree carries for that refinement.
+        const collapsed = forceExpand ? false : _dpCollapsedPaths.has(child.path);
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "collapse-btn" + (collapsed ? " collapsed" : "");
+        btn.innerHTML = IC().chevronRight;
+        row.appendChild(btn);
+
+        const dirDocs = collectDocs(child);
+        const pickedCount = dirDocs.filter((d) => _dpPicked.has(d.name)).length;
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "code-tree-checkbox";
+        checkbox.checked = dirDocs.length > 0 && pickedCount === dirDocs.length;
+        checkbox.indeterminate = pickedCount > 0 && pickedCount < dirDocs.length;
+        checkbox.setAttribute("aria-label", `בחר את כל הקבצים בתיקייה ${name}`);
+        checkbox.addEventListener("click", (e) => e.stopPropagation());
+        checkbox.addEventListener("change", () => {
+          for (const d of dirDocs) {
+            if (checkbox.checked) _dpPicked.add(d.name);
+            else _dpPicked.delete(d.name);
+          }
+          renderDepPicker();
+        });
+        row.appendChild(checkbox);
+
+        const icon = document.createElement("span");
+        icon.className = "code-tree-icon";
+        icon.innerHTML = IC().folder;
+        row.appendChild(icon);
+
+        const label = document.createElement("span");
+        label.className = "code-tree-label";
+        label.textContent = name;
+        row.appendChild(label);
+
+        row.addEventListener("click", () => {
+          if (_dpCollapsedPaths.has(child.path)) _dpCollapsedPaths.delete(child.path);
+          else _dpCollapsedPaths.add(child.path);
+          renderDepPicker();
+        });
+        container.appendChild(row);
+
+        const childrenWrap = document.createElement("div");
+        childrenWrap.className = "code-tree-children" + (collapsed ? " collapsed" : "");
+        container.appendChild(childrenWrap);
+        dpRenderNode(child, childrenWrap, depth + 1, forceExpand);
+      } else {
+        const spacer = document.createElement("span");
+        spacer.className = "code-tree-spacer";
+        row.appendChild(spacer);
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "code-tree-checkbox";
+        checkbox.checked = _dpPicked.has(child.doc.name);
+        checkbox.addEventListener("change", () => {
+          if (checkbox.checked) _dpPicked.add(child.doc.name);
+          else _dpPicked.delete(child.doc.name);
+          renderDepPicker();
+        });
+        row.appendChild(checkbox);
+
+        const icon = document.createElement("span");
+        icon.className = "code-tree-icon";
+        icon.innerHTML = IC().file;
+        row.appendChild(icon);
+
+        const label = document.createElement("span");
+        label.className = "code-tree-label";
+        label.textContent = name;
+        row.appendChild(label);
+        row.title = child.path;
+
+        row.addEventListener("click", (e) => {
+          if (e.target === checkbox) return;
+          checkbox.checked = !checkbox.checked;
+          checkbox.dispatchEvent(new Event("change"));
+        });
+        container.appendChild(row);
+      }
+    }
+  }
+
+  function dpRenderManualSection(docs, container) {
+    const label = document.createElement("div");
+    label.className = "code-tree-manual-label";
+    label.textContent = "קבצים שנוספו ידנית";
+    container.appendChild(label);
+
+    const sorted = [...docs].sort((a, b) => a.name.localeCompare(b.name));
+    for (const doc of sorted) {
+      const row = document.createElement("div");
+      row.className = "code-tree-row code-tree-manual-row";
+
+      const spacer = document.createElement("span");
+      spacer.className = "code-tree-spacer";
+      row.appendChild(spacer);
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "code-tree-checkbox";
+      checkbox.checked = _dpPicked.has(doc.name);
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) _dpPicked.add(doc.name);
+        else _dpPicked.delete(doc.name);
+        renderDepPicker();
+      });
+      row.appendChild(checkbox);
+
+      const icon = document.createElement("span");
+      icon.className = "code-tree-icon";
+      icon.innerHTML = IC().file;
+      row.appendChild(icon);
+
+      const nameEl = document.createElement("span");
+      nameEl.className = "code-tree-label";
+      nameEl.textContent = doc.name;
+      row.appendChild(nameEl);
+      row.title = doc.name;
+
+      row.addEventListener("click", (e) => {
+        if (e.target === checkbox) return;
+        checkbox.checked = !checkbox.checked;
+        checkbox.dispatchEvent(new Event("change"));
+      });
+      container.appendChild(row);
+    }
+  }
+
+  function renderDepPicker() {
+    const shadow = _deps.getShadow?.();
+    const body = shadow?.getElementById("dpBody");
+    const saveBtn = shadow?.getElementById("dpSaveBtn");
+    const saveLabel = shadow?.getElementById("dpSaveLabel");
+    if (!body || !_project) return;
+    body.innerHTML = "";
+
+    const allDocs = dpAllDocs();
+    const scannedDocs = allDocs.filter((d) => !d.isManuallyAdded);
+    const manualDocs = allDocs.filter((d) => d.isManuallyAdded);
+    const q = _dpQuery.trim().toLowerCase();
+    const filteredScanned = q
+      ? scannedDocs.filter((d) => matchesQuery(d.name, q))
+      : scannedDocs;
+    const filteredManual = q
+      ? manualDocs.filter((d) => matchesQuery(d.name, q))
+      : manualDocs;
+
+    if (!filteredScanned.length && !filteredManual.length) {
+      const empty = document.createElement("div");
+      empty.className = "project-view-label";
+      empty.style.cssText = "color:var(--text-faint);padding:8px;";
+      empty.textContent = q ? "אין קבצים תואמים" : "אין קבצי קוד בפרויקט";
+      body.appendChild(empty);
+    } else {
+      if (filteredScanned.length) {
+        const tree = buildTree(filteredScanned);
+        dpRenderNode(tree, body, 0, !!q);
+      }
+      if (filteredManual.length) dpRenderManualSection(filteredManual, body);
+    }
+
+    if (saveLabel) {
+      saveLabel.textContent = _dpPicked.size ? `שמור (${_dpPicked.size})` : "שמור";
+    }
+    if (saveBtn) saveBtn.disabled = _dpPicked.size === 0;
+  }
+
+  // Wired once ever (not per-render, unlike dpRenderNode's rows) — #dpSearch
+  // and #dpSaveBtn are static markup outside #dpBody (see ui-template.js),
+  // so re-wiring them on every render would stack duplicate listeners.
+  function wireDepPickerOnce() {
+    if (_dpWired) return;
+    _dpWired = true;
+    const shadow = _deps.getShadow?.();
+    if (!shadow) return;
+    const search = shadow.getElementById("dpSearch");
+    search?.addEventListener("input", (e) => {
+      _dpQuery = e.target.value || "";
+      renderDepPicker();
+    });
+    const saveBtn = shadow.getElementById("dpSaveBtn");
+    saveBtn?.addEventListener("click", () => void saveDepPicker());
+  }
+
+  async function saveDepPicker() {
+    if (!_project || !_dpPicked.size) return;
+    const paths = Array.from(_dpPicked);
+    const marked = await _deps.historyView.enableFilesForProject(_project.id, paths);
+    closeDepPicker();
+    _deps.setStatus?.(`${marked} קבצים נוספו לרשימת הטעינה ✓`);
+  }
+
+  function openDepPicker() {
+    if (!_project) return;
+    _dpQuery = "";
+    _dpPicked = new Set();
+    _dpCollapsedPaths = allFolderPaths(
+      dpAllDocs().filter((d) => !d.isManuallyAdded),
+    );
+    _deps.historyView?.closeConversationView?.();
+    closeFilePreview();
+    closeDepsManager();
+    window.__ccbModals?.closeOnboarding?.();
+    const shadow = _deps.getShadow?.();
+    if (!shadow) return;
+    wireDepPickerOnce();
+    const search = shadow.getElementById("dpSearch");
+    if (search) search.value = "";
+    const view = shadow.getElementById("depPickerView");
+    view?.classList.add("cv-open");
+    view?.setAttribute("aria-hidden", "false");
+    renderDepPicker();
+  }
+
+  function closeDepPicker() {
+    const shadow = _deps.getShadow?.();
+    if (!shadow) return;
+    const view = shadow.getElementById("depPickerView");
     view?.classList.remove("cv-open");
     view?.setAttribute("aria-hidden", "true");
   }
@@ -1458,5 +1752,6 @@
     closeFilePreview,
     openDocumentPreview: openPreview,
     closeDepsManager,
+    closeDepPicker,
   };
 })();
