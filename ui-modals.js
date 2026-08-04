@@ -442,6 +442,109 @@
   }
 
   // ============================================================
+  // Storage-usage dialog (#storageInfoOverlay, D3)
+  // ============================================================
+  // Byte counts + the manual orphan sweep both come from content.js (via
+  // _deps.getStorageUsage/_deps.runOrphanSweep) — this module owns only the
+  // dialog UI, not chrome.storage.local access.
+  function formatBytes(n) {
+    // null/undefined means "couldn't read" (storage.js#getBytesInUse) — must
+    // not render as if it were a real zero.
+    if (n == null) return "לא זמין";
+    if (!n) return "0 KB";
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  const STORAGE_PREFIX_LABELS = {
+    "depGraph_": "גרפי תלויות (פרויקטי קוד)",
+    "codeContent_": "תוכן קבצי קוד",
+    "docBlob_": "קבצים שהועלו",
+  };
+
+  function renderStorageInfoRow(label, bytes) {
+    const row = document.createElement("div");
+    row.className = "storage-info-row";
+    const l = document.createElement("span");
+    l.className = "storage-info-row-label";
+    l.textContent = label;
+    const v = document.createElement("span");
+    v.className = "storage-info-row-value";
+    v.textContent = formatBytes(bytes);
+    row.appendChild(l);
+    row.appendChild(v);
+    return row;
+  }
+
+  async function renderStorageInfo() {
+    const body = $el("storageInfoBody");
+    if (!body) return;
+    body.innerHTML = '<div class="storage-info-loading">טוען…</div>';
+    const usage = await _deps.getStorageUsage?.();
+    body.innerHTML = "";
+    if (!usage) {
+      const msg = document.createElement("div");
+      msg.className = "storage-info-unavailable";
+      msg.textContent = "לא ניתן לקרוא נתוני אחסון בדפדפן זה";
+      body.appendChild(msg);
+      return;
+    }
+    const total = renderStorageInfoRow("סה״כ", usage.total);
+    total.classList.add("storage-info-total");
+    body.appendChild(total);
+    body.appendChild(renderStorageInfoRow("בלוקים (הקשרים/פרויקטים/הודעות)", usage.blocksBytes));
+    if (usage.byPrefix) {
+      for (const [prefix, label] of Object.entries(STORAGE_PREFIX_LABELS)) {
+        body.appendChild(renderStorageInfoRow(label, usage.byPrefix[prefix] || 0));
+      }
+    } else {
+      const note = document.createElement("div");
+      note.className = "storage-info-unavailable";
+      note.textContent = "פירוט לפי סוג אינו זמין בגרסת דפדפן זו";
+      body.appendChild(note);
+    }
+  }
+
+  async function openStorageInfo() {
+    const overlay = $el("storageInfoOverlay");
+    if (!overlay) return;
+    overlay.classList.add("show");
+    const result = $el("storageInfoSweepResult");
+    if (result) result.remove();
+    await renderStorageInfo();
+
+    const sweepBtn = $el("storageInfoSweepBtn").cloneNode(true);
+    $el("storageInfoSweepBtn").replaceWith(sweepBtn);
+    sweepBtn.addEventListener("click", async () => {
+      sweepBtn.disabled = true;
+      const removed = await _deps.runOrphanSweep?.();
+      sweepBtn.disabled = false;
+      const box = $el("storageInfoBody")?.parentElement;
+      $el("storageInfoSweepResult")?.remove();
+      const msg = document.createElement("div");
+      msg.id = "storageInfoSweepResult";
+      msg.className = "storage-info-sweep-result";
+      msg.textContent =
+        removed === null
+          ? "לא ניתן לסרוק מפתחות יתומים בגרסת דפדפן זו"
+          : removed > 0
+            ? `נוקו ${removed} מפתחות יתומים ✓`
+            : "לא נמצאו מפתחות יתומים";
+      box?.insertBefore(msg, box.querySelector(".dialog-btns"));
+      await renderStorageInfo();
+    });
+
+    const closeBtn = $el("storageInfoCloseBtn").cloneNode(true);
+    $el("storageInfoCloseBtn").replaceWith(closeBtn);
+    closeBtn.addEventListener("click", closeStorageInfo);
+  }
+
+  function closeStorageInfo() {
+    const overlay = $el("storageInfoOverlay");
+    if (overlay) overlay.classList.remove("show");
+  }
+
+  // ============================================================
   // Prompts editor
   // ============================================================
   function openPromptsEditor() {
@@ -664,6 +767,8 @@
      *   getDefaultScanSettings: () => object, // built-in defaults, for "reset to defaults"
      *   getOnboardingSeen: () => boolean,
      *   setOnboardingSeen: (seen: boolean) => Promise<void>,
+     *   getStorageUsage: () => Promise<{total, blocksBytes, byPrefix: object|null}|null>,
+     *   runOrphanSweep: () => Promise<number|null>,
      * }} deps
      */
     init(deps) { _deps = deps; },
@@ -677,6 +782,8 @@
     closeScanSettings,
     saveScanSettings,
     resetScanSettingsToDefaults,
+    openStorageInfo,
+    closeStorageInfo,
     openPromptsEditor,
     closePromptsEditor,
     savePromptsEditor,

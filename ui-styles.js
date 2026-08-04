@@ -1665,6 +1665,22 @@ window.__ccbCSS = (() => {
     }
     .ignore-pattern-remove:hover { opacity: 1; }
 
+    /* Storage-usage dialog (#storageInfoOverlay, D3) — total + per-prefix
+       byte breakdown, plus the manual orphan-sweep trigger. */
+    .storage-info-body { margin-bottom: 12px; }
+    .storage-info-loading, .storage-info-unavailable {
+      font-size: 12px; color: var(--text-faint); padding: 8px 2px;
+    }
+    .storage-info-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 6px 8px; background: var(--bg-app); border-radius: 4px; margin-bottom: 6px;
+      border: 1px solid var(--border-light); font-size: 12px;
+    }
+    .storage-info-row.storage-info-total { font-weight: 600; color: var(--text-strong); }
+    .storage-info-row-label { color: var(--text-body); }
+    .storage-info-row-value { color: var(--text-faint); direction: ltr; }
+    .storage-info-sweep-result { font-size: 11px; color: var(--text-faint); margin-top: 6px; }
+
     /* Global scan-settings dialog (#scanSettingsOverlay) — the editable
        versions of document-handler.js's built-in scan rules, applying to every
        code project. Reuses the .ignore-patterns-* chip-list styling above for

@@ -1,5 +1,5 @@
 # Project Map
-_Last updated: 2026-07-30_
+_Last updated: 2026-08-04_
 
 ## File Tree
 ```
@@ -58,7 +58,7 @@ _Last updated: 2026-07-30_
 | `tokenizer.js` | Real BPE token counting (o200k_base) in pure JS over the vendored ranks in `tokenizer/`. Lazily loaded on active-site pages only. Exports `window.__ccbTokenizer`. |
 | `config.js` | Site selectors (Gemini vs. internal chat) behind `ACTIVE_SITE`, plus `FRAMING_*`/`SUMMARY_PROMPT` defaults, other config constants, and the canonical token counter (`estimateTextTokens` — delegates to `tokenizer.js`, falls back to the Hebrew-aware chars→tokens heuristic). Exports `window.__ccbRawConfig`. |
 | `prompts.js` | Loads user overrides for the editable parts of the framing/summary prompts from storage and patches `__ccbRawConfig`; keeps technical markers locked. Exports `window.__ccbPromptsAPI`. |
-| `storage.js` | Owns the v3 storage layout (2026-08-04): `blocks` (metadata only) plus a per-item `depGraph_<projectId>` (scanned import graph) key, with batched (`setBatched`) load/save/remove helpers — no longer a thin wrapper. Also owns `purgeConversationData`, the one-time cleanup for the retired conversation-history feature's `conv_<id>` keys. The write *coalescing* on top of it (`saveBlocks`/`flushSaveBlocks`) lives in `content.js`, not here. See ARCHITECTURE.md "Storage shape". Exports `window.__ccbStorage`. |
+| `storage.js` | Owns the v3 storage layout (2026-08-04): `blocks` (metadata only) plus a per-item `depGraph_<projectId>` (scanned import graph) key, with batched (`setBatched`) load/save/remove helpers — no longer a thin wrapper. Also owns `purgeConversationData`, the one-time cleanup for the retired conversation-history feature's `conv_<id>` keys. **Since 2026-08-04 (D1-D4)** also owns `codeContentKey`/`docBlobKey` (a deliberate second copy of `document-handler.js`'s own private key formats, so backup/orphan code doesn't need a new dependency on that module — see DECISIONS.md), `CONTENT_KEY_PREFIXES`, `listAllKeys()`, and `getBytesInUse()` — the primitives the storage-usage panel and orphan GC in `content.js` are built on. The write *coalescing* on top of it (`saveBlocks`/`flushSaveBlocks`) lives in `content.js`, not here. See ARCHITECTURE.md "Storage shape". Exports `window.__ccbStorage`. |
 | `inject.js` | Finds the page's chat input and injects text into it (prepend/append/replace). Exports `window.__ccbInject`. |
 | `push.js` | Shifts the host page's layout right when the sidebar opens. Exports `window.__ccbPush`. |
 | `ui-styles.js` | All Shadow DOM CSS as a single string. Exports `window.__ccbCSS`. |

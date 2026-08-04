@@ -370,6 +370,11 @@
     _deps.render();
 
     _deps.setStatus("סורק פרויקט...");
+    // E1 guard: the scan mutates _deps.state.blocks[id] across several awaits
+    // below before it's durably saved — see beginBlocksMutation's comment in
+    // content.js. Not covering the picker/placeholder-save above, which are
+    // either a user-paced wait or a single quick save.
+    _deps.beginBlocksMutation();
     try {
       const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle, {
         ..._deps.getScanSettings(),
@@ -401,6 +406,8 @@
       _deps.setProgress({ label: "שגיאה בסריקת הפרויקט", state: "error" });
       _deps.clearProgress(4000);
       _deps.setStatus("שגיאה בסריקת הפרויקט", true);
+    } finally {
+      _deps.endBlocksMutation();
     }
     _deps.render();
   }
@@ -441,46 +448,52 @@
     }
 
     _deps.setStatus("סורק פרויקט...");
+    // E1 guard — see createCodeProjectBookmark's identical comment.
+    _deps.beginBlocksMutation();
     try {
-      const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle, {
-        ..._deps.getScanSettings(),
-        ignorePatterns: proj.ignorePatterns,
-        onProgress: _deps.setProgress,
-      });
-      _deps.setProgress({ phase: "graph", done: included.length, total: included.length });
-      const graphStartedAt = Date.now();
-      // A2 — see createCodeProjectBookmark. Written on scan only.
-      await _deps.saveDepGraph(proj.id, await window.__ccbDepGraph.buildGraph(included));
-      if (proj.depGraph) delete proj.depGraph; // strip any pre-v2 inline copy
-      const graphMs = Date.now() - graphStartedAt;
-      const { removedManualFiles } = await _deps.docHandler.syncCodeProjectDocuments(
-        proj, included, dirHandle.name, _deps.setProgress,
-      );
-      // Do NOT touch proj.title here — it's already set (folder name as the
-      // default at creation, or whatever the user renamed it to via
-      // renameProject). Rescanning is about files/structure, not the
-      // project's display name; overwriting it here used to silently revert
-      // a user's rename back to the folder name on every rescan.
-      const saveStartedAt = Date.now();
-      await _deps.saveBlocks();
-      const saveMs = Date.now() - saveStartedAt;
-      _deps.setProgress({ label: `נסרקו ${counts.included} קבצים`, done: counts.included, total: counts.included, state: "done" });
-      _deps.clearProgress(2500);
-      let statusMsg = `נסרקו ${counts.included} קבצים ✓`;
-      if (removedManualFiles?.length) statusMsg += " · " + removedManualFilesMessage(removedManualFiles);
-      _deps.setStatus(statusMsg, !!removedManualFiles?.length);
-      console.log("[ccb-timing] rescanCodeProject", {
-        filesIncluded: counts.included,
-        manualFilesRemoved: removedManualFiles?.length || 0,
-        permMs, graphMs, saveMs,
-        totalMs: Date.now() - startedAt,
-      });
-    } catch (e) {
-      console.error("[history-view] Failed to rescan code project", e);
-      _deps.setProgress({ label: "שגיאה בסריקה מחדש", state: "error" });
-      _deps.clearProgress(4000);
-      _deps.setStatus("שגיאה בסריקה מחדש", true);
-      return;
+      try {
+        const { included, counts } = await _deps.docHandler.scanCodeProject(dirHandle, {
+          ..._deps.getScanSettings(),
+          ignorePatterns: proj.ignorePatterns,
+          onProgress: _deps.setProgress,
+        });
+        _deps.setProgress({ phase: "graph", done: included.length, total: included.length });
+        const graphStartedAt = Date.now();
+        // A2 — see createCodeProjectBookmark. Written on scan only.
+        await _deps.saveDepGraph(proj.id, await window.__ccbDepGraph.buildGraph(included));
+        if (proj.depGraph) delete proj.depGraph; // strip any pre-v2 inline copy
+        const graphMs = Date.now() - graphStartedAt;
+        const { removedManualFiles } = await _deps.docHandler.syncCodeProjectDocuments(
+          proj, included, dirHandle.name, _deps.setProgress,
+        );
+        // Do NOT touch proj.title here — it's already set (folder name as the
+        // default at creation, or whatever the user renamed it to via
+        // renameProject). Rescanning is about files/structure, not the
+        // project's display name; overwriting it here used to silently revert
+        // a user's rename back to the folder name on every rescan.
+        const saveStartedAt = Date.now();
+        await _deps.saveBlocks();
+        const saveMs = Date.now() - saveStartedAt;
+        _deps.setProgress({ label: `נסרקו ${counts.included} קבצים`, done: counts.included, total: counts.included, state: "done" });
+        _deps.clearProgress(2500);
+        let statusMsg = `נסרקו ${counts.included} קבצים ✓`;
+        if (removedManualFiles?.length) statusMsg += " · " + removedManualFilesMessage(removedManualFiles);
+        _deps.setStatus(statusMsg, !!removedManualFiles?.length);
+        console.log("[ccb-timing] rescanCodeProject", {
+          filesIncluded: counts.included,
+          manualFilesRemoved: removedManualFiles?.length || 0,
+          permMs, graphMs, saveMs,
+          totalMs: Date.now() - startedAt,
+        });
+      } catch (e) {
+        console.error("[history-view] Failed to rescan code project", e);
+        _deps.setProgress({ label: "שגיאה בסריקה מחדש", state: "error" });
+        _deps.clearProgress(4000);
+        _deps.setStatus("שגיאה בסריקה מחדש", true);
+        return;
+      }
+    } finally {
+      _deps.endBlocksMutation();
     }
     _deps.render();
   }

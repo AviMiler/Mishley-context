@@ -199,65 +199,73 @@
     }
     if ((stored[STORAGE_VERSION_KEY] || 1) >= STORAGE_VERSION) return false;
 
-    const convIds = [];
-    const graphs = [];
-    for (const b of Object.values(state.blocks)) {
-      if (!b) continue;
-      if (b.kind === "conversation") convIds.push(b.id);
-      if (b.depGraph && typeof b.depGraph === "object") graphs.push(b);
-    }
-
-    const total = convIds.length + graphs.length;
-    let done = 0;
-    if (total) {
-      setProgress({ phase: "save", label: "מעדכן אחסון…", done: 0, total });
-
-      for (const id of convIds) {
-        delete state.blocks[id];
-        state.selected.delete(id);
-      }
-      done += convIds.length;
-      setProgress({ phase: "save", label: "מעדכן אחסון…", done, total });
-
-      for (let i = 0; i < graphs.length; i += STORAGE_BATCH) {
-        const batch = graphs.slice(i, i + STORAGE_BATCH);
-        const items = {};
-        for (const b of batch) items[storage.depGraphKey(b.id)] = b.depGraph;
-        await storage.setBatched(items);
-        for (const b of batch) delete b.depGraph;
-        done += batch.length;
-        setProgress({ phase: "save", label: "מעדכן אחסון…", done, total });
-      }
-
-      await flushSaveBlocks();
-    }
-
-    // After the blocks are durably rewritten — a purge that ran first and was
-    // then interrupted would orphan nothing, but doing it in this order means
-    // an interruption can only ever leave conv_ keys whose block is already
-    // gone, which the next run's getKeys() sweep still finds and removes.
-    const purged = await storage.purgeConversationData(convIds);
-
+    // E1 guard: this mutates state.blocks across several awaits before its
+    // own final save — see beginBlocksMutation's comment.
+    beginBlocksMutation();
     try {
-      await storage.setBatched({ [STORAGE_VERSION_KEY]: STORAGE_VERSION });
-    } catch {}
-    if (total || purged) {
-      setProgress({
-        phase: "save",
-        label: "האחסון עודכן",
-        done: total,
-        total,
-        state: "done",
-      });
-      clearProgress(2000);
-      console.log("[ccb-timing] storage.migrate", {
-        version: STORAGE_VERSION,
-        conversationKeysRemoved: purged,
-        conversationBlocksRemoved: convIds.length,
-        depGraphs: graphs.length,
-      });
+      const convIds = [];
+      const graphs = [];
+      for (const b of Object.values(state.blocks)) {
+        if (!b) continue;
+        if (b.kind === "conversation") convIds.push(b.id);
+        if (b.depGraph && typeof b.depGraph === "object") graphs.push(b);
+      }
+
+      const total = convIds.length + graphs.length;
+      let done = 0;
+      if (total) {
+        setProgress({ phase: "save", label: "מעדכן אחסון…", done: 0, total });
+
+        for (const id of convIds) {
+          delete state.blocks[id];
+          state.selected.delete(id);
+        }
+        done += convIds.length;
+        setProgress({ phase: "save", label: "מעדכן אחסון…", done, total });
+
+        for (let i = 0; i < graphs.length; i += STORAGE_BATCH) {
+          const batch = graphs.slice(i, i + STORAGE_BATCH);
+          const items = {};
+          for (const b of batch) items[storage.depGraphKey(b.id)] = b.depGraph;
+          await storage.setBatched(items);
+          for (const b of batch) delete b.depGraph;
+          done += batch.length;
+          setProgress({ phase: "save", label: "מעדכן אחסון…", done, total });
+        }
+
+        await flushSaveBlocks();
+      }
+
+      // After the blocks are durably rewritten — a purge that ran first and
+      // was then interrupted would orphan nothing, but doing it in this order
+      // means an interruption can only ever leave conv_ keys whose block is
+      // already gone, which the next run's getKeys() sweep still finds and
+      // removes.
+      const purged = await storage.purgeConversationData(convIds);
+
+      try {
+        await storage.setBatched({ [STORAGE_VERSION_KEY]: STORAGE_VERSION });
+      } catch {}
+      if (total || purged) {
+        setProgress({
+          phase: "save",
+          label: "האחסון עודכן",
+          done: total,
+          total,
+          state: "done",
+        });
+        clearProgress(2000);
+        console.log("[ccb-timing] storage.migrate", {
+          version: STORAGE_VERSION,
+          conversationKeysRemoved: purged,
+          conversationBlocksRemoved: convIds.length,
+          depGraphs: graphs.length,
+        });
+      }
+      return total > 0;
+    } finally {
+      endBlocksMutation();
     }
-    return total > 0;
   }
 
   async function loadBlocks() {
@@ -284,8 +292,45 @@
   const SAVE_COALESCE_MS = 150;
   let _saveTimer = null;
   let _savePending = null;
+  // E1: how many multi-await block-mutating operations are currently
+  // in-flight in THIS tab (scan, rescan, backup import, storage migration —
+  // see beginBlocksMutation/endBlocksMutation). A counter, not a boolean,
+  // since these can nest/overlap (e.g. an import re-running the migration).
+  // The cross-tab storage listener below must not overwrite state.blocks
+  // while this is > 0: those operations hold a local reference they keep
+  // mutating across several awaits before their own final save, so accepting
+  // an external snapshot mid-operation would make that final save silently
+  // discard everything the operation built. While the guard is up, an
+  // external change is simply not applied — this reverts to ordinary
+  // last-write-wins for that window, which is what every write did before
+  // E1 existed, so it is not a new regression.
+  let _blocksMutationDepth = 0;
+  function beginBlocksMutation() {
+    _blocksMutationDepth++;
+  }
+  function endBlocksMutation() {
+    _blocksMutationDepth = Math.max(0, _blocksMutationDepth - 1);
+  }
+
+  // E1: a plain "skip our own echo once" flag is NOT enough here — it was
+  // tried and rejected (see DECISIONS.md). The trailing-throttle coalescing
+  // above deliberately allows a NEW edit to be queued while an earlier
+  // write's chrome.storage.local.set() is still in flight (that's the whole
+  // point of "a continuous stream of writes still lands on disk instead of
+  // starving"). That means a write's own onChanged echo can arrive AFTER a
+  // newer, not-yet-saved local edit already happened — applying that echo
+  // (a boolean flag has no way to tell it's stale) would silently revert the
+  // newer edit. _writeGeneration/_lastSavedGeneration below track exactly
+  // "does state.blocks currently hold an edit not yet confirmed durable?" —
+  // the E1 listener refuses to apply ANY incoming snapshot (self-echo or
+  // genuinely external) while that's true, which is correct for both cases:
+  // a stale self-echo must not overwrite a newer local edit, and a genuinely
+  // external write must not clobber this tab's own pending edit either.
+  let _writeGeneration = 0;
+  let _lastSavedGeneration = 0;
 
   function saveBlocks() {
+    _writeGeneration++;
     if (!_savePending) {
       let resolve;
       const promise = new Promise((r) => (resolve = r));
@@ -310,7 +355,19 @@
     }
     const pending = _savePending;
     _savePending = null;
+    // Capture BEFORE the write starts (nothing yields between here and the
+    // set() call below, so this is exactly the generation this payload
+    // reflects) — see _writeGeneration's comment above.
+    const myGeneration = _writeGeneration;
     await _saveBlocks(STORAGE_KEY, state.blocks);
+    // Only advance up to the generation THIS write actually captured. If a
+    // newer edit happened while this write was in flight, _writeGeneration is
+    // now ahead of myGeneration — that gap is exactly what tells the E1
+    // listener a further save is still outstanding, and it's correct: that
+    // newer edit already scheduled its own flush (saveBlocks() always
+    // arms a new timer once _saveTimer/_savePending are cleared, which
+    // happened at the top of this call), so it will catch up on its own.
+    if (myGeneration > _lastSavedGeneration) _lastSavedGeneration = myGeneration;
     pending?.resolve();
   }
 
@@ -570,6 +627,8 @@
       getDefaultScanSettings: () => docHandler.getDefaultScanSettings(),
       getOnboardingSeen: () => state.onboardingSeen,
       setOnboardingSeen,
+      getStorageUsage: getStorageUsageBreakdown,
+      runOrphanSweep: sweepOrphanKeys,
     });
 
     docHandler.init({
@@ -613,6 +672,12 @@
       // saveBlocks().
       saveDepGraph: (projectId, graph) => storage.saveDepGraph(projectId, graph),
       removeDepGraph: (projectId) => storage.removeDepGraph(projectId),
+      // E1: a scan/rescan mutates state.blocks across several awaits before
+      // its own final save — bracket it so the cross-tab storage listener
+      // doesn't overwrite state.blocks mid-scan. See beginBlocksMutation's
+      // comment in content.js.
+      beginBlocksMutation,
+      endBlocksMutation,
       getDocMaxChars: () => state.docMaxChars,
       getCtxWindow: () => state.ctxWindow,
       getAutoInjectMode,
@@ -684,6 +749,9 @@
     $el("scanSettingsOverlay")?.addEventListener("click", (e) => {
       if (e.target === $el("scanSettingsOverlay")) modals.closeScanSettings();
     });
+    $el("storageInfoOverlay")?.addEventListener("click", (e) => {
+      if (e.target === $el("storageInfoOverlay")) modals.closeStorageInfo();
+    });
     $el("exportBackupBtn").addEventListener("click", exportBackup);
     $el("importBackupBtn").addEventListener("click", () => {
       modals.closeSettings();
@@ -696,6 +764,10 @@
     $el("scanSettingsBtn")?.addEventListener("click", () => {
       modals.closeSettings();
       void modals.openScanSettings();
+    });
+    $el("storageInfoBtn")?.addEventListener("click", () => {
+      modals.closeSettings();
+      void modals.openStorageInfo();
     });
     $el("openOnboardingBtn")?.addEventListener("click", () => {
       modals.closeSettings();
@@ -1529,6 +1601,124 @@
   }
 
   // ============================================================
+  // Content-key bookkeeping — shared by backup (D1/D2) and orphan GC (D3/D4)
+  // ============================================================
+  // Every id a given `blocks` map currently "owns" content for, by prefix.
+  // `conv_` is deliberately not tracked here — see storage.js's comment on
+  // CONTENT_KEY_PREFIXES for why that space is a one-time purge, not this.
+  function collectAliveContentIds(blocks) {
+    const projectIds = new Set();
+    const codeDocIds = new Set();
+    const blobDocIds = new Set();
+    for (const b of Object.values(blocks || {})) {
+      if (!b) continue;
+      if (b.isCodeProject) projectIds.add(b.id);
+      for (const doc of b.documents || []) {
+        if (!doc) continue;
+        if (doc.type === "code") codeDocIds.add(doc.id);
+        if (doc.hasBlob) blobDocIds.add(doc.id);
+      }
+    }
+    return { projectIds, codeDocIds, blobDocIds };
+  }
+
+  // Removes depGraph_*/codeContent_*/docBlob_* keys owned by `oldBlocks` but
+  // not by `newBlocks` — the case that arises when import replaces the whole
+  // map wholesale (D2) and, more generally, whenever a delete path forgets a
+  // storage key (D4's automatic sweep uses the same alive-set logic, but
+  // computed once from a live key listing instead of an old/new diff).
+  async function removeOrphansForReplacedBlocks(oldBlocks, newBlocks) {
+    const before = collectAliveContentIds(oldBlocks);
+    const after = collectAliveContentIds(newBlocks);
+    const keys = [];
+    for (const id of before.projectIds) {
+      if (!after.projectIds.has(id)) keys.push(storage.depGraphKey(id));
+    }
+    for (const id of before.codeDocIds) {
+      if (!after.codeDocIds.has(id)) keys.push(storage.codeContentKey(id));
+    }
+    for (const id of before.blobDocIds) {
+      if (!after.blobDocIds.has(id)) keys.push(storage.docBlobKey(id));
+    }
+    if (keys.length) await storage.remove(keys);
+    return keys.length;
+  }
+
+  // ============================================================
+  // Orphan GC (D3 manual button + D4 automatic throttled sweep)
+  // ============================================================
+  // Lists every depGraph_*/codeContent_*/docBlob_* key actually in storage
+  // (via listAllKeys — see storage.js) and removes whichever ones no live
+  // block/document owns per collectAliveContentIds(state.blocks). Returns
+  // null when the key listing isn't available (older Chrome) rather than a
+  // count of 0 — "unknown" and "nothing to clean" must stay distinguishable,
+  // same convention storage.js#purgeConversationData already uses.
+  async function sweepOrphanKeys() {
+    const allKeys = await storage.listAllKeys();
+    if (allKeys === null) return null;
+    const alive = collectAliveContentIds(state.blocks);
+    const aliveKeys = new Set([
+      ...Array.from(alive.projectIds, storage.depGraphKey),
+      ...Array.from(alive.codeDocIds, storage.codeContentKey),
+      ...Array.from(alive.blobDocIds, storage.docBlobKey),
+    ]);
+    const orphans = allKeys.filter(
+      (k) =>
+        storage.CONTENT_KEY_PREFIXES.some((p) => k.startsWith(p)) &&
+        !aliveKeys.has(k),
+    );
+    if (orphans.length) await storage.remove(orphans);
+    return orphans.length;
+  }
+
+  // D3: byte breakdown backing the storage-usage panel in Advanced Options.
+  // `byPrefix`/an unlistable total are null (not 0) when getKeys()/
+  // getBytesInUse() aren't available — the UI must show "unknown", not
+  // report a false zero.
+  async function getStorageUsageBreakdown() {
+    const total = await storage.getBytesInUse(null);
+    const blocksBytes = await storage.getBytesInUse([STORAGE_KEY]);
+    const allKeys = await storage.listAllKeys();
+    let byPrefix = null;
+    if (allKeys) {
+      byPrefix = {};
+      for (const prefix of storage.CONTENT_KEY_PREFIXES) {
+        const keys = allKeys.filter((k) => k.startsWith(prefix));
+        byPrefix[prefix] = keys.length ? await storage.getBytesInUse(keys) : 0;
+      }
+    }
+    return { total, blocksBytes, byPrefix };
+  }
+
+  // Automatic, throttled to once per calendar day — an orphan key is a slow
+  // leak (interrupted scans, a delete path that missed a key), not something
+  // that needs sweeping on every load. Tracked via a plain timestamp key
+  // rather than storage.local's own quota APIs, since "was this checked
+  // today" is all that's needed.
+  const ORPHAN_GC_KEY = "ccb_lastOrphanGC";
+  const ORPHAN_GC_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+  async function maybeRunAutomaticOrphanGc() {
+    let last = 0;
+    try {
+      const data = await storage.get([ORPHAN_GC_KEY]);
+      last = data[ORPHAN_GC_KEY] || 0;
+    } catch {
+      return;
+    }
+    if (Date.now() - last < ORPHAN_GC_INTERVAL_MS) return;
+    try {
+      const removed = await sweepOrphanKeys();
+      if (removed) console.log("[ccb-timing] storage.orphanGC", { removed });
+    } catch {
+      // Best-effort — a failed sweep just tries again on the next load past
+      // the interval; it must never block panel init.
+    } finally {
+      await storage.setBatched({ [ORPHAN_GC_KEY]: Date.now() });
+    }
+  }
+
+  // ============================================================
   // Backup export/import (uses modals.showConfirm, mutates state.blocks)
   // ============================================================
   // Backup format v3. A code project's dependency graph doesn't live on its
@@ -1540,22 +1730,40 @@
   // feature itself (2026-08-04). A v2 file's conversation data is ignored on
   // import rather than restored — nothing can read it anymore.
   //
-  // Still assembled as one JSON string (chunked/streamed export, and
-  // including codeContent_*/docBlob_*, is D1 and not yet built) — that's
-  // unchanged from before this refactor rather than a new limitation.
+  // D1 (2026-08-04, same day): backup now includes codeContent_*/docBlob_*
+  // content too — a restore that lists files with no text/blob behind them
+  // was a real gap. Still one synchronous JSON.stringify, deliberately not
+  // chunked/streamed: `blocks` is metadata-only since Phase A and the
+  // conversation data that used to dominate the total size is gone, so at
+  // today's scale streaming would be complexity without a real problem to
+  // solve (confirmed with the user rather than assumed — see DECISIONS.md).
   const BACKUP_VERSION = 3;
 
   async function exportBackup() {
     await loadBlocks();
-    const projectIds = Object.values(state.blocks)
-      .filter((b) => b && b.isCodeProject)
-      .map((b) => b.id);
+    const { projectIds, codeDocIds, blobDocIds } = collectAliveContentIds(state.blocks);
 
     setProgress({ phase: "read", label: "מכין גיבוי…", done: 0, total: 0 });
     const depGraphs = {};
     for (const id of projectIds) {
       const graph = state.blocks[id].depGraph || (await storage.loadDepGraph(id));
       if (graph) depGraphs[id] = graph;
+    }
+    const codeContents = {};
+    if (codeDocIds.size) {
+      const data = await storage.get(Array.from(codeDocIds, storage.codeContentKey));
+      for (const id of codeDocIds) {
+        const content = data[storage.codeContentKey(id)];
+        if (content != null) codeContents[id] = content;
+      }
+    }
+    const docBlobs = {};
+    if (blobDocIds.size) {
+      const data = await storage.get(Array.from(blobDocIds, storage.docBlobKey));
+      for (const id of blobDocIds) {
+        const blob = data[storage.docBlobKey(id)];
+        if (blob != null) docBlobs[id] = blob;
+      }
     }
     clearProgress();
 
@@ -1564,6 +1772,8 @@
       exportedAt: Date.now(),
       blocks: state.blocks,
       depGraphs,
+      codeContents,
+      docBlobs,
     };
     const blob = new Blob([JSON.stringify(payload)], {
       type: "application/json;charset=utf-8",
@@ -1619,24 +1829,48 @@
     }
 
     setProgress({ phase: "save", label: "מייבא…", done: 0, total: 0 });
-    if (isWrapped) {
-      const items = {};
-      for (const [id, graph] of Object.entries(parsed.depGraphs || {})) {
-        items[storage.depGraphKey(id)] = graph;
+    // E1 guard: everything from here on mutates state.blocks across several
+    // awaits before the operation is durably done — see
+    // beginBlocksMutation's comment. Deliberately NOT covering the JSON
+    // parse / confirm-dialog wait above, which don't mutate anything and can
+    // sit open indefinitely on user input.
+    beginBlocksMutation();
+    try {
+      if (isWrapped) {
+        const items = {};
+        for (const [id, graph] of Object.entries(parsed.depGraphs || {})) {
+          items[storage.depGraphKey(id)] = graph;
+        }
+        // D1: restore code-file text and uploaded-doc blobs from the backup —
+        // without this a restored project lists files with nothing behind it.
+        for (const [id, content] of Object.entries(parsed.codeContents || {})) {
+          items[storage.codeContentKey(id)] = content;
+        }
+        for (const [id, blob] of Object.entries(parsed.docBlobs || {})) {
+          items[storage.docBlobKey(id)] = blob;
+        }
+        await storage.setBatched(items);
       }
-      await storage.setBatched(items);
-    }
 
-    state.blocks = blocks;
-    state.blocksLoaded = true;
-    state.selected.clear();
-    state.editingId = null;
-    await flushSaveBlocks();
-    // Rewind the version marker so the migration runs over the imported
-    // blocks: a v1 file puts inline graphs back on them, and any file can
-    // carry conversation blocks that must be purged under the v3 layout.
-    await storage.setBatched({ [STORAGE_VERSION_KEY]: 1 });
-    await migrateStorage();
+      // D2: import replaces `blocks` wholesale, so anything the OLD data
+      // owned that the NEW data doesn't would otherwise sit orphaned in
+      // storage forever. Compute this before overwriting state.blocks.
+      const oldBlocks = state.blocks;
+
+      state.blocks = blocks;
+      state.blocksLoaded = true;
+      state.selected.clear();
+      state.editingId = null;
+      await flushSaveBlocks();
+      await removeOrphansForReplacedBlocks(oldBlocks, blocks);
+      // Rewind the version marker so the migration runs over the imported
+      // blocks: a v1 file puts inline graphs back on them, and any file can
+      // carry conversation blocks that must be purged under the v3 layout.
+      await storage.setBatched({ [STORAGE_VERSION_KEY]: 1 });
+      await migrateStorage();
+    } finally {
+      endBlocksMutation();
+    }
     clearProgress();
     closeEdit();
     window.__ccbModals.closeSettings();
@@ -1654,6 +1888,37 @@
     // the page. Fire-and-forget — unload can't await, but issuing the set()
     // here is strictly better than dropping it.
     if (_savePending) flushSaveBlocks();
+  });
+
+  // ============================================================
+  // Cross-tab sync (E1)
+  // ============================================================
+  // Two tabs on chat pages both hold their own state.blocks, loaded once and
+  // never re-read (state.blocksLoaded guards loadBlocks against it) — before
+  // this, editing in one tab and then saving from another was silent
+  // last-write-wins over the WHOLE map, discarding the first tab's change.
+  // Since Phase A moved bulk data (depGraph, previously conversation
+  // messages) off `blocks` entirely, this mostly matters now for two tabs
+  // both toggling the same project's documents/code-tree selection.
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== "local" || !changes.blocks || !state.blocksLoaded) return;
+    // A scan/import/migration in THIS tab is mid-flight, holding its own
+    // local reference across several awaits before its final save — accepting
+    // an external snapshot now would make that final save silently discard
+    // everything it built. Skip; its own save will supersede this event
+    // anyway once it completes (ordinary last-write-wins for this window).
+    if (_blocksMutationDepth > 0) return;
+    // A local edit exists that isn't confirmed durable yet (either mid-flight
+    // or still waiting out the coalesce window) — this incoming snapshot,
+    // even if it's this tab's own echo, could predate that edit. Skip; once
+    // the pending save completes, _lastSavedGeneration catches up and this
+    // listener resumes accepting updates. See _writeGeneration's comment.
+    if (_writeGeneration !== _lastSavedGeneration) return;
+    state.blocks = changes.blocks.newValue || {};
+    // The block being edited in THIS tab was deleted from another one —
+    // close the form rather than let Save silently resurrect a stale copy.
+    if (state.editingId && !state.blocks[state.editingId]) closeEdit();
+    if (shadow) render();
   });
 
   // ============================================================
@@ -1808,6 +2073,9 @@
     installNewChatBtnWatcher();
     window.__ccbChat.tryAutoInject();
     if (shouldAutoOpen()) setPanelOpen(true);
+    // D4: fire-and-forget, throttled to once/day internally — must never
+    // delay panel init, so it isn't awaited.
+    maybeRunAutomaticOrphanGc();
   }
 
   if (

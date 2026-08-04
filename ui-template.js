@@ -263,6 +263,24 @@ window.__ccbTpl = (() => {
         </div>
       </div>
 
+      <div class="dialog-overlay" id="storageInfoOverlay">
+        <div class="dialog-box doc-dialog">
+          <div class="dialog-title">שימוש באחסון</div>
+          <div class="ignore-patterns-hint">
+            פירוט הנפח הכולל שהתוסף שומר, ומפתחות "יתומים" — תוכן קבצים/גרפי
+            תלויות ששייכים לפרויקט או מסמך שכבר נמחק, ולכן אינם נגישים משום
+            מקום בממשק אך עדיין תופסים מקום.
+          </div>
+          <div id="storageInfoBody" class="storage-info-body">
+            <div class="storage-info-loading">טוען…</div>
+          </div>
+          <div class="dialog-btns">
+            <button class="dialog-confirm" id="storageInfoSweepBtn">סרוק ונקה יתומים</button>
+            <button class="dialog-cancel" id="storageInfoCloseBtn">סגור</button>
+          </div>
+        </div>
+      </div>
+
       <div class="settings-overlay" id="settingsOverlay">
         <div class="settings-box" id="settingsBox">
           <div class="settings-head">
@@ -282,6 +300,13 @@ window.__ccbTpl = (() => {
               <span class="settings-item-text">
                 <span class="settings-item-title">עריכת פרומפטים</span>
                 <span class="settings-item-sub">מסגרות הזרקה (FRAMING)</span>
+              </span>
+            </button>
+            <button class="settings-item" id="storageInfoBtn" type="button">
+              <span class="settings-item-icon">${IC.trash}</span>
+              <span class="settings-item-text">
+                <span class="settings-item-title">שימוש באחסון</span>
+                <span class="settings-item-sub">פירוט נפח + ניקוי מפתחות יתומים</span>
               </span>
             </button>
           </div>

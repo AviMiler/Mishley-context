@@ -23,6 +23,14 @@
 // v3 (2026-08-04) retired the conversation-history feature entirely, taking
 // the `conv_<id>` key with it — purgeConversationData() below is the one-time
 // cleanup that reclaims it, and is the ONLY conversation-aware code left.
+//
+// D1-D4 (2026-08-04, same day): codeContentKey/docBlobKey mirror
+// document-handler.js's own private key builders so content.js's backup
+// export/import and orphan sweep can address those keys without a new
+// dependency on that module. CONTENT_KEY_PREFIXES/listAllKeys/getBytesInUse
+// back the storage-usage panel and the (manual + throttled-automatic) orphan
+// GC in content.js — deliberately excluding `conv_` (see purgeConversationData
+// above), since that space is a one-time purge, not an ongoing sweep target.
 window.__ccbStorage = (() => {
   // chrome.storage.local.set accepts many keys per call and each call is an
   // IPC round-trip, so bulk writes are chunked rather than sent one-by-one.
@@ -31,6 +39,55 @@ window.__ccbStorage = (() => {
 
   function depGraphKey(projectId) {
     return `depGraph_${projectId}`;
+  }
+
+  // Mirror document-handler.js's own PRIVATE key builders (codeContentKey/
+  // `docBlob_${docId}`) — that module keeps them internal, so these are a
+  // second literal copy of the same format strings for the backup/orphan-scan
+  // code below, which has no other reason to depend on document-handler.js.
+  // Keep in sync if either format ever changes.
+  function codeContentKey(docId) {
+    return `codeContent_${docId}`;
+  }
+
+  function docBlobKey(docId) {
+    return `docBlob_${docId}`;
+  }
+
+  // Prefixes of every per-item key this extension writes, for the storage
+  // panel (D3) and the orphan sweep (D4). `conv_` is deliberately excluded —
+  // that key space is retired along with the conversation-history feature and
+  // is fully handled once by purgeConversationData, not by ongoing sweeps.
+  const CONTENT_KEY_PREFIXES = ["depGraph_", "codeContent_", "docBlob_"];
+
+  // chrome.storage.local.getKeys() (Chrome 130+) returns just names, not
+  // values — unlike get(null), it doesn't have to pull every stored byte
+  // into memory just to find which keys exist. Falls back to null (meaning
+  // "can't enumerate") on older Chrome; callers must treat that as "skip",
+  // not "there are no orphans" — the same convention purgeConversationData
+  // already established.
+  async function listAllKeys() {
+    try {
+      const keys = await chrome.storage.local.getKeys?.();
+      return Array.isArray(keys) ? keys : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Resolves `null` (not 0) on an actual failure — same "unknown, not zero"
+  // convention as listAllKeys, so a caller can't mistake "couldn't read" for
+  // "genuinely empty".
+  function getBytesInUse(keys) {
+    return new Promise((resolve) => {
+      try {
+        chrome.storage.local.getBytesInUse(keys ?? null, (bytes) => {
+          resolve(chrome.runtime.lastError ? null : bytes || 0);
+        });
+      } catch {
+        resolve(null);
+      }
+    });
   }
 
   function get(keys) {
@@ -152,6 +209,11 @@ window.__ccbStorage = (() => {
     loadBlocks,
     saveBlocks,
     depGraphKey,
+    codeContentKey,
+    docBlobKey,
+    CONTENT_KEY_PREFIXES,
+    listAllKeys,
+    getBytesInUse,
     purgeConversationData,
     loadDepGraph,
     saveDepGraph,
