@@ -1,5 +1,45 @@
 # Decisions
 
+## [2026-08-04] Existing stored conversation data: purge permanently, not left inert
+
+**Decision:** The storage migration (`content.js#migrateStorage`, v2→v3) deletes every `kind:"conversation"` block and its `conv_<id>` data outright, rather than leaving it sitting in storage unreachable by any UI.
+
+**Alternatives considered:** Leave the data inert — keep the pre-existing move-inline-messages-to-`conv_<id>` step (still needed regardless, to avoid re-bloating `blocks` for anyone not yet on v2) but skip the extra step of deleting the block/key. Zero risk of unwanted deletion, but the data occupies storage forever with no way to reach it.
+
+**Why:** Asked directly, the user chose purge. This project's most recent work before this task (`f2cb07d`, the whole Storage-v2 effort) was specifically about eliminating exactly this kind of storage bloat (one profile had reached ~138MB). Leaving removed-feature data to rot forever would silently reintroduce the same problem class that work had just fixed — defaulting to "leave it inert" would have been inconsistent with the project's own recent priorities without a real reason to choose it.
+
+## [2026-08-04] Backup format: clean cut to v3, not preserve-on-import
+
+**Decision:** `exportBackup`/`importBackupFile` bumped to `BACKUP_VERSION = 3`. New exports never write a `conversations` section; an old v2 backup file's `conversations` data is ignored on import rather than restored into `conv_<id>`.
+
+**Alternatives considered:** Preserve-on-import — keep writing an always-empty `conversations` key for shape stability, and still restore an old backup's real conversation data into `conv_<id>` on import (orphaned/unreachable, same philosophy as leaving existing data inert).
+
+**Why:** This pairs with the purge decision above — restoring conversation data on import while a migration on the very same load path exists purely to delete that data would be self-defeating (the freshly-imported blocks would just get purged again). The user confirmed the clean-cut option directly.
+
+## [2026-08-04] Tab bar removed entirely rather than kept as a single dead tab
+
+**Decision:** With the History tab gone, the two-tab strip (`.tabs`/`.tab`/`#tabIndicator`) was removed entirely rather than kept as a one-item strip showing only "Context".
+
+**Alternatives considered:** Keep the tab bar with just the Context tab, for a smaller diff and less template/CSS churn.
+
+**Why:** A one-item tab strip has nothing to switch between — it's UI chrome with no function, and finishing the removal properly (rather than leaving a visible relic) was judged worth the larger diff. This was Stage 1's own recommendation, treated as an implementation call rather than a product ambiguity since the request was about the feature, not the chrome around it. (A later follow-up removed the "Context" title text that briefly replaced the tab strip too, leaving the header with no title/label at all — a direct user request, not a further design call.)
+
+## [2026-08-04] `history-view.js` keeps its filename despite being Projects-only now
+
+**Decision:** The module — now purely the Projects world after every History/conversation function was removed — was not renamed to something like `project-view.js`.
+
+**Alternatives considered:** Rename it to match its actual (now Projects-only) contents.
+
+**Why:** A rename would churn the manifest's content-script load order, every `_deps.historyView` cross-module reference (used by `content.js`, `chat-features.js`, `code-tree.js`), and the git blame/history of a ~2000-line file — all for a cosmetic naming mismatch with no functional benefit. A comment was added at the top of the file explaining the mismatch explicitly instead, so a future reader isn't left wondering why a "history" file has no history code in it.
+
+## [2026-08-04] Restore `.cv-footer`/`.cv-load-btn` under their existing names, not rename them
+
+**Decision:** When Stage 3 verification caught that deleting these two CSS classes broke `#depPickerView`'s save button (an unrelated surviving feature that also used them), the fix restored both rules verbatim under their original names rather than renaming them to something generic and updating the template to match.
+
+**Alternatives considered:** Give `#depPickerView`'s footer its own equivalently-styled classes (e.g. `.dp-footer`/`.dp-save-btn`), leaving the `cv-` prefix to die with the rest of the conversation view.
+
+**Why:** verify-agent's own fix recommendation called this the smallest correct fix, and it is: no template change needed, no risk of missing a second reference to the old names, and a one-line comment at the restored rules explains that the `cv-` prefix is now a naming leftover with `#dpSaveBtn` as the surviving user — which is honest about the naming debt without paying the cost of fixing it in a task that was about removing a feature, not renaming CSS classes.
+
 ## [2026-07-30] Storage/perf fix ships as Phase A only — B/C/D/E/F deferred, not descoped
 
 **Decision:** Of the 6-phase plan validated at Stage 1 (spec-doc-agent) for the ~138MB `blocks`-key write-amplification bug, only Phase A (stop the write amplification itself: move `messages[]`/`depGraph` off the block, coalesce `saveBlocks()`, migrate existing data) shipped this round. Phases B (bounded conversation growth/retention), C (History-tab render perf), D (backup/orphan hygiene, except a forced partial slice — see the backup decision below), E (cross-tab sync), and F (deferred low-priority items) were not built.

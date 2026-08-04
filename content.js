@@ -54,19 +54,12 @@
     blocksLoaded: false,
     selected: new Set(),
     editingId: null,
-    historySearchMode: "title",
     // The globally active project (or null = "no project"), selected via the
-    // persistent bar above both tabs. Drives: which blocks/documents show in
-    // the Context tab, which project a newly-started conversation is stamped
-    // with, and the History tab's project filter. Persisted across sessions
-    // (see loadActiveProjectId/setActiveProjectId in history-view.js).
+    // persistent bar at the top of the panel. Drives which blocks/documents
+    // show in the Context view. Persisted across sessions (see
+    // loadActiveProjectId/setActiveProjectId in history-view.js).
     currentProjectId: null,
     activeProjectLoaded: false,
-    // History tab: when a project is active, the list is filtered to that
-    // project's conversations by default — this overrides the filter to show
-    // everything. Transient (resets each panel session), like historySearchMode.
-    historyShowAll: false,
-    historyCollapsed: false,
     projectDocumentsCollapsed: false,
     blocksCollapsed: false,
     ctxWindow: CTX_WINDOW_DEFAULT,
@@ -89,28 +82,11 @@
     scanSettings: null,
     scanSettingsLoaded: false,
     gmAutoInjected: false,
-    currentConversationViewId: null,
-    cvSelectedIndices: new Set(),
-    cvMatchElements: [],
-    cvMatchIndex: 0,
-    cvOpenedFromProject: false,
     hiDropdownCleanup: null,
-    // Auto-save: id of the conversation block bound to *this* page load.
-    // Cleared on URL change (SPA new chat); page refresh naturally resets it
-    // because content scripts re-execute.
-    currentConversationId: null,
-    // In-memory cache of conversation messages, keyed by conversation id.
-    // Since A1 the messages live in their own `conv_<id>` storage key rather
-    // than inline on the block, so anything that wants to READ them must load
-    // them first (ensureConvMessages / ensureConvMessagesMany). This cache is
-    // what keeps buildHistoryMessages() synchronous — only the few entry
-    // points that open/inject/search a conversation await the load; every
-    // downstream reader still just reads. Transient, per tab.
-    convCache: new Map(),
     // Undo stack for the chat input's own text box (Phase 4.1). Array of
     // injection ids, oldest first — each undo click pops the most recent one
     // and surgically removes just that block's marked text from the box (see
-    // injectTracked/undoLastInjection). Transient, like cvSelectedIndices.
+    // injectTracked/undoLastInjection). Transient, per tab.
     injectionStack: [],
     // Onboarding guide (Phase 5): whether the user has dismissed the guide's
     // auto-open for good — either by scrolling it to the bottom, or by
@@ -143,12 +119,6 @@
     get gmPost() {
       return window.__ccbRawConfig.FRAMING_GM_POST || "";
     },
-    get convPre() {
-      return window.__ccbRawConfig.FRAMING_CONV_PRE || "";
-    },
-    get convPost() {
-      return window.__ccbRawConfig.FRAMING_CONV_POST || "";
-    },
     get projPre() {
       return window.__ccbRawConfig.FRAMING_PROJ_PRE || "";
     },
@@ -167,19 +137,12 @@
     get everyPost() {
       return window.__ccbRawConfig.FRAMING_EVERY_POST || "";
     },
-    get summaryPrompt() {
-      return window.__ccbRawConfig.SUMMARY_PROMPT || "";
-    },
   };
 
   let shadow = null;
   let $el = null;
   let mounted = false;
   let toastTimer = null;
-  let searchTimeout = null;
-  const ENABLE_SEARCH_DEBOUNCE = true;
-
-  const DEBOUNCE_MS = 300;
 
   // ============================================================
   // Storage wrappers (mutate state.blocks / state.ctxWindow)
@@ -203,26 +166,31 @@
   }
 
   // ============================================================
-  // Storage v2 migration — split the one giant `blocks` key
+  // Storage migration
   // ============================================================
-  // Until v2, a conversation's messages[] and a code project's depGraph were
-  // stored INLINE on their block. Since `blocks` is a single storage key that
-  // is rewritten in full on every saveBlocks(), that meant the 2.5s auto-save
-  // tick and every file checkbox re-serialized every conversation and every
-  // dependency graph in the profile. This migration moves both out to their
-  // own keys (see storage.js's layout comment) exactly once.
+  // v2 (2026-07-30) split the one giant `blocks` key: a code project's
+  // depGraph was stored INLINE on its block, and since `blocks` is a single
+  // storage key rewritten in full on every saveBlocks(), every file checkbox
+  // re-serialized every dependency graph in the profile. Graphs moved to
+  // their own `depGraph_<id>` keys (see storage.js's layout comment).
   //
-  // Resumable by construction: each batch's own keys are written and
-  // confirmed BEFORE the inline copies are stripped from the blocks, so an
+  // v3 (2026-08-04) retired the conversation-history feature. Its blocks and
+  // their `conv_<id>` data are now unreachable from any UI, so they're
+  // deleted rather than left occupying storage forever (one real profile had
+  // ~138MB of them). v2 also used to MOVE those messages out to `conv_<id>`;
+  // that step is gone — anything still inline is deleted along with its block.
+  //
+  // The depGraph half is resumable by construction: each batch's own keys are
+  // written and confirmed BEFORE the inline copies are stripped, so an
   // interrupted migration can only ever leave data in both places (harmless —
   // the next load re-migrates whatever is still inline), never in neither.
   const STORAGE_VERSION_KEY = "ccb_storageVersion";
-  const STORAGE_VERSION = 2;
+  const STORAGE_VERSION = 3;
   // Keys per chrome.storage.local call. Each call is an IPC round-trip, so
   // bulk reads/writes are chunked rather than sent one key at a time.
   const STORAGE_BATCH = 50;
 
-  async function migrateStorageV2() {
+  async function migrateStorage() {
     let stored;
     try {
       stored = await storage.get([STORAGE_VERSION_KEY]);
@@ -231,33 +199,25 @@
     }
     if ((stored[STORAGE_VERSION_KEY] || 1) >= STORAGE_VERSION) return false;
 
-    const convs = [];
+    const convIds = [];
     const graphs = [];
     for (const b of Object.values(state.blocks)) {
       if (!b) continue;
-      if (b.kind === "conversation" && Array.isArray(b.messages)) convs.push(b);
+      if (b.kind === "conversation") convIds.push(b.id);
       if (b.depGraph && typeof b.depGraph === "object") graphs.push(b);
     }
 
-    const total = convs.length + graphs.length;
+    const total = convIds.length + graphs.length;
     let done = 0;
     if (total) {
       setProgress({ phase: "save", label: "מעדכן אחסון…", done: 0, total });
 
-      for (let i = 0; i < convs.length; i += STORAGE_BATCH) {
-        const batch = convs.slice(i, i + STORAGE_BATCH);
-        const items = {};
-        for (const b of batch) items[storage.convKey(b.id)] = b.messages;
-        await storage.setBatched(items);
-        // Only now is it safe to drop the inline copy.
-        for (const b of batch) {
-          b.messageCount = b.messages.length;
-          b.lastMsgLen = lastMessageLength(b.messages);
-          delete b.messages;
-        }
-        done += batch.length;
-        setProgress({ phase: "save", label: "מעדכן אחסון…", done, total });
+      for (const id of convIds) {
+        delete state.blocks[id];
+        state.selected.delete(id);
       }
+      done += convIds.length;
+      setProgress({ phase: "save", label: "מעדכן אחסון…", done, total });
 
       for (let i = 0; i < graphs.length; i += STORAGE_BATCH) {
         const batch = graphs.slice(i, i + STORAGE_BATCH);
@@ -272,10 +232,16 @@
       await flushSaveBlocks();
     }
 
+    // After the blocks are durably rewritten — a purge that ran first and was
+    // then interrupted would orphan nothing, but doing it in this order means
+    // an interruption can only ever leave conv_ keys whose block is already
+    // gone, which the next run's getKeys() sweep still finds and removes.
+    const purged = await storage.purgeConversationData(convIds);
+
     try {
       await storage.setBatched({ [STORAGE_VERSION_KEY]: STORAGE_VERSION });
     } catch {}
-    if (total) {
+    if (total || purged) {
       setProgress({
         phase: "save",
         label: "האחסון עודכן",
@@ -284,24 +250,21 @@
         state: "done",
       });
       clearProgress(2000);
-      console.log("[ccb-timing] storage.migrateV2", {
-        conversations: convs.length,
+      console.log("[ccb-timing] storage.migrate", {
+        version: STORAGE_VERSION,
+        conversationKeysRemoved: purged,
+        conversationBlocksRemoved: convIds.length,
         depGraphs: graphs.length,
       });
     }
     return total > 0;
   }
 
-  function lastMessageLength(messages) {
-    if (!Array.isArray(messages) || !messages.length) return 0;
-    return (messages[messages.length - 1]?.text || "").length;
-  }
-
   async function loadBlocks() {
     if (state.blocksLoaded) return;
     state.blocks = await _loadBlocks(STORAGE_KEY);
     await migrateCtxProjects();
-    await migrateStorageV2();
+    await migrateStorage();
     await window.__ccbHistoryView.loadActiveProjectId();
     state.blocksLoaded = true;
   }
@@ -315,8 +278,7 @@
   // re-serialize and rewrite the whole map. Writes within the coalesce window
   // are therefore merged into one.
   //
-  // Trailing throttle, NOT a resetting debounce (same pattern, and same
-  // reason, as chat-features.js#scheduleAutoSave): the first call schedules
+  // Trailing throttle, NOT a resetting debounce: the first call schedules
   // the flush and later calls join it without pushing the deadline back, so a
   // continuous stream of writes still lands on disk instead of starving.
   const SAVE_COALESCE_MS = 150;
@@ -350,64 +312,6 @@
     _savePending = null;
     await _saveBlocks(STORAGE_KEY, state.blocks);
     pending?.resolve();
-  }
-
-  // ============================================================
-  // Conversation messages — load-on-demand into state.convCache
-  // ============================================================
-  // Returns the messages for one conversation, loading them from `conv_<id>`
-  // on first access. Blocks that predate the v2 migration may still carry an
-  // inline messages[] — that copy is authoritative until the migration runs,
-  // so it wins here.
-  async function ensureConvMessages(b) {
-    if (!b || b.kind !== "conversation") return [];
-    if (Array.isArray(b.messages)) return b.messages;
-    const cached = state.convCache.get(b.id);
-    if (cached) return cached;
-    const loaded = (await storage.loadConvMessages(b.id)) || [];
-    state.convCache.set(b.id, loaded);
-    return loaded;
-  }
-
-  // Batched sibling — one round-trip per 50 conversations instead of one per
-  // conversation. This is what makes History content-search affordable now
-  // that messages aren't resident in memory.
-  async function ensureConvMessagesMany(blocks, onProgress) {
-    const missing = [];
-    for (const b of blocks) {
-      if (!b || b.kind !== "conversation") continue;
-      if (Array.isArray(b.messages) || state.convCache.has(b.id)) continue;
-      missing.push(b.id);
-    }
-    if (!missing.length) return;
-    let done = 0;
-    for (let i = 0; i < missing.length; i += STORAGE_BATCH) {
-      const chunk = missing.slice(i, i + STORAGE_BATCH);
-      const loaded = await storage.loadConvMessagesBatch(chunk);
-      for (const id of chunk) state.convCache.set(id, loaded.get(id) || []);
-      done += chunk.length;
-      onProgress?.(done, missing.length);
-    }
-  }
-
-  function forgetConvMessages(ids) {
-    for (const id of Array.isArray(ids) ? ids : [ids]) {
-      state.convCache.delete(id);
-    }
-  }
-
-  // Drop everything the panel isn't currently showing. A content search pulls
-  // every in-scope conversation into the cache on purpose — that's what makes
-  // the search exact — but holding all of it afterwards would give back the
-  // memory that moving messages out of `blocks` just reclaimed. Called when
-  // the History list renders in any mode OTHER than content search, so the
-  // cache is bounded to the open conversation during normal use and only
-  // grows while a content query is actually active.
-  function trimConvCache() {
-    const keep = state.currentConversationViewId;
-    for (const id of state.convCache.keys()) {
-      if (id !== keep) state.convCache.delete(id);
-    }
   }
 
   async function loadCtxWindow() {
@@ -622,13 +526,6 @@
     wireEvents();
   }
 
-  function moveTabIndicator(tab) {
-    const indicator = $el("tabIndicator");
-    if (!indicator) return;
-    indicator.style.left = tab.offsetLeft + "px";
-    indicator.style.width = tab.offsetWidth + "px";
-  }
-
   // ============================================================
   // Module wiring — build deps + call each module's init()
   // ============================================================
@@ -711,16 +608,9 @@
       openEdit,
       updateInjectBtn,
       injectTracked,
-      // Conversation messages live in their own `conv_<id>` key since A1 —
-      // these load them on demand into state.convCache, which is what
-      // buildHistoryMessages() reads.
-      ensureConvMessages,
-      ensureConvMessagesMany,
-      forgetConvMessages,
-      trimConvCache,
-      removeConvMessages: (ids) => storage.removeConvMessages(ids),
-      // Same reasoning for a code project's scanned graph (A2) — written only
-      // on scan, so it must not ride along on every saveBlocks().
+      // A code project's scanned graph (A2) lives in its own `depGraph_<id>`
+      // key — written only on scan, so it must not ride along on every
+      // saveBlocks().
       saveDepGraph: (projectId, graph) => storage.saveDepGraph(projectId, graph),
       removeDepGraph: (projectId) => storage.removeDepGraph(projectId),
       getDocMaxChars: () => state.docMaxChars,
@@ -760,51 +650,12 @@
       clearInjectionStack,
       getAutoInjectMode,
       setAutoInjectMode,
-      // A1: auto-save writes the messages to `conv_<id>`, never inline on the
-      // block — that write is the 2.5s hot path this whole change exists for.
-      saveConvMessages: (id, messages) => storage.saveConvMessages(id, messages),
-      lastMessageLength,
     });
   }
 
   // ============================================================
   // Wire events (central switchboard)
   // ============================================================
-  function debouncedRender() {
-    if (!ENABLE_SEARCH_DEBOUNCE) {
-      render();
-      return;
-    }
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(render, DEBOUNCE_MS);
-  }
-
-  function resetTabDefaults(tabName) {
-    try {
-      const historyView = window.__ccbHistoryView;
-      if (tabName === "history") {
-        state.historySearchMode = "title";
-        $el("toggleSearchTitle")?.classList.add("active");
-        $el("toggleSearchContent")?.classList.remove("active");
-        if ($el("searchHistory")) $el("searchHistory").value = "";
-        state.historyCollapsed = false;
-        historyView.closeConversationView();
-      } else if (tabName === "context") {
-        state.selected.clear();
-        updateInjectBtn();
-        historyView.closeHiDropdown();
-        const expanded = $el("ccb-ctx-expanded");
-        if (expanded) {
-          expanded.style.display = "none";
-          expanded.setAttribute("aria-hidden", "true");
-          $el("ccb-ctx-expand")?.setAttribute("aria-expanded", "false");
-        }
-      }
-    } catch (e) {
-      console.error("resetTabDefaults error", e);
-    }
-  }
-
   function wireEvents() {
     const modals = window.__ccbModals;
     const historyView = window.__ccbHistoryView;
@@ -876,10 +727,6 @@
     $el("resetFramingGmBtn")?.addEventListener(
       "click",
       () => void modals.resetPromptsEditor("framingGm"),
-    );
-    $el("resetFramingConvBtn")?.addEventListener(
-      "click",
-      () => void modals.resetPromptsEditor("framingConv"),
     );
     $el("resetFramingProjBtn")?.addEventListener(
       "click",
@@ -984,38 +831,12 @@
     $el("projectSelectBtn").addEventListener("click", () => {
       historyView.toggleProjectSelectDropdown();
     });
-    $el("historyShowAll").addEventListener("change", (e) => {
-      state.historyShowAll = e.target.checked;
-      historyView.renderHistoryList();
-    });
-    $el("searchHistory").addEventListener("input", debouncedRender);
-    $el("toggleSearchTitle").addEventListener("click", () => {
-      state.historySearchMode = "title";
-      $el("toggleSearchTitle").classList.add("active");
-      $el("toggleSearchContent").classList.remove("active");
-      $el("searchHistory").placeholder = "חיפוש בשיחות...";
-      historyView.renderHistoryList();
-    });
-    $el("toggleSearchContent").addEventListener("click", () => {
-      state.historySearchMode = "content";
-      $el("toggleSearchContent").classList.add("active");
-      $el("toggleSearchTitle").classList.remove("active");
-      $el("searchHistory").placeholder = "חיפוש מילה בתוכן...";
-      historyView.renderHistoryList();
-    });
-    $el("historyCollapseBtn").addEventListener("click", () => {
-      state.historyCollapsed = !state.historyCollapsed;
-      historyView.syncCollapsibleSections();
-    });
     $el("addBtn").addEventListener("click", () => openEdit(null));
     $el("injectBtn").addEventListener("click", () => chat.injectSelected());
     $el("injectDocsBtn").addEventListener("click", () =>
       historyView.injectProjectDocuments(),
     );
     $el("undoInjectBtn").addEventListener("click", () => undoLastInjection());
-    // No manual "save chat" button anymore — auto-save (chat-features.js#
-    // scheduleAutoSave) covers it. chat.saveChat() is still exported and still
-    // does the full scroll-to-top capture; it just has no UI trigger today.
     $el("saveBtn").addEventListener("click", saveEdit);
     $el("cancelBtn").addEventListener("click", closeEdit);
     $el("deleteBtn").addEventListener("click", deleteEdit);
@@ -1059,8 +880,7 @@
         historyView.openProjectDropdown(project, $el("projectEditBtn"));
     });
 
-    // Conversation View
-    $el("cvBack")?.addEventListener("click", historyView.closeConversationView);
+    // Full-pane takeover views
     $el("fpBack")?.addEventListener("click", () =>
       window.__ccbCodeTree?.closeFilePreview?.(),
     );
@@ -1070,125 +890,6 @@
     $el("dpBack")?.addEventListener("click", () =>
       window.__ccbCodeTree?.closeDepPicker?.(),
     );
-
-    let cvSearchTimer = null;
-    $el("cvSearch")?.addEventListener("input", () => {
-      clearTimeout(cvSearchTimer);
-      cvSearchTimer = setTimeout(() => {
-        const b = state.currentConversationViewId
-          ? state.blocks[state.currentConversationViewId]
-          : null;
-        if (b)
-          historyView.renderConversationMessages(
-            b,
-            ($el("cvSearch")?.value || "").trim(),
-          );
-      }, DEBOUNCE_MS);
-    });
-
-    $el("cvNavPrev")?.addEventListener("click", () => {
-      if (!state.cvMatchElements.length) return;
-      state.cvMatchIndex =
-        (state.cvMatchIndex - 1 + state.cvMatchElements.length) %
-        state.cvMatchElements.length;
-      historyView.updateNavMatch();
-    });
-    $el("cvNavNext")?.addEventListener("click", () => {
-      if (!state.cvMatchElements.length) return;
-      state.cvMatchIndex =
-        (state.cvMatchIndex + 1) % state.cvMatchElements.length;
-      historyView.updateNavMatch();
-    });
-
-    $el("cvSelAll")?.addEventListener("click", () => {
-      const b = state.currentConversationViewId
-        ? state.blocks[state.currentConversationViewId]
-        : null;
-      if (!b) return;
-      state.cvSelectedIndices = new Set(
-        historyView.buildHistoryMessages(b).map((_, i) => i),
-      );
-      historyView.renderConversationMessages(
-        b,
-        ($el("cvSearch")?.value || "").trim(),
-      );
-    });
-    $el("cvSelNone")?.addEventListener("click", () => {
-      state.cvSelectedIndices = new Set();
-      const b = state.currentConversationViewId
-        ? state.blocks[state.currentConversationViewId]
-        : null;
-      if (b)
-        historyView.renderConversationMessages(
-          b,
-          ($el("cvSearch")?.value || "").trim(),
-        );
-      else historyView.updateCvFooter();
-    });
-
-    // "טען נבחרים" — inject selected messages into current chat as context
-    // (does NOT bind to the loaded conversation; current chat stays its own).
-    // Deliberately does not auto-send — the user reviews/edits and sends
-    // themselves, same as file loading (injectProjectDocuments).
-    $el("cvLoadBtn")?.addEventListener("click", () => {
-      const b = state.currentConversationViewId
-        ? state.blocks[state.currentConversationViewId]
-        : null;
-      if (!b || !state.cvSelectedIndices.size) return;
-      const allMsgs = historyView.buildHistoryMessages(b);
-      const selectedMsgs = allMsgs.filter((_, i) =>
-        state.cvSelectedIndices.has(i),
-      );
-      const text = historyView.buildConversationInjectionText(selectedMsgs);
-      const r = injectTracked(text, "replace");
-      if (r.ok) {
-        historyView.closeConversationView();
-        setStatus("נטען — ניתן לערוך ולשלוח ✓");
-      } else {
-        setStatus(r.error || "נכשל", true);
-      }
-    });
-
-    shadow.querySelectorAll(".tab").forEach((tab) => {
-      tab.addEventListener("click", async () => {
-        historyView.closeConversationView();
-        window.__ccbCodeTree?.closeFilePreview?.();
-        window.__ccbCodeTree?.closeDepsManager?.();
-        window.__ccbCodeTree?.closeDepPicker?.();
-        historyView.closeProjectSelectDropdown();
-        resetTabDefaults(tab.dataset.tab);
-        if ($el("panel").classList.contains("editing")) {
-          if (hasUnsavedChanges()) {
-            const ok = await modals.showConfirm({
-              title: "שינויים שלא נשמרו",
-              msg: "אם תצא עכשיו, השינויים שעשית יאבדו.",
-              confirmLabel: "צא בלי לשמור",
-            });
-            if (!ok) return;
-          }
-          closeEdit();
-        }
-        shadow.querySelectorAll(".tab").forEach((t) => {
-          t.classList.remove("active");
-          t.setAttribute("aria-selected", "false");
-        });
-        shadow
-          .querySelectorAll(".tab-pane")
-          .forEach((p) => p.classList.remove("active"));
-        tab.classList.add("active");
-        tab.setAttribute("aria-selected", "true");
-        shadow
-          .getElementById("pane-" + tab.dataset.tab)
-          .classList.add("active");
-        moveTabIndicator(tab);
-        render();
-        window.__ccbCtxMeter.update();
-      });
-    });
-    requestAnimationFrame(() => {
-      const activeTab = shadow.querySelector(".tab.active");
-      if (activeTab) moveTabIndicator(activeTab);
-    });
   }
 
   // ============================================================
@@ -1206,18 +907,12 @@
       render();
       updateInjectBtn();
       window.__ccbCtxMeter.update();
-      // Only the history pane has a search field to focus — guard against
-      // focusing it while hidden behind the (now-default) context tab.
-      if (shadow.querySelector(".tab.active")?.dataset.tab === "history") {
-        $el("searchHistory").focus();
-      }
       // Onboarding guide: auto-opens on every panel open until the user
       // actually dismisses it (scrolled to the end, or checked "don't show
       // again") — not just once ever. See loadOnboardingSeen/setOnboardingSeen.
       await loadOnboardingSeen();
       if (!state.onboardingSeen) window.__ccbModals.openOnboarding();
     } else {
-      window.__ccbHistoryView.closeConversationView();
       window.__ccbCodeTree?.closeFilePreview?.();
       window.__ccbCodeTree?.closeDepsManager?.();
       window.__ccbCodeTree?.closeDepPicker?.();
@@ -1238,7 +933,7 @@
 
   // ============================================================
   // Render orchestrator
-  // Timing/operation log only — counts, never block/conversation content.
+  // Timing/operation log only — counts, never block content.
   // Every scan/inject flow ends by calling this; before this it had zero
   // timing, so a slow render here was indistinguishable from "stuck" in
   // the console (see [ccb-timing] history-view.render for the breakdown
@@ -1427,11 +1122,10 @@
   // now surgically removes just the marked span instead of reverting the
   // entire box to an earlier state.
   //
-  // Covers the same three manual, non-auto-send injection paths as before:
-  // prompts (chat.injectSelected), files (historyView.injectProjectDocuments
-  // → runProjectDocumentsInjection), and loaded conversation messages
-  // (cvLoadBtn below) — all now call injectTracked(text, mode) instead of
-  // inject.injectIntoInput(text, mode) directly.
+  // Covers the manual, non-auto-send injection paths: prompts
+  // (chat.injectSelected) and files (historyView.injectProjectDocuments →
+  // runProjectDocumentsInjection) — both call injectTracked(text, mode)
+  // instead of inject.injectIntoInput(text, mode) directly.
   // ============================================================
   // A simple, ever-increasing counter (1, 2, 3, ...) rather than a
   // timestamp+random id — the marker only needs to be unique among
@@ -1574,9 +1268,8 @@
     $el("editTrigger").value = b ? b.trigger || "" : "";
     $el("editContent").value = b ? b.content : prefill?.content || "";
     // Project blocks have their own delete flow (historyView.deleteProject,
-    // behind #projectEditBtn's dropdown) that also cleans up child blocks/
-    // conversation links — this generic delete doesn't, so it stays hidden
-    // for kind:"project".
+    // behind #projectEditBtn's dropdown) that also cleans up child blocks —
+    // this generic delete doesn't, so it stays hidden for kind:"project".
     $el("deleteBtn").style.display =
       id && b?.kind !== "project" ? "block" : "none";
 
@@ -1679,14 +1372,8 @@
     });
     if (!ok) return;
     const deletedId = state.editingId;
-    const wasConversation = state.blocks[deletedId]?.kind === "conversation";
     delete state.blocks[deletedId];
     state.selected.delete(deletedId);
-    // A1: a conversation's messages are a separate key and would be orphaned.
-    if (wasConversation) {
-      forgetConvMessages(deletedId);
-      await storage.removeConvMessages(deletedId);
-    }
     await saveBlocks();
     closeEdit();
     render();
@@ -1844,33 +1531,27 @@
   // ============================================================
   // Backup export/import (uses modals.showConfirm, mutates state.blocks)
   // ============================================================
-  // Backup format v2. Since A1/A2 a conversation's messages and a code
-  // project's dependency graph no longer live on their block, so exporting
-  // `blocks` alone would silently produce a backup with every conversation
-  // emptied out. They're collected into their own sections here and restored
-  // to their own keys on import.
+  // Backup format v3. A code project's dependency graph doesn't live on its
+  // block (A2), so exporting `blocks` alone would produce a backup with every
+  // graph missing; it gets its own section here and is restored to its own
+  // key on import.
+  //
+  // v3 dropped the `conversations` section along with the conversation-history
+  // feature itself (2026-08-04). A v2 file's conversation data is ignored on
+  // import rather than restored — nothing can read it anymore.
   //
   // Still assembled as one JSON string (chunked/streamed export, and
   // including codeContent_*/docBlob_*, is D1 and not yet built) — that's
   // unchanged from before this refactor rather than a new limitation.
-  const BACKUP_VERSION = 2;
+  const BACKUP_VERSION = 3;
 
   async function exportBackup() {
     await loadBlocks();
-    const convIds = Object.values(state.blocks)
-      .filter((b) => b && b.kind === "conversation")
-      .map((b) => b.id);
     const projectIds = Object.values(state.blocks)
       .filter((b) => b && b.isCodeProject)
       .map((b) => b.id);
 
     setProgress({ phase: "read", label: "מכין גיבוי…", done: 0, total: 0 });
-    const conversations = {};
-    const stored = await storage.loadConvMessagesBatch(convIds);
-    for (const id of convIds) {
-      const messages = state.blocks[id].messages || stored.get(id);
-      if (messages) conversations[id] = messages;
-    }
     const depGraphs = {};
     for (const id of projectIds) {
       const graph = state.blocks[id].depGraph || (await storage.loadDepGraph(id));
@@ -1882,7 +1563,6 @@
       __ccbBackupVersion: BACKUP_VERSION,
       exportedAt: Date.now(),
       blocks: state.blocks,
-      conversations,
       depGraphs,
     };
     const blob = new Blob([JSON.stringify(payload)], {
@@ -1924,42 +1604,39 @@
     });
     if (!ok) return;
 
-    // A v1 backup is a bare { [id]: block } map with messages/depGraph inline
-    // on the blocks; a v2 backup separates them, matching the v2 storage
-    // layout. Both are accepted — an inline copy from a v1 file is simply
-    // migrated on the next load, exactly like any other pre-v2 block.
-    const isV2 = parsed.__ccbBackupVersion >= 2 && parsed.blocks;
-    const blocks = isV2 ? parsed.blocks : parsed;
+    // A v1 backup is a bare { [id]: block } map with data inline on the
+    // blocks; v2/v3 separate it out, matching the storage layout. All are
+    // accepted — an inline copy from a v1 file is simply migrated on the
+    // next load, exactly like any other pre-v2 block. A v2 file's
+    // `conversations` section is deliberately not restored: the feature that
+    // read it is gone, so restoring it would only re-create the unreachable
+    // data the v3 migration exists to purge.
+    const isWrapped = parsed.__ccbBackupVersion >= 2 && parsed.blocks;
+    const blocks = isWrapped ? parsed.blocks : parsed;
     if (!blocks || typeof blocks !== "object" || Array.isArray(blocks)) {
       setStatus("מבנה קובץ לא תקין", true);
       return;
     }
 
     setProgress({ phase: "save", label: "מייבא…", done: 0, total: 0 });
-    if (isV2) {
-      const convItems = {};
-      for (const [id, messages] of Object.entries(parsed.conversations || {})) {
-        convItems[storage.convKey(id)] = messages;
-      }
+    if (isWrapped) {
+      const items = {};
       for (const [id, graph] of Object.entries(parsed.depGraphs || {})) {
-        convItems[storage.depGraphKey(id)] = graph;
+        items[storage.depGraphKey(id)] = graph;
       }
-      await storage.setBatched(convItems);
+      await storage.setBatched(items);
     }
 
     state.blocks = blocks;
     state.blocksLoaded = true;
     state.selected.clear();
     state.editingId = null;
-    state.convCache.clear();
     await flushSaveBlocks();
-    if (!isV2) {
-      // A v1 file just put inline messages/graphs back on the blocks. Rewind
-      // the version marker so the migration runs over them instead of leaving
-      // them inline forever (which is exactly the bloat v2 exists to remove).
-      await storage.setBatched({ [STORAGE_VERSION_KEY]: 1 });
-      await migrateStorageV2();
-    }
+    // Rewind the version marker so the migration runs over the imported
+    // blocks: a v1 file puts inline graphs back on them, and any file can
+    // carry conversation blocks that must be purged under the v3 layout.
+    await storage.setBatched({ [STORAGE_VERSION_KEY]: 1 });
+    await migrateStorage();
     clearProgress();
     closeEdit();
     window.__ccbModals.closeSettings();
@@ -1972,7 +1649,6 @@
   // Cleanup
   // ============================================================
   window.addEventListener("beforeunload", () => {
-    window.__ccbChat?.stopMsgObserver();
     window.__ccbCtxMeter?.cleanup();
     // Don't let a write still sitting in the 150ms coalesce window die with
     // the page. Fire-and-forget — unload can't await, but issuing the set()
@@ -2048,16 +1724,11 @@
       () => {
         if (!isActiveSitePage()) return;
         state.gmAutoInjected = false;
-        // SPA navigation = new chat → unbind any auto-saved conversation
-        state.currentConversationId = null;
         // A fresh chat has nothing left to undo.
         state.injectionStack = [];
         window.__ccbChat.closeQuickCommandMenu();
-        // Reattach msg observer in case the chat container was re-mounted
-        window.__ccbChat.startMsgObserver();
         window.__ccbChat.tryAutoInject();
-        // Refresh the sidebar so the active-conversation marker clears.
-        render();
+        syncUndoInjectBtn();
       },
       true,
     );
@@ -2069,8 +1740,8 @@
   // Clicking the chat's "new chat" button should behave LOGICALLY like a
   // refresh — without actually reloading the page. We do NOT preventDefault:
   // the chat's own click handler clears its UI for us. We piggyback on the
-  // click to reset OUR in-memory state to match (active-conversation marker,
-  // GM auto-inject flag).
+  // click to reset OUR in-memory state to match (GM auto-inject flag, the
+  // undo stack).
   //
   // Event delegation on document (capture phase) — survives re-renders.
   // ============================================================
@@ -2092,11 +1763,9 @@
         console.debug("[ccb] new-chat button click → resetting state");
 
         state.gmAutoInjected = false;
-        state.currentConversationId = null;
         state.injectionStack = [];
         window.__ccbChat.closeQuickCommandMenu();
-        window.__ccbChat.startMsgObserver();
-        render();
+        syncUndoInjectBtn();
         window.__ccbChat.tryAutoInject();
       },
       true,
@@ -2128,7 +1797,6 @@
     await loadScanSettings();
     // mountUI must run before chat module touches shadow DOM
     mountUI();
-    window.__ccbChat.startMsgObserver();
     window.__ccbCtxMeter.watchFileInputs();
     window.__ccbCtxMeter.watchConversation();
     await loadBlocks();
@@ -2150,18 +1818,4 @@
   } else {
     window.addEventListener("DOMContentLoaded", init, { once: true });
   }
-
-  // API for summarizer.js
-  window.__ccb = {
-    MSG_SELECTORS,
-    get blocks() {
-      return state.blocks;
-    },
-    saveBlocks,
-    loadBlocks,
-    setStatus,
-    renderPanel: () => {
-      if (shadow && $el("panel").classList.contains("open")) render();
-    },
-  };
 })();

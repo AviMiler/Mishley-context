@@ -2,6 +2,37 @@
 
 ## Unreleased (pending commit)
 
+### 2026-08-04 — Removed: the entire conversation-history feature, full `enforcing-coding-workflow` pass
+
+User: "I don't need the conversation-history feature at all, remove it completely — check that anything you delete isn't tied to another part of the system." A full, permanent removal, not a deprecation.
+
+**Critical disambiguation established in Stage 1:** "conversation" meant two unrelated things in this codebase. The LIVE on-page chat (read by `ctx-meter.js#watchConversation` for the context-window token meter) is untouched — a different, wanted feature. The SAVED conversation-history feature (History tab, `kind:"conversation"` blocks, conversation preview/view, auto-save-chat, `conv_<id>` storage, `summarizer.js`) is what was removed.
+
+**Two data-retention decisions the user made directly when asked:**
+- Existing stored conversation data: **purge permanently** via the storage migration, not left inert — explicitly citing this project's own recent `f2cb07d` storage-bloat fix (the ~138MB single-key freeze) as the reason not to let dead conversation data pile up again.
+- Backup format: **clean cut to v3** — no `conversations` key on export; an old backup's conversation data is silently dropped on import (nothing can read it anymore).
+- The tab bar itself was removed too (one view left, a 1-item strip is dead UI). A later follow-up also removed the "Context" title text that had briefly replaced it — the header is now just close/settings buttons, no title.
+
+**Deleted:** `summarizer.js` (entire file — watched for `[[CCB:SAVE]]`, saved `kind:"conversation"` blocks).
+
+**Removed from `manifest.json`:** the `summarizer.js` content-script entry; the extension description no longer claims "סיכום שיחות" (conversation summarization).
+
+**Removed from `storage.js`:** `convKey`/`loadConvMessages`/`loadConvMessagesBatch`/`saveConvMessages`/`removeConvMessages`. **Added:** `purgeConversationData(ids)` — deletes `conv_<id>` for given ids plus sweeps orphaned `conv_*` keys via a feature-detected `chrome.storage.local.getKeys?.()`. The depGraph/blocks API is unchanged.
+
+**Removed from `config.js`/`prompts.js`:** `SUMMARY_PROMPT`, `FRAMING_CONV_PRE`/`FRAMING_CONV_POST` and every prompts-editor touchpoint for them (the editor now has 5 framing pairs, not 6).
+
+**Removed from `ui-template.js`/`ui-styles.js`:** the two-tab strip, `#pane-history`, `#conversationView`, the "מעטפת שיחה" prompts-editor subsection, the onboarding guide's History section, all `.hi-*`/`.cv-msg*`/history-list CSS. Shared comma-list selectors (`#conversationView, #filePreviewView, ...`, `#cvBack, #fpBack, ...`, `#list, #historyList`, the search-input triplet) were pruned surgically — only the removed item dropped, the rule kept for the survivors.
+
+**Removed from `chat-features.js`:** the entire capture/auto-save-chat block (~339 lines — `captureConversation`, `persistConversation`, `scheduleAutoSave`, `saveChat`, the message observer, etc.). Quick commands, auto-inject, and manual injection are untouched.
+
+**Removed from `history-view.js`** (~805 lines): every conversation-side function (`buildHistoryMessages`, `openConversationView`/`closeConversationView`, `renderHistoryList`, `openHiDropdown`, etc.). Kept `positionHiDropdown`/`closeHiDropdown`/`formatAge` — confirmed shared with Projects, `code-tree.js`, and `ctx-meter.js`. The file itself keeps its name despite being Projects-only now, to avoid churning the manifest load order and every cross-module reference for a cosmetic mismatch (a comment in the file explains this).
+
+**Changed in `content.js`** (~512 lines removed): `migrateStorageV2` → `migrateStorage`, `STORAGE_VERSION` 2→3 — the conversation half now purges instead of moving data. Backup version 2→3, `conversations` section dropped from export, ignored on import; the version-rewind-and-remigrate step on import now runs unconditionally (was v1-only) so an imported v2 file's conversation blocks get purged too. The `window.__ccb` export (its only consumer was `summarizer.js`) is gone. The undo-injection reset handlers now call `syncUndoInjectBtn()` directly (in place of the removed `render()`) so the undo button still refreshes correctly.
+
+**`code-tree.js`:** dropped 3 stale `closeConversationView()` calls in its full-pane-view mutual-exclusion groups.
+
+**Verification (Stage 3):** first pass was **No-Go** — `.cv-footer`/`.cv-load-btn` were deleted with the rest of the conversation-view CSS, but `#depPickerView`'s save button (an unrelated, pre-existing feature) also used both classes and would have rendered unstyled. Fixed by restoring both rules verbatim under their existing names; second pass **Go**. Everything else (migration ordering, backup-import correctness, the undo-stack wiring, the separate context-meter observer being unaffected, no orphaned functions) was clean on both passes. Verification was static/Node-level only (`node --check`, a custom smoke test asserting ~120 conditions including "every CSS class used in the template has a matching rule" — the check that would have caught the regression pre-emptively — and a dead-code sweep); no real-browser verification was performed.
+
 ### 2026-07-30 — Fix (critical): storage write-amplification froze the panel — Phase A of a 6-phase plan, full `enforcing-coding-workflow` pass
 
 User reported the panel permanently freezes; root cause traced to the single `chrome.storage.local["blocks"]` key reaching ~138MB for this user and `storage.js#saveBlocks` rewriting the ENTIRE map on every one of ~30 call sites (worst offender: the conversation auto-save tick, every 2.5s during AI streaming). Stage 1 (`spec-doc-agent`) validated a 6-phase fix plan (A: stop the write amplification; B: bound conversation growth; C: History-tab render cost; D: backup/orphan hygiene; E: cross-tab sync; F: deferred) against CLAUDE.md/ARCHITECTURE.md (the project's de-facto spec — no dedicated spec.md exists) and raised 4 questions the spec itself couldn't answer. **Only Phase A shipped this round** — see DECISIONS.md for why it was deliberately scoped alone rather than built alongside B–F.

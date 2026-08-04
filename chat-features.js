@@ -1,12 +1,11 @@
-// chat-features.js — General Memory, conversation capture/save, manual injection.
+// chat-features.js — General Memory, auto-inject, manual injection, quick commands.
 // Exposes: window.__ccbChat
 //
 // Public API (after init):
 //   getGM() / renderGeneralMemory()
 //   tryAutoInject()
 //   injectSelected()
-//   saveChat()
-//   startMsgObserver() / stopMsgObserver()
+//   closeQuickCommandMenu()
 
 (() => {
   if (window.__ccbChatInstalled) return;
@@ -203,15 +202,12 @@
   // _interceptSend below for why this is mutate-and-let-through, not
   // block-and-replay.
   // ============================================================
-  const CTX_END_MARKER = "[[CCB:CTX-END]]";
-
   // Undo/quick-command per-injection markers (content.js#injectionMarkers) —
   // [[CCB:INJ:<id>]]\n...\n[[CCB:INJ-END:<id>]]\n around each tracked
   // injection's text. Unlike [[CCB:CTX]]/[[CCB:INJECTED]], these were never
   // stripped before a real send went through: a user who injects (prompts,
   // files, or a quick command) and then sends without clicking undo first
-  // sent the literal marker tokens to the AI, and they'd also get captured
-  // into the saved conversation block. Strips the marker tokens only —
+  // sent the literal marker tokens to the AI. Strips the marker tokens only —
   // leaves the actual injected text (what sits between them) untouched.
   const INJ_START_RE = /\[\[CCB:INJ:[^\]]+\]\]\n?/g;
   const INJ_END_RE = /\n?\[\[CCB:INJ-END:[^\]]+\]\]\n?/g;
@@ -258,11 +254,6 @@
     return f.everyPre + parts.join("\n\n") + f.everyPost;
   }
 
-  // True while one of OUR OWN programmatic send clicks (e.g. saveChat's
-  // summary-prompt send) is in flight, so the capture listener doesn't wrap
-  // it with per-message context.
-  let _sendBypass = false;
-
   // Is this click target part of the send control? Resolved from the TARGET
   // upward — never via document.querySelector — because the page may hold
   // several elements matching SEND_BUTTON_SELECTOR (Gemini swaps mic/send
@@ -293,8 +284,6 @@
   }
 
   function _interceptSend(e) {
-    if (_sendBypass) return;
-
     const input = _deps.inject.findInput();
     if (!input) return;
 
@@ -333,8 +322,7 @@
     // left in the box by ANY tracked injection (manual prompts, files, a
     // quick command), not just the every-mode prefix, whenever the user
     // sends without clicking undo first. Without this the literal marker
-    // tokens went out to the AI and were captured verbatim into the saved
-    // conversation block.
+    // tokens went out to the AI verbatim.
     if (current.includes("[[CCB:INJ:")) {
       const cleaned = _stripInjectionMarkers(current);
       if (cleaned !== current) {
@@ -350,8 +338,8 @@
     // didn't go through) — [[CCB:CTX]] is unique to buildPerMessagePrefix's
     // own framing (FRAMING_EVERY_PRE), so this can't false-positive on it.
     // Deliberately NOT checking [[CCB:INJECTED]] here (2026-07-30 fix): that
-    // marker is shared by FIVE unrelated framing pairs (GM/manual-prompt/
-    // conversation/project/docs — see config.js), so a manually-loaded-but-
+    // marker is shared by every other framing pair (GM/manual-prompt/
+    // project/docs — see config.js), so a manually-loaded-but-
     // unsent injection (e.g. "טען קבצים") used to sit in the box and silently
     // block every-mode's own prefix from ever being added on the next real
     // send — the reported bug. Accepted trade-off, confirmed with the user:
@@ -785,346 +773,6 @@
   }
 
   // ============================================================
-  // Conversation capture + save chat
-  // ============================================================
-  function findScrollableAncestor() {
-    const MSG_SELECTORS = _deps.config.MSG_SELECTORS;
-    const isScrollable = (el) => {
-      const cs = getComputedStyle(el);
-      return (
-        (cs.overflowY === "auto" || cs.overflowY === "scroll") &&
-        el.scrollHeight - el.clientHeight > 50
-      );
-    };
-    let el = document.querySelector(MSG_SELECTORS.messageList);
-    while (el && el !== document.body) {
-      if (isScrollable(el)) return el;
-      el = el.parentElement;
-    }
-    for (const cand of document.querySelectorAll(
-      "main, [class*='scroll'], [class*='conversation']",
-    )) {
-      if (isScrollable(cand)) return cand;
-    }
-    return null;
-  }
-
-  // AI auto-responses that the framing prompts request after each injection.
-  // We strip them from capture so they don't accumulate inside saved blocks
-  // across multiple continuations.
-  const INJECTION_AUTORESPONSES = new Set([
-    "Context loaded.",
-    "Context loaded",
-    "Transcript loaded.",
-    "Transcript loaded",
-    "Project guidelines loaded.",
-    "Project guidelines loaded",
-    "Files loaded.",
-    "Files loaded",
-  ]);
-
-  function captureConversation() {
-    const MSG_SELECTORS = _deps.config.MSG_SELECTORS;
-    const container = document.querySelector(MSG_SELECTORS.messageList);
-    if (!container) return [];
-    const nodes = container.querySelectorAll(MSG_SELECTORS.message);
-    const messages = [];
-    for (const n of nodes) {
-      const text = MSG_SELECTORS.messageText(n) || "";
-      let trimmed = text.trim();
-      if (!trimmed) continue;
-      // Per-message injection prefix: unlike [[CCB:INJECTED]] (a standalone
-      // injection message, dropped whole), the CTX block is glued in front of
-      // the user's REAL message — strip the prefix, keep the rest.
-      const ctxEnd = trimmed.indexOf(CTX_END_MARKER);
-      if (ctxEnd !== -1) {
-        trimmed = trimmed.slice(ctxEnd + CTX_END_MARKER.length).trim();
-        if (!trimmed) continue;
-      }
-      if (trimmed.includes("[[CCB:INJECTED]]")) continue;
-      // Defense-in-depth: a stray [[CCB:INJ:...]] marker shouldn't normally
-      // reach a sent message at all (_interceptSend strips it first), but a
-      // message sent before that guard ran, or on a site whose send
-      // detection misses, could still carry the literal token here. Strip
-      // it rather than saving/re-injecting it into future continuations.
-      if (trimmed.includes("[[CCB:INJ:")) {
-        trimmed = _stripInjectionMarkers(trimmed).trim();
-        if (!trimmed) continue;
-      }
-      let role = "user";
-      if (MSG_SELECTORS.aiMessageMatch && MSG_SELECTORS.aiMessageMatch(n)) {
-        role = "ai";
-      } else if (MSG_SELECTORS.userMessageMatch && MSG_SELECTORS.userMessageMatch(n)) {
-        role = "user";
-      }
-      // Skip the AI's canned response to an injection ("Context loaded." etc.).
-      // captureConversation already filters the injection itself by marker,
-      // but the AI's reply is just a normal short message — without this
-      // filter it would slip into the saved block and re-inject on every
-      // future continuation, growing endlessly.
-      if (role === "ai" && INJECTION_AUTORESPONSES.has(trimmed)) continue;
-      messages.push({ role, text: trimmed });
-    }
-    return messages;
-  }
-
-  async function scrollAndCaptureAll() {
-    const MSG_SELECTORS = _deps.config.MSG_SELECTORS;
-    const scroller = findScrollableAncestor();
-    if (!scroller) return;
-    return new Promise((resolve) => {
-      let lastCount = 0;
-      let stable = 0;
-      const check = setInterval(() => {
-        scroller.scrollTo({ top: 0 });
-        scroller.scrollTop = 0;
-        const count = document.querySelectorAll(MSG_SELECTORS.message).length;
-        if (count === lastCount) {
-          if (++stable >= 3) {
-            clearInterval(check);
-            resolve();
-          }
-        } else {
-          lastCount = count;
-          stable = 0;
-        }
-      }, 300);
-      setTimeout(() => {
-        clearInterval(check);
-        resolve();
-      }, 8000);
-    });
-  }
-
-  // Persist current conversation: update bound block, or create a new one
-  // bound to this page-load. Returns true if anything was written.
-  async function persistConversation(messages) {
-    if (!messages || !messages.length) return false;
-    // captureConversation filters the injection USER-QUERY itself (by the
-    // [[CCB:INJECTED]] marker) but cannot detect the AI's auto-response to
-    // it ("Context loaded.", "Transcript loaded.") since that's just a
-    // normal AI message. Trim any leading AI messages — a real exchange
-    // always starts with a user turn. If no user turn exists, this is
-    // injection-only noise; skip the save entirely.
-    const firstUserIdx = messages.findIndex((m) => m && m.role === "user");
-    if (firstUserIdx === -1) return false;
-    messages = firstUserIdx > 0 ? messages.slice(firstUserIdx) : messages;
-    await _deps.loadBlocks();
-    const state = _deps.state;
-
-    if (
-      state.currentConversationId &&
-      state.blocks[state.currentConversationId]
-    ) {
-      const block = state.blocks[state.currentConversationId];
-      // Change detection WITHOUT reading the stored messages back: compare the
-      // message count and the last message's length, both of which are kept on
-      // the block as metadata precisely so this 2.5s tick never has to touch
-      // conv_<id> just to decide it has nothing to do. Slightly weaker than
-      // the old last-message-text equality (an edit that preserves the exact
-      // length reads as "no change"), which is acceptable here — the previous
-      // check was already an approximation over the last message only, and a
-      // streaming response changes length on essentially every tick.
-      const lastLen = _deps.lastMessageLength(messages);
-      if (
-        block.messageCount === messages.length &&
-        block.lastMsgLen === lastLen
-      ) {
-        return false; // no change
-      }
-      // Messages go to their own key; the block keeps metadata only, so this
-      // write no longer re-serializes every other conversation in the profile.
-      const ok = await _deps.saveConvMessages(block.id, messages);
-      if (!ok) return false;
-      state.convCache.set(block.id, messages);
-      block.messageCount = messages.length;
-      block.lastMsgLen = lastLen;
-      block.updated = Date.now();
-      // Defensive: strip any inline copy left by a pre-v2 block.
-      if (block.messages) delete block.messages;
-      await _deps.saveBlocks();
-      return true;
-    }
-
-    const now = new Date();
-    const autoTitle =
-      "שיחה — " +
-      now.toLocaleDateString("he-IL") +
-      " " +
-      now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
-    const currentProject = _deps.historyView.getProjectById(state.currentProjectId);
-    const projectId = currentProject ? state.currentProjectId : null;
-    const id = "b_" + Date.now() + "_conv";
-    const ok = await _deps.saveConvMessages(id, messages);
-    if (!ok) return false;
-    state.convCache.set(id, messages);
-    state.blocks[id] = {
-      id,
-      title: autoTitle,
-      kind: "conversation",
-      projectId,
-      updated: Date.now(),
-      messageCount: messages.length,
-      lastMsgLen: _deps.lastMessageLength(messages),
-      savedAt: Date.now(),
-    };
-    state.currentConversationId = id;
-    await _deps.saveBlocks();
-    return true;
-  }
-
-  // Manual "save chat" — does a full scroll-to-top capture (to pick up
-  // lazy-loaded older messages) then persists.
-  async function saveChat() {
-    if (!canCapture()) {
-      const r = _deps.inject.injectIntoInput(_deps.framing.summaryPrompt, "replace");
-      if (r.ok) {
-        setTimeout(() => {
-          const btn = document.querySelector(_deps.config.SEND_BUTTON_SELECTOR);
-          // Bypass the per-message interceptor — the summary prompt is a
-          // standalone instruction, not a user message to wrap with context.
-          _sendBypass = true;
-          try {
-            if (btn) btn.click();
-            else _deps.setStatus("לא נמצא כפתור שליחה", true);
-          } finally {
-            _sendBypass = false;
-          }
-        }, 100);
-      } else {
-        _deps.setStatus(r.error || "נכשל", true);
-      }
-      return;
-    }
-    _deps.setStatus("גולל לתחילה…");
-    await scrollAndCaptureAll();
-    const messages = captureConversation();
-    if (!messages.length) {
-      _deps.setStatus("לא נמצאו הודעות — ודא MSG_SELECTORS", true);
-      return;
-    }
-    const wrote = await persistConversation(messages);
-    _deps.setStatus(wrote ? "השיחה נשמרה ✓ (ניתן לשנות שם)" : "אין שינויים");
-    _deps.render();
-  }
-
-  // Force-flush: cancel any pending throttled save and run one now.
-  // Returns the captured messages (after [[CCB:INJECTED]] filtering) so the
-  // caller can decide whether anything real exists.
-  async function flushAutoSave() {
-    if (autoSaveTimer) {
-      clearTimeout(autoSaveTimer);
-      autoSaveTimer = null;
-    }
-    if (!canCapture()) return { messages: [], wrote: false };
-    const messages = captureConversation();
-    if (!messages.length) return { messages: [], wrote: false };
-    const wrote = await persistConversation(messages);
-    return { messages, wrote };
-  }
-
-  // Auto-save — light: no scroll, just capture what's currently in the DOM.
-  // Trailing throttle: first change schedules a save in AUTO_SAVE_INTERVAL_MS;
-  // additional changes during that window are coalesced (timer NOT reset).
-  // After the save fires, the next change schedules a fresh save. This way
-  // during long AI streams we persist every ~2.5s instead of waiting for the
-  // stream to fully stop.
-  let autoSaveTimer = null;
-  const AUTO_SAVE_INTERVAL_MS = 2500;
-  function scheduleAutoSave() {
-    if (!canCapture()) return;
-    if (autoSaveTimer) return;
-    autoSaveTimer = setTimeout(async () => {
-      autoSaveTimer = null;
-      try {
-        const messages = captureConversation();
-        if (!messages.length) return;
-        const wrote = await persistConversation(messages);
-        if (wrote) {
-          console.debug("[ccb] auto-saved", messages.length, "msgs");
-          _deps.render?.();
-        }
-      } catch (e) {
-        console.error("[ccb] auto-save failed:", e);
-      }
-    }, AUTO_SAVE_INTERVAL_MS);
-  }
-
-  // ============================================================
-  let msgObserver = null;
-
-  function canCapture() {
-    const sel = _deps.config.MSG_SELECTORS;
-    return !!(sel && sel.messageList && sel.message);
-  }
-
-  let msgObserverContainer = null;
-  let msgObserverRetryTimer = null;
-
-  function startMsgObserver() {
-    if (!canCapture()) return;
-    const sel = _deps.config.MSG_SELECTORS;
-    const container = document.querySelector(sel.messageList);
-
-    // If we already observe the same live container, nothing to do.
-    if (msgObserver && msgObserverContainer === container && container) return;
-
-    // Container changed (or appeared/disappeared) — tear down old observer first.
-    if (msgObserver) {
-      msgObserver.disconnect();
-      msgObserver = null;
-      msgObserverContainer = null;
-    }
-
-    if (!container) {
-      // Container not in DOM yet — retry. Gemini renders the chat shell async,
-      // so we keep polling until it appears.
-      if (msgObserverRetryTimer) return;
-      msgObserverRetryTimer = setTimeout(() => {
-        msgObserverRetryTimer = null;
-        startMsgObserver();
-      }, 500);
-      return;
-    }
-
-    msgObserverContainer = container;
-    if (container.querySelector(sel.message)) scheduleAutoSave();
-
-    msgObserver = new MutationObserver((muts) => {
-      let sawChange = false;
-      for (const m of muts) {
-        if (m.type === "characterData") {
-          sawChange = true;
-          continue;
-        }
-        m.addedNodes.forEach((n) => {
-          if (n.nodeType !== 1) return;
-          if (n.matches?.(sel.message) || n.querySelectorAll?.(sel.message).length) {
-            sawChange = true;
-          }
-        });
-      }
-      if (sawChange) scheduleAutoSave();
-    });
-    msgObserver.observe(container, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-    console.debug("[ccb] msg observer attached to", sel.messageList);
-  }
-
-  function stopMsgObserver() {
-    if (msgObserverRetryTimer) {
-      clearTimeout(msgObserverRetryTimer);
-      msgObserverRetryTimer = null;
-    }
-    msgObserver?.disconnect();
-    msgObserver = null;
-    msgObserverContainer = null;
-  }
-
-  // ============================================================
   // Public API
   // ============================================================
   window.__ccbChat = {
@@ -1155,10 +803,6 @@
     renderGeneralMemory,
     tryAutoInject,
     injectSelected,
-    saveChat,
-    flushAutoSave,
-    startMsgObserver,
-    stopMsgObserver,
     closeQuickCommandMenu: _closeQuickCommandMenu,
   };
 })();

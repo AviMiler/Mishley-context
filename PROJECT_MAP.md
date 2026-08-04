@@ -30,10 +30,9 @@ _Last updated: 2026-07-30_
 ├── document-handler.js
 ├── dep-graph.js
 ├── code-tree.js
-├── history-view.js
+├── history-view.js                # Projects only (2026-08-04) — see its file description below
 ├── chat-features.js
 ├── content.js
-├── summarizer.js
 ├── background.js                  # MV3 service worker — tree-sitter WASM parser host for dep-graph.js
 ├── wasm/                          # vendored tree-sitter runtime + grammars (see DEPENDENCIES.md)
 │   ├── tree-sitter.js
@@ -59,7 +58,7 @@ _Last updated: 2026-07-30_
 | `tokenizer.js` | Real BPE token counting (o200k_base) in pure JS over the vendored ranks in `tokenizer/`. Lazily loaded on active-site pages only. Exports `window.__ccbTokenizer`. |
 | `config.js` | Site selectors (Gemini vs. internal chat) behind `ACTIVE_SITE`, plus `FRAMING_*`/`SUMMARY_PROMPT` defaults, other config constants, and the canonical token counter (`estimateTextTokens` — delegates to `tokenizer.js`, falls back to the Hebrew-aware chars→tokens heuristic). Exports `window.__ccbRawConfig`. |
 | `prompts.js` | Loads user overrides for the editable parts of the framing/summary prompts from storage and patches `__ccbRawConfig`; keeps technical markers locked. Exports `window.__ccbPromptsAPI`. |
-| `storage.js` | Owns the v2 storage layout (2026-07-30): `blocks` (metadata only) plus per-item `conv_<id>` (conversation messages) and `depGraph_<projectId>` (scanned import graphs) keys, with batched (`setBatched`, `loadConvMessagesBatch`) load/save/remove helpers for each — no longer a thin wrapper. The write *coalescing* on top of it (`saveBlocks`/`flushSaveBlocks`) lives in `content.js`, not here. See ARCHITECTURE.md "Storage shape". Exports `window.__ccbStorage`. |
+| `storage.js` | Owns the v3 storage layout (2026-08-04): `blocks` (metadata only) plus a per-item `depGraph_<projectId>` (scanned import graph) key, with batched (`setBatched`) load/save/remove helpers — no longer a thin wrapper. Also owns `purgeConversationData`, the one-time cleanup for the retired conversation-history feature's `conv_<id>` keys. The write *coalescing* on top of it (`saveBlocks`/`flushSaveBlocks`) lives in `content.js`, not here. See ARCHITECTURE.md "Storage shape". Exports `window.__ccbStorage`. |
 | `inject.js` | Finds the page's chat input and injects text into it (prepend/append/replace). Exports `window.__ccbInject`. |
 | `push.js` | Shifts the host page's layout right when the sidebar opens. Exports `window.__ccbPush`. |
 | `ui-styles.js` | All Shadow DOM CSS as a single string. Exports `window.__ccbCSS`. |
@@ -70,10 +69,9 @@ _Last updated: 2026-07-30_
 | `document-handler.js` | Project-document lifecycle (add/remove/toggle/estimate/extract text incl. DOCX/ODT/RTF) and the code-project folder scanner (`scanCodeProject`, `syncCodeProjectDocuments`). The scanner uses bounded-concurrency directory traversal + file reads and batched storage IO — see ARCHITECTURE.md "Scan performance". Exports `window.__ccbDocHandler`. |
 | `dep-graph.js` | Static, no-AI import/reference graph builder for scanned code projects (JS/TS/JSX resolution + C# symbol-table heuristic + plain CSS `@import` resolution). `buildGraph` is async so it can yield to the event loop. Exports `window.__ccbDepGraph`. |
 | `code-tree.js` | Interactive checkbox file-tree rendered inline in the open project's documents section, for hand-picking which code-project files to inject, incl. a dependency-aware "load with dependencies" menu. Exports `window.__ccbCodeTree`. |
-| `history-view.js` | Unified project list (regular + code projects) + project detail view — now rendered into the Context tab's "פרויקטים" sub-view — plus the History-tab conversation list, per-message preview panel, project documents UI, code-project bookmark/rescan/picker actions, and all row/project dropdowns. Exports `window.__ccbHistoryView`. |
-| `chat-features.js` | General Memory card + auto-inject, manual multi-block injection, conversation capture/auto-save, inline 💾 save button on AI messages. Exports `window.__ccbChat`. |
-| `content.js` | Orchestrator: shared `state`, Shadow DOM mount, `initModules` wiring, central event switchboard, edit form, Context-tab sub-view toggle (`syncCtxSubview`) + general/project-blocks list render, `ctx-project`→`project` migration, backup export/import, init/routing. Exports `window.__ccb` (consumed by `summarizer.js`). |
-| `summarizer.js` | Runs independently of the panel; watches the DOM for a `[[CCB:SAVE]]` marker in an AI response and saves a summary block. |
+| `history-view.js` | Unified project list (regular + code projects) + project detail view, project documents UI, code-project bookmark/rescan/picker actions, and the shared floating-menu host (`#hiDropdown`). Projects-only since 2026-08-04 (the History tab / conversation-history feature it also used to hold was retired) — kept its filename regardless, to avoid churning the manifest load order and every cross-module reference for a cosmetic mismatch (see DECISIONS.md). Exports `window.__ccbHistoryView`. |
+| `chat-features.js` | General Memory card + auto-inject, manual multi-block injection, quick commands. Exports `window.__ccbChat`. |
+| `content.js` | Orchestrator: shared `state`, Shadow DOM mount, `initModules` wiring, central event switchboard, edit form, general/project-blocks list render, `ctx-project`→`project` migration, storage migration, backup export/import, init/routing. |
 | `icon.png` / `icon.svg` | Extension icon assets. |
 | `FILE_EXTENSIONS_REFERENCE.txt` | Reference notes on file extensions/MIME types used when tuning `ctx-meter.js`/`document-handler.js` token estimation. |
 | `AGENT_CONTEXT.md` | Primary entry point for an agent/human picking up this project — current state, last changes, gotchas. |

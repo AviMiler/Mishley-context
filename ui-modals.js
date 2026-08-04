@@ -463,10 +463,6 @@
       $el("promptFramingGmIntro").value = editable.gmIntro || "";
     if ($el("promptFramingGmOutro"))
       $el("promptFramingGmOutro").value = editable.gmOutro || "";
-    if ($el("promptFramingConvIntro"))
-      $el("promptFramingConvIntro").value = editable.convIntro || "";
-    if ($el("promptFramingConvOutro"))
-      $el("promptFramingConvOutro").value = editable.convOutro || "";
     if ($el("promptFramingProjIntro"))
       $el("promptFramingProjIntro").value = editable.projIntro || "";
     if ($el("promptFramingProjOutro"))
@@ -500,8 +496,6 @@
     const manualOutro  = ($el("promptFramingManualOutro")?.value  || "").trim();
     const gmIntro      = ($el("promptFramingGmIntro")?.value      || "").trim();
     const gmOutro      = ($el("promptFramingGmOutro")?.value      || "").trim();
-    const convIntro    = ($el("promptFramingConvIntro")?.value    || "").trim();
-    const convOutro    = ($el("promptFramingConvOutro")?.value    || "").trim();
     const projIntro    = ($el("promptFramingProjIntro")?.value    || "").trim();
     const projOutro    = ($el("promptFramingProjOutro")?.value    || "").trim();
     const docsIntro    = ($el("promptFramingDocsIntro")?.value    || "").trim();
@@ -514,7 +508,7 @@
       return;
     }
 
-    const payload = { manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro, docsIntro, docsOutro, everyIntro, everyOutro };
+    const payload = { manualIntro, manualOutro, gmIntro, gmOutro, projIntro, projOutro, docsIntro, docsOutro, everyIntro, everyOutro };
 
     await api.save(payload);
     _deps.refreshPromptsFromRawConfig();
@@ -536,10 +530,6 @@
       if ($el("promptFramingGmIntro")) $el("promptFramingGmIntro").value = editable.gmIntro || "";
       if ($el("promptFramingGmOutro")) $el("promptFramingGmOutro").value = editable.gmOutro || "";
     };
-    const refreshConv = () => {
-      if ($el("promptFramingConvIntro")) $el("promptFramingConvIntro").value = editable.convIntro || "";
-      if ($el("promptFramingConvOutro")) $el("promptFramingConvOutro").value = editable.convOutro || "";
-    };
     const refreshProj = () => {
       if ($el("promptFramingProjIntro")) $el("promptFramingProjIntro").value = editable.projIntro || "";
       if ($el("promptFramingProjOutro")) $el("promptFramingProjOutro").value = editable.projOutro || "";
@@ -555,7 +545,6 @@
     if (key === "framingAll") {
       refreshManual();
       refreshGm();
-      refreshConv();
       refreshProj();
       refreshDocs();
       refreshEvery();
@@ -563,8 +552,6 @@
       refreshManual();
     } else if (key === "framingGm") {
       refreshGm();
-    } else if (key === "framingConv") {
-      refreshConv();
     } else if (key === "framingProj") {
       refreshProj();
     } else if (key === "framingDocs") {
@@ -631,9 +618,8 @@
     const view = $el("onboardingView");
     if (!view) return;
 
-    // Same fixed, same-z-index takeover area as the conversation/file-preview/
+    // Same fixed, same-z-index takeover area as the file-preview/
     // dependency-manager views — never show more than one at once.
-    window.__ccbHistoryView?.closeConversationView?.();
     window.__ccbCodeTree?.closeFilePreview?.();
     window.__ccbCodeTree?.closeDepsManager?.();
     window.__ccbCodeTree?.closeDepPicker?.();

@@ -596,9 +596,8 @@
     _mountEl.appendChild(_bodyEl);
   }
 
-  // תצוגה מקדימה של קובץ — קריאה בלבד, נפתחת על כל שטח הצ'אט (כמו תצוגת
-  // שיחה היסטורית ב-history-view.js#openConversationView) ולא כדיאלוג קטן,
-  // כדי לתת מקום אמיתי לקרוא קובץ שלם לפני החלטה אם לכלול אותו.
+  // תצוגה מקדימה של קובץ — קריאה בלבד, נפתחת על כל שטח הצ'אט ולא כדיאלוג
+  // קטן, כדי לתת מקום אמיתי לקרוא קובץ שלם לפני החלטה אם לכלול אותו.
   const FP_MAX_CHARS = 20000;
 
   // בונה את שורת ה-meta כרצף "קבוצות" — כל קבוצה מקבלת את כיוון ה-bidi
@@ -673,11 +672,10 @@
       }
       renderMetaLine(shadow.getElementById("fpMeta"), groups);
 
-      // This view, the conversation preview, the dependency manager, and the
+      // This view, the dependency manager, its candidate picker, and the
       // onboarding guide are all full-pane takeovers of the same area —
       // closing the others before opening this one avoids two fixed,
       // same-z-index panels being open together.
-      _deps.historyView?.closeConversationView?.();
       closeDepsManager();
       closeDepPicker();
       window.__ccbModals?.closeOnboarding?.();
@@ -1457,7 +1455,6 @@
     _dmDoc = doc;
     _dmAddQuery = "";
     _dmExpandedPaths = new Set();
-    _deps.historyView?.closeConversationView?.();
     closeFilePreview();
     closeDepPicker();
     window.__ccbModals?.closeOnboarding?.();
@@ -1667,7 +1664,6 @@
     for (const { path } of indirect) {
       if (!loadIgnores.has(path)) _dpPicked.add(path);
     }
-    _deps.historyView?.closeConversationView?.();
     closeFilePreview();
     closeDepsManager();
     window.__ccbModals?.closeOnboarding?.();

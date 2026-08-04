@@ -6,7 +6,6 @@ window.__ccbTpl = (() => {
     x: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
     chevronRight: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>`,
     context: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="12" y2="16"/></svg>`,
-    clock: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
     search: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`,
     plus: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
     msg: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
@@ -34,11 +33,6 @@ window.__ccbTpl = (() => {
       <div class="sidebar-header">
         <div class="sidebar-title-row">
           <button id="closeBtn" title="סגור" aria-label="סגור">${IC.x}</button>
-          <div class="tabs" role="tablist">
-            <div class="tab active" data-tab="context" role="tab" aria-selected="true">${IC.context} Context</div>
-            <div class="tab" data-tab="history" role="tab" aria-selected="false">${IC.clock} שיחות אחרונות</div>
-            <div class="tab-indicator" id="tabIndicator"></div>
-          </div>
           <button id="settingsBtn" title="אפשרויות מתקדמות" aria-label="אפשרויות מתקדמות">${IC.settings}</button>
         </div>
       </div>
@@ -135,39 +129,6 @@ window.__ccbTpl = (() => {
           <button id="injectDocsBtn" style="display:none">${IC.inject} טען קבצים</button>
           <button id="undoInjectBtn" style="display:none" title="בטל הזרקה (קבצים ופרומפטים)" aria-label="בטל הזרקה">${IC.undo}</button>
         </footer>
-      </div>
-
-      <div class="tab-pane" id="pane-history">
-        <div class="tab-scroll">
-        <div class="context-toolbar" id="historyToolbar" style="flex-direction:column; gap:8px;">
-          <div class="hi-search-toggle">
-            <button class="hi-toggle-btn active" id="toggleSearchTitle">חיפוש שיחה</button>
-            <button class="hi-toggle-btn" id="toggleSearchContent">חיפוש בתוכן</button>
-          </div>
-          <div class="search-wrap">
-            <input id="searchHistory" type="search" placeholder="חיפוש בשיחות..." aria-label="חיפוש בשיחות">
-            <span class="search-icon">${IC.search}</span>
-          </div>
-        </div>
-
-        <div id="historyProjectFilterRow" class="history-project-filter-row" style="display:none">
-          <span id="historyProjectFilterLabel"></span>
-          <label class="hi-showall-toggle">
-            <input type="checkbox" id="historyShowAll">
-            הצג את כל השיחות
-          </label>
-        </div>
-
-        <div id="historySection">
-          <div class="section-header">
-            <div class="section-head-left">
-              <button id="historyCollapseBtn" type="button" class="collapse-btn" aria-label="סגור שיחות אחרונות" title="סגור שיחות אחרונות">${IC.chevronRight}</button>
-              <span class="section-label">שיחות אחרונות</span>
-            </div>
-          </div>
-          <div id="historyList"></div>
-        </div>
-        </div><!-- /tab-scroll -->
       </div>
 
       <div id="hiDropdown"></div>
@@ -425,23 +386,10 @@ window.__ccbTpl = (() => {
                 <textarea id="promptFramingGmOutro" spellcheck="false"></textarea>
               </div>
 
-              <!-- 3) Conversation wrapper -->
+              <!-- 3) Project instructions wrapper -->
               <div class="prompts-subsection">
                 <div class="prompts-subhead">
-                  <div class="prompts-subtitle">3) מעטפת שיחה</div>
-                  <button id="resetFramingConvBtn" type="button" class="prompts-reset">איפוס</button>
-                </div>
-                <div class="prompts-sublabel">הוראות לפני השיחה</div>
-                <textarea id="promptFramingConvIntro" spellcheck="false"></textarea>
-                <div class="prompts-locked prompts-locked-tag">&lt;transcript&gt; … &lt;/transcript&gt;</div>
-                <div class="prompts-sublabel">הוראות אחרי השיחה</div>
-                <textarea id="promptFramingConvOutro" spellcheck="false"></textarea>
-              </div>
-
-              <!-- 4) Project instructions wrapper -->
-              <div class="prompts-subsection">
-                <div class="prompts-subhead">
-                  <div class="prompts-subtitle">4) מעטפת הנחיות פרויקט</div>
+                  <div class="prompts-subtitle">3) מעטפת הנחיות פרויקט</div>
                   <button id="resetFramingProjBtn" type="button" class="prompts-reset">איפוס</button>
                 </div>
                 <div class="prompts-sublabel">הוראות לפני ההנחיות</div>
@@ -451,10 +399,10 @@ window.__ccbTpl = (() => {
                 <textarea id="promptFramingProjOutro" spellcheck="false"></textarea>
               </div>
 
-              <!-- 5) File-injection wrapper -->
+              <!-- 4) File-injection wrapper -->
               <div class="prompts-subsection">
                 <div class="prompts-subhead">
-                  <div class="prompts-subtitle">5) מעטפת הזרקת קבצים</div>
+                  <div class="prompts-subtitle">4) מעטפת הזרקת קבצים</div>
                   <button id="resetFramingDocsBtn" type="button" class="prompts-reset">איפוס</button>
                 </div>
                 <div class="prompts-sublabel">הוראות לפני הקבצים</div>
@@ -464,10 +412,10 @@ window.__ccbTpl = (() => {
                 <textarea id="promptFramingDocsOutro" spellcheck="false"></textarea>
               </div>
 
-              <!-- 6) Per-message context wrapper (auto-inject mode: every message) -->
+              <!-- 5) Per-message context wrapper (auto-inject mode: every message) -->
               <div class="prompts-subsection">
                 <div class="prompts-subhead">
-                  <div class="prompts-subtitle">6) מעטפת טעינה בכל הודעה</div>
+                  <div class="prompts-subtitle">5) מעטפת טעינה בכל הודעה</div>
                   <button id="resetFramingEveryBtn" type="button" class="prompts-reset">איפוס</button>
                 </div>
                 <div class="prompts-sublabel">הוראות לפני הקונטקסט</div>
@@ -507,38 +455,6 @@ window.__ccbTpl = (() => {
         <div class="edit-status" id="status"></div>
       </div>
 
-    </div>
-
-    <div id="conversationView" aria-hidden="true">
-      <div class="cv-shell">
-        <div class="cv-header">
-          <button id="cvBack" type="button" aria-label="חזרה">${IC.chevronRight}</button>
-          <div class="cv-title-wrap">
-            <div id="cvTitle"></div>
-            <div id="cvMeta" class="cv-meta"></div>
-          </div>
-        </div>
-
-        <div class="cv-search-wrap">
-          <input id="cvSearch" type="search" placeholder="חיפוש בשיחה..." autocomplete="off" />
-          <span class="cv-search-icon">${IC.search}</span>
-          <span id="cvSearchCount" class="cv-search-count"></span>
-          <button id="cvNavPrev" type="button" class="cv-nav-btn" title="תוצאה קודמת" disabled>${IC.chevronRight}</button>
-          <button id="cvNavNext" type="button" class="cv-nav-btn cv-nav-next" title="תוצאה הבאה" disabled>${IC.chevronRight}</button>
-        </div>
-
-        <div class="cv-messages" id="cvMessages"></div>
-
-        <div class="cv-sel-bar">
-          <button id="cvSelAll" type="button" class="cv-sel-btn">בחר הכל</button>
-          <button id="cvSelNone" type="button" class="cv-sel-btn">בטל הכל</button>
-          <span id="cvSelCount" class="cv-sel-count"></span>
-        </div>
-
-        <div class="cv-footer">
-          <button id="cvLoadBtn" type="button" class="cv-load-btn" disabled>${IC.upload} טען נבחרים</button>
-        </div>
-      </div>
     </div>
 
     <div id="filePreviewView" aria-hidden="true">
@@ -624,7 +540,7 @@ window.__ccbTpl = (() => {
 
           <div class="ob-concepts" role="note">
             <div><b>פרומפט</b><span>הוראה או טקסט קצר שחוזרים אליו.</span></div>
-            <div><b>פרויקט</b><span>מקום אחד להנחיות, בלוקים, מסמכים והיסטוריה של משימה.</span></div>
+            <div><b>פרויקט</b><span>מקום אחד להנחיות, בלוקים, מסמכים וקבצים של משימה.</span></div>
             <div><b>זיכרון כללי</b><span>מידע שרלוונטי לכל השיחות, בלי תלות בפרויקט.</span></div>
           </div>
 
@@ -642,8 +558,7 @@ window.__ccbTpl = (() => {
             </div>
             <div class="ob-section-body">
               <div class="ob-item"><b>פתיחה/סגירה</b> — קליק על כפתור העיגול (FAB) בצד המסך, או קיצור המקלדת Ctrl+Shift+L.</div>
-              <div class="ob-item"><b>ברירת מחדל</b> — הפאנל תמיד נפתח לטאב Context.</div>
-              <div class="ob-item"><b>שני טאבים</b> — Context (כל ההזרקות והמסמכים) ו"שיחות אחרונות" (History, היסטוריית שיחות).</div>
+              <div class="ob-item"><b>מסך אחד</b> — כל מה שאפשר להזריק (פרומפטים, זיכרון כללי, הנחיות פרויקט, מסמכים וקבצים) יושב במסך Context היחיד.</div>
               <div class="ob-item"><b>כפתור ההגדרות (⚙)</b> — בראש הפאנל, פותח את חלון "אפשרויות מתקדמות" (כולל את המדריך הזה).</div>
             </div>
           </div>
@@ -716,25 +631,6 @@ window.__ccbTpl = (() => {
               <div class="section-header">
                 <div class="section-head-left">
                   <button type="button" class="collapse-btn collapsed" aria-label="הרחב/כווץ">${IC.chevronRight}</button>
-                  <span class="ob-section-icon">${IC.clock}</span>
-                  <span class="section-label">טאב History ותצוגת שיחה</span>
-                </div>
-              </div>
-            </div>
-            <div class="ob-section-body">
-              <div class="ob-item"><b>רשימת שיחות</b> — חיפוש לפי כותרת או לפי תוכן ההודעות, ואפשרויות נעיצה / שינוי שם / שיוך לפרויקט / מחיקה.</div>
-              <div class="ob-item"><b>סינון לפי פרויקט</b> — כשיש פרויקט פעיל, הרשימה מסוננת אליו אוטומטית; תיבת "הצג את כל השיחות" מבטלת זמנית את הסינון.</div>
-              <div class="ob-item"><b>תצוגה מקדימה</b> — קליק על שיחה פותח חיפוש בתוך ההודעות שלה ובחירת הודעות ספציפיות.</div>
-              <div class="ob-item"><b>"טען נבחרים"</b> — מזריק את ההודעות שנבחרו כהקשר לצ'אט הנוכחי, בלי לשלוח אוטומטית ובלי לקשר את השיחות.</div>
-              <div class="ob-item"><b>שמירה אוטומטית</b> — כל שיחה נשמרת ברקע תוך כדי כתיבה, אין צורך בכפתור שמירה ידני.</div>
-            </div>
-          </div>
-
-          <div class="ob-section collapsed">
-            <div class="ob-section-header">
-              <div class="section-header">
-                <div class="section-head-left">
-                  <button type="button" class="collapse-btn collapsed" aria-label="הרחב/כווץ">${IC.chevronRight}</button>
                   <span class="ob-section-icon">${IC.inject}</span>
                   <span class="section-label">הזרקה, ביטול ופקודות מהירות</span>
                 </div>
@@ -765,7 +661,7 @@ window.__ccbTpl = (() => {
               <div class="ob-item"><b>מגבלת תווים למסמך</b> — חלה רק על מסמכים רגילים; קבצי קוד ומפת הפרויקט לעולם לא נחתכים.</div>
               <div class="ob-item"><b>מתי לטעון (GM / הנחיות פרויקט)</b> — שני מתגים נפרדים, "בתחילת שיחה" או "בכל הודעה", כל אחד עצמאי.</div>
               <div class="ob-item"><b>ייצוא/ייבוא גיבוי</b> — קובץ JSON אחד עם כל הבלוקים, הפרויקטים והמסמכים.</div>
-              <div class="ob-item"><b>עריכת פרומפטים</b> — טקסטים חופשיים לפני/אחרי כל סוג הזרקה (ידני, GM, שיחה, פרויקט, קבצים, כל-הודעה).</div>
+              <div class="ob-item"><b>עריכת פרומפטים</b> — טקסטים חופשיים לפני/אחרי כל סוג הזרקה (ידני, GM, פרויקט, קבצים, כל-הודעה).</div>
               <div class="ob-item"><b>קבצים לסריקת פרויקטי קוד</b> — כללי החרגה גלובליים: תיקיות/קבצים לדילוג, סיומות לסריקה, וגודל קובץ מקסימלי.</div>
             </div>
           </div>

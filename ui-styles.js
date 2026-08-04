@@ -135,36 +135,6 @@ window.__ccbCSS = (() => {
       color: var(--text-strong);
     }
 
-    /* ── Tabs ──
-       2026-07-28: moved inline into .sidebar-title-row, flanked by
-       #closeBtn/#settingsBtn on either side, instead of a full-width row
-       of its own below them — flex:1 so it fills the space between the two
-       buttons. Its own top/bottom borders are gone (redundant now that
-       it's nested in a row inset within .sidebar-header's own padding,
-       and .sidebar-header already carries the bottom border for the
-       whole header); position:relative is kept purely so the indicator
-       bar still anchors to the tabs' own box, not the page's. */
-    .tabs {
-      position: relative;
-      display: flex;
-      flex: 1;
-      min-width: 0;
-    }
-    .tab {
-      flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
-      padding: 8px 6px; font-size: 12px; font-weight: 500; cursor: pointer;
-      color: var(--text-ghost); user-select: none;
-      transition: color var(--t-fast);
-    }
-    .tab.active { color: var(--text-strong); font-weight: 600; }
-    .tab:hover:not(.active) { color: var(--text-body); }
-    .tab-indicator {
-      position: absolute; bottom: -1px;
-      height: 2px;
-      background: var(--text-strong); border-radius: 2px;
-      transition: left var(--t-medium), width var(--t-medium);
-    }
-
     .ctx-meter {
       padding: 8px 18px 10px;
       border-bottom: 1px solid var(--border-subtle);
@@ -341,20 +311,11 @@ window.__ccbCSS = (() => {
       min-height: 12px;
     }
 
-    /* ── History: project filter row (shown when a project is active) ── */
-    .history-project-filter-row {
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      padding: 6px 18px; flex-shrink: 0;
-      font-size: 11px; color: var(--text-ghost);
-    }
-    .hi-showall-toggle {
-      display: flex; align-items: center; gap: 4px;
-      cursor: pointer; white-space: nowrap;
-      font-size: 11px; color: var(--text-mute);
-    }
-    .hi-showall-toggle input { cursor: pointer; }
-
-    /* ── Tab panes ── */
+    /* ── Panes ──
+       .tab-pane/.tab-scroll kept their names after the History tab was
+       retired (2026-08-04): #pane-context is the only pane now, but the
+       .panel.editing rule further down still uses the class to hide it
+       behind the edit form. */
     .tab-pane { display: none; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
     .tab-pane.active { display: flex; }
     .tab-scroll {
@@ -365,22 +326,13 @@ window.__ccbCSS = (() => {
       overflow: visible;
       flex: none;
     }
-    #pane-history #historyList {
-      overflow: visible;
-      flex: none;
-    }
 
     /* ── Search row ── */
     .context-toolbar {
       display: flex; gap: 8px; padding: 14px 18px 10px; align-items: center;
     }
-    #historyToolbar {
-      flex-direction: column;
-      gap: 8px;
-      align-items: stretch;
-    }
     .search-wrap { flex: 1; position: relative; }
-    #search, #searchHistory, .code-tree-search-input, .scan-settings-search-input {
+    #search, .code-tree-search-input, .scan-settings-search-input {
       width: 100%; height: 36px;
       padding: 0 32px 0 10px;
       border: 1px solid var(--border-input); border-radius: var(--r-input);
@@ -389,8 +341,8 @@ window.__ccbCSS = (() => {
       transition: border-color var(--t-fast);
       -webkit-appearance: none; appearance: none;
     }
-    #search:focus, #searchHistory:focus, .code-tree-search-input:focus, .scan-settings-search-input:focus { border-color: var(--text-faint); }
-    #search::placeholder, #searchHistory::placeholder, .code-tree-search-input::placeholder, .scan-settings-search-input::placeholder { color: var(--text-ghost); }
+    #search:focus, .code-tree-search-input:focus, .scan-settings-search-input:focus { border-color: var(--text-faint); }
+    #search::placeholder, .code-tree-search-input::placeholder, .scan-settings-search-input::placeholder { color: var(--text-ghost); }
     .section-header {
       display: flex;
       align-items: center;
@@ -455,13 +407,6 @@ window.__ccbCSS = (() => {
       flex-shrink: 0;
     }
     #addProjectBtn:hover, #addCodeProjectBtn:hover, #projectEditBtn:hover, #addBtn:hover { background: var(--bg-tag); }
-    #historySection {
-      flex: 0;
-      min-height: 0;
-    }
-    #historySection.collapsed #historyList {
-      display: none;
-    }
     #blocksSection.collapsed #blocksSectionBody {
       display: none;
     }
@@ -543,23 +488,6 @@ window.__ccbCSS = (() => {
       display: flex; align-items: center; justify-content: center;
     }
     .doc-refresh-btn:hover { background: var(--bg-tag); color: var(--text-strong); }
-    .hi-search-toggle {
-      display: flex; gap: 4px;
-      background: var(--bg-clear); border-radius: var(--r-input);
-      padding: 3px;
-    }
-    .hi-toggle-btn {
-      flex: 1; height: 28px; border: none; border-radius: 7px;
-      font-size: 12px; font-family: var(--font-he); cursor: pointer;
-      background: transparent; color: var(--text-mute);
-      transition: background var(--t-fast), color var(--t-fast);
-      display: flex; align-items: center; justify-content: center;
-      padding: 0 8px; white-space: nowrap; line-height: 1;
-    }
-    .hi-toggle-btn.active {
-      background: var(--bg-card); color: var(--text-strong);
-      box-shadow: 0 1px 3px rgba(0,0,0,.08);
-    }
     .search-icon {
       position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
       color: var(--text-ghost); pointer-events: none;
@@ -567,17 +495,11 @@ window.__ccbCSS = (() => {
     }
 
     /* ── Block list ── */
-    #list, #historyList {
+    #list {
       min-height: 0;
       padding: 4px 18px 14px;
       display: flex; flex-direction: column; gap: 8px;
-    }
-    #list {
       flex: 1;
-    }
-    #historyList {
-      overflow: visible;
-      flex: none;
     }
 
     /* ── Context hints (no project / project selected) ── */
@@ -652,116 +574,12 @@ window.__ccbCSS = (() => {
       margin-top: 6px; word-break: break-word;
     }
 
-    .date-group-label {
-      font-size: 11px; font-weight: 600; color: var(--text-ghost);
-      text-transform: uppercase; letter-spacing: 0.04em;
-      padding: 8px 2px 4px; margin-top: 4px;
-    }
-    .date-group-label:first-child { margin-top: 0; }
-
-    /* ── History list items ── */
-    #historyList { gap: 2px; }
-    .hi-item {
-      display: flex; align-items: center;
-      padding: 8px 10px; border-radius: var(--r-input);
-      cursor: pointer; position: relative;
-      transition: background var(--t-fast);
-      gap: 8px;
-    }
-    .hi-item:hover { background: var(--bg-tag); }
-    .hi-head {
-      display: flex; align-items: center; gap: 8px;
-      width: 100%;
-      min-width: 0;
-    }
-    .hi-item.pinned .hi-title::before {
-      content: '📌 '; font-size: 11px;
-    }
-    /* Active conversation indicator — the conversation currently bound to
-       state.currentConversationId (where auto-save is writing to). */
-    .hi-item.active {
-      background: rgba(44, 122, 123, 0.08);
-    }
-    .hi-item.active:hover { background: rgba(44, 122, 123, 0.14); }
-    .hi-item.active .hi-title {
-      font-weight: 600;
-      color: #1f5557;
-    }
-    .hi-active-dot {
-      flex-shrink: 0;
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      background: #2c7a7b;
-    }
-    /* Viewing indicator — the conversation whose preview panel is open. */
-    .hi-item.viewing {
-      background: rgba(90, 74, 66, 0.08);
-    }
-    .hi-item.viewing:hover { background: rgba(90, 74, 66, 0.14); }
-    .hi-item.viewing.active {
-      background: rgba(44, 122, 123, 0.10);
-    }
-    .hi-viewing-dot {
-      flex-shrink: 0;
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      background: #3d2f2b;
-    }
-    .hi-title {
-      flex: 1; font-size: 13px; color: var(--text-strong);
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .hi-item.search-content {
-      align-items: stretch;
-      flex-direction: column;
-      gap: 4px;
-    }
-    .hi-item.search-content .hi-title {
-      white-space: nowrap;
-    }
-    .hi-snippet-row {
-      display: flex; align-items: flex-start; gap: 6px;
-      min-width: 0;
-    }
-    .hi-match-role {
-      font-size: 10px; color: var(--text-ghost);
-      margin-left: 4px; flex-shrink: 0; margin-top: 1px;
-    }
-    .hi-snippet {
-      flex: 1;
-      font-size: 11px; color: var(--text-ghost); line-height: 1.4;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      min-width: 0;
-    }
-    .hi-snippet mark {
-      background: #fef08a; color: var(--text-strong);
-      border-radius: 2px; padding: 0 1px;
-    }
-    .hi-project-tag {
-      font-size: 10px;
-      padding: 1px 6px;
-      border-radius: var(--r-tag);
-      background: var(--bg-tag);
-      color: var(--text-mute);
-      white-space: nowrap;
-      flex-shrink: 0;
-      min-width: 0;
-      max-width: 42%;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .hi-menu-btn {
-      width: 26px; height: 26px; flex-shrink: 0;
-      border: none; background: none; border-radius: 6px;
-      cursor: pointer; color: var(--text-faint);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 16px; line-height: 1;
-      opacity: 0; transition: opacity var(--t-fast), background var(--t-fast);
-    }
-    .hi-item:hover .hi-menu-btn { opacity: 1; }
-    .hi-menu-btn:hover { background: var(--bg-clear); color: var(--text-strong); }
-
-    /* ── Dropdown menu ── */
+    /* ── Dropdown menu ──
+       #hiDropdown is the shared floating-menu host: the project bar's
+       rename/delete menu (history-view.js#openProjectDropdown), the code
+       tree's per-file deps menu (code-tree.js), and the context meter's
+       files dropdown all render into it. The "hi" prefix is a leftover
+       from the History rows it was first built for (retired 2026-08-04). */
     #hiDropdown {
       position: fixed;
       background: var(--bg-card);
@@ -827,12 +645,6 @@ window.__ccbCSS = (() => {
     .ctx-expanded .row { display:flex; justify-content: space-between; align-items: center; padding: 3px 0; }
     .ctx-expanded .row .label { color: var(--text-mute); }
     .ctx-expanded .row .value { font-variant-numeric: tabular-nums; color: var(--text-strong); font-weight: 500; }
-
-    .empty {
-      padding: 40px 10px; text-align: center;
-      color: var(--text-ghost); font-size: 13px; line-height: 1.6;
-      white-space: pre-line;
-    }
 
     /* Ensure project-related names respect RTL and truncate instead of expanding */
     .project-accordion-toggle {
@@ -1061,10 +873,13 @@ window.__ccbCSS = (() => {
       transition: background var(--t-fast);
     }
 
-    /* ── Conversation Preview Panel (also hosts the file-preview full-pane
-       view, #filePreviewView, and the per-file dependency manager,
-       #depManagerView — same takeover layout, different body) ── */
-    #conversationView, #filePreviewView, #depManagerView, #depPickerView, #onboardingView {
+    /* ── Full-pane takeover views — the file preview (#filePreviewView), the
+       per-file dependency manager (#depManagerView), its candidate picker
+       (#depPickerView), and the onboarding guide (#onboardingView). Same
+       takeover layout, different body. The cv- class prefix throughout is
+       a leftover from the conversation preview this pattern started as
+       (retired 2026-08-04). ── */
+    #filePreviewView, #depManagerView, #depPickerView, #onboardingView {
       position: fixed;
       top: 0;
       left: ${w}px;
@@ -1080,7 +895,7 @@ window.__ccbCSS = (() => {
       flex-direction: column;
       pointer-events: auto;
     }
-    #conversationView.cv-open, #filePreviewView.cv-open, #depManagerView.cv-open, #depPickerView.cv-open, #onboardingView.cv-open { display: flex; }
+    #filePreviewView.cv-open, #depManagerView.cv-open, #depPickerView.cv-open, #onboardingView.cv-open { display: flex; }
     /* Dependency manager body — Hebrew section labels stay RTL (inherited),
        file paths within rows are forced LTR (source paths, not UI text). */
     .dm-body-wrap { direction: rtl; }
@@ -1273,7 +1088,7 @@ window.__ccbCSS = (() => {
       border-bottom: 1px solid var(--border-subtle);
       flex-shrink: 0;
     }
-    #cvBack, #fpBack, #dmBack, #dpBack, #obClose {
+    #fpBack, #dmBack, #dpBack, #obClose {
       width: 30px;
       height: 30px;
       border: none;
@@ -1286,42 +1101,20 @@ window.__ccbCSS = (() => {
       justify-content: center;
       flex-shrink: 0;
     }
-    #cvBack:hover, #fpBack:hover, #dmBack:hover, #dpBack:hover, #obClose:hover { background: rgba(0,0,0,.04); color: var(--text-strong); }
+    #fpBack:hover, #dmBack:hover, #dpBack:hover, #obClose:hover { background: rgba(0,0,0,.04); color: var(--text-strong); }
     /* #dmBack was missing from the rule above entirely, so it rendered with
        the browser's default button chrome (bordered square) — reported as
        "ugly". Also moves it to the opposite side of the header from
-       #cvBack/#fpBack: row-reverse puts the first DOM child (the button) at
+       #fpBack: row-reverse puts the first DOM child (the button) at
        the RTL end (left) instead of the RTL start (right), swapping places
        with .cv-title-wrap. */
     #depManagerView .cv-header { flex-direction: row-reverse; }
-    /* Only the conversation view's button is a directional "back" chevron
-       that needs flipping for RTL; the file preview's is a close (X) icon,
-       symmetric and not part of this rule. */
-    #cvBack svg { transform: rotate(180deg); }
     .cv-title-wrap { flex: 1; min-width: 0; }
-    #cvTitle {
-      font-size: 15px;
-      font-weight: 700;
-      color: var(--text-strong);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      direction: rtl;
-    }
-    .cv-meta {
-      font-size: 11px;
-      color: var(--text-ghost);
-      margin-top: 2px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      direction: rtl;
-    }
-    /* File preview header — distinct from the conversation view's #cvTitle:
-       the bare filename is the emphasized, centered focal point on top,
-       with its full path (including the filename itself) as a small dim
-       line below it. Both are LTR — file paths/names read left-to-right
-       regardless of the panel's own RTL, same reasoning as .fp-body below. */
+    /* File preview header: the bare filename is the emphasized, centered
+       focal point on top, with its full path (including the filename
+       itself) as a small dim line below it. Both are LTR — file paths/names
+       read left-to-right regardless of the panel's own RTL, same reasoning
+       as .fp-body below. */
     .fp-title-wrap { text-align: center; }
     .fp-title {
       font-size: 15px; font-weight: 700; color: var(--text-strong);
@@ -1348,207 +1141,9 @@ window.__ccbCSS = (() => {
     .fp-meta-item.fp-meta-rtl { direction: rtl; }
     .fp-meta-item.fp-meta-ltr { direction: ltr; }
 
-    /* Search */
-    .cv-search-wrap {
-      position: relative;
-      padding: 8px 18px;
-      border-bottom: 1px solid var(--border-subtle);
-      flex-shrink: 0;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    #cvSearch {
-      flex: 1;
-      height: 32px;
-      padding: 0 30px 0 8px;
-      border: 1px solid var(--border-input);
-      border-radius: var(--r-input);
-      font-size: 13px;
-      font-family: var(--font-he);
-      background: var(--bg-card);
-      outline: none;
-      color: var(--text-strong);
-      transition: border-color var(--t-fast);
-      -webkit-appearance: none;
-      appearance: none;
-    }
-    #cvSearch:focus { border-color: var(--text-faint); }
-    #cvSearch::placeholder { color: var(--text-ghost); }
-    .cv-search-icon {
-      position: absolute;
-      right: 26px;
-      top: 50%;
-      transform: translateY(-50%);
-      color: var(--text-ghost);
-      pointer-events: none;
-      display: flex;
-      align-items: center;
-    }
-    .cv-search-count {
-      font-size: 11px;
-      color: var(--text-ghost);
-      white-space: nowrap;
-      font-variant-numeric: tabular-nums;
-      min-width: 32px;
-      text-align: center;
-    }
-    .cv-nav-btn {
-      width: 24px;
-      height: 24px;
-      border: 1px solid var(--border-input);
-      background: var(--bg-card);
-      border-radius: 6px;
-      cursor: pointer;
-      color: var(--text-faint);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-    .cv-nav-btn:not(:disabled):hover { color: var(--text-strong); background: var(--bg-tag); }
-    .cv-nav-btn:disabled { opacity: 0.35; cursor: default; }
-    .cv-nav-btn svg { width: 11px; height: 11px; }
-    /* prev = points right (→), next = points left (←) */
-    #cvNavPrev svg { transform: rotate(180deg); }
-
-    /* Messages */
-    .cv-messages {
-      flex: 1;
-      min-height: 0;
-      overflow-y: auto;
-      overflow-x: hidden;
-      padding: 14px 18px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .cv-msg {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-      max-width: 88%;
-      position: relative;
-      transition: opacity var(--t-fast);
-      cursor: pointer;
-    }
-    .cv-msg.cv-msg-user { align-self: flex-end; align-items: flex-end; }
-    .cv-msg.cv-msg-ai { align-self: flex-start; align-items: flex-start; }
-    .cv-msg.cv-dim { opacity: 0.2; }
-    .cv-msg.cv-deselected { opacity: 0.35; }
-    /* Brief highlight when navigating to a specific message from a
-       content-search result in the History list. */
-    .cv-msg.cv-msg-flash > .cv-msg-bubble {
-      animation: cv-msg-flash-anim 1.2s ease-out;
-    }
-    @keyframes cv-msg-flash-anim {
-      0%   { box-shadow: 0 0 0 3px rgba(44, 122, 123, 0.55); }
-      100% { box-shadow: 0 0 0 3px rgba(44, 122, 123, 0); }
-    }
-    .cv-msg-role {
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: var(--text-ghost);
-      padding: 0 6px;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-    }
-    .cv-msg-user .cv-msg-role { flex-direction: row-reverse; }
-    .cv-msg-check {
-      width: 13px;
-      height: 13px;
-      border-radius: 3px;
-      border: 1.5px solid var(--border-input);
-      background: transparent;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      transition: background var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast);
-    }
-    .cv-msg:hover .cv-msg-check {
-      border-color: var(--text-faint);
-      box-shadow: 0 0 0 2px var(--border-subtle);
-    }
-    .cv-msg.cv-selected .cv-msg-check {
-      background: var(--text-strong);
-      border-color: var(--text-strong);
-      box-shadow: none;
-    }
-    .cv-msg-check-icon {
-      display: none;
-      width: 9px;
-      height: 9px;
-    }
-    .cv-msg.cv-selected .cv-msg-check-icon {
-      display: block;
-      color: var(--bg-app);
-    }
-    .cv-msg-bubble {
-      background: var(--bg-card);
-      border: 1px solid var(--border-subtle);
-      border-radius: 12px;
-      padding: 9px 13px;
-      font-size: 13px;
-      line-height: 1.55;
-      color: var(--text-body);
-      word-break: break-word;
-      white-space: pre-wrap;
-      transition: border-color var(--t-fast);
-    }
-    .cv-msg-user .cv-msg-bubble {
-      background: var(--text-strong);
-      color: var(--bg-app);
-      border-color: var(--text-strong);
-      border-radius: 12px 12px 12px 4px;
-    }
-    .cv-msg-ai .cv-msg-bubble { border-radius: 12px 12px 4px 12px; }
-    .cv-msg.cv-selected .cv-msg-bubble { border-color: var(--text-faint); }
-
-    /* Search highlights */
-    .cv-msg-bubble mark {
-      background: #fef08a;
-      color: var(--text-strong);
-      border-radius: 2px;
-      padding: 0 1px;
-    }
-    .cv-msg-user .cv-msg-bubble mark { background: #fbbf24; color: #1c1917; }
-    .cv-msg-bubble mark.cv-match-active { background: #f97316; color: #fff; }
-
-    /* Selection bar */
-    .cv-sel-bar {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 7px 18px;
-      border-top: 1px solid var(--border-subtle);
-      background: var(--bg-app);
-      flex-shrink: 0;
-    }
-    .cv-sel-btn {
-      height: 26px;
-      padding: 0 10px;
-      border: 1px solid var(--border-input);
-      background: var(--bg-card);
-      border-radius: var(--r-input);
-      font-size: 12px;
-      font-family: var(--font-he);
-      cursor: pointer;
-      color: var(--text-body);
-      transition: background var(--t-fast);
-    }
-    .cv-sel-btn:hover { background: var(--bg-tag); }
-    .cv-sel-count {
-      margin-right: auto;
-      font-size: 11px;
-      color: var(--text-ghost);
-      font-variant-numeric: tabular-nums;
-    }
-
-    /* Footer */
+    /* Sticky footer + primary action button for a full-pane takeover view.
+       Named for the conversation view they started in (retired 2026-08-04);
+       the surviving user is #depPickerView's save button (#dpSaveBtn). */
     .cv-footer {
       padding: 10px 18px 14px;
       border-top: 1px solid var(--border-subtle);
@@ -1581,6 +1176,7 @@ window.__ccbCSS = (() => {
       color: var(--text-ghost);
       cursor: not-allowed;
     }
+
     .dialog-confirm:hover { background: #2a2622; }
     .dialog-confirm.danger { background: #c53030; }
     .dialog-confirm.danger:hover { background: #9b2c2c; }
@@ -2185,7 +1781,7 @@ window.__ccbCSS = (() => {
 
     /* ── Quick-command menu (Phase 4.2) ──
        position:fixed and a sibling of .panel (not nested inside it) — same
-       reasoning as #conversationView/#filePreviewView/#depManagerView: fixed
+       reasoning as #filePreviewView/#depManagerView: fixed
        descendants stay pinned to the viewport regardless of ancestor layout
        as long as no ancestor establishes its own containing block, and this
        menu is positioned via the CHAT PAGE's own input rect (getBoundingClientRect
