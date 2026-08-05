@@ -12,6 +12,7 @@
 //   document-handler.js → window.__ccbDocHandler
 //   history-view.js  → window.__ccbHistoryView
 //   chat-features.js → window.__ccbChat
+//   msg-nav.js       → window.__ccbMsgNav
 
 (async () => {
   if (window.__ccbInstalled) return;
@@ -605,6 +606,8 @@
       },
     });
 
+    window.__ccbMsgNav.init({ getShadow, MSG_SELECTORS });
+
     modals.init({
       getShadow,
       setStatus,
@@ -727,6 +730,8 @@
     const chat = window.__ccbChat;
 
     $el("fab").addEventListener("click", togglePanel);
+    $el("msgNavPrev").addEventListener("click", () => window.__ccbMsgNav.goPrev());
+    $el("msgNavNext").addEventListener("click", () => window.__ccbMsgNav.goNext());
     $el("settingsBtn").addEventListener("click", (e) => {
       e.stopPropagation();
       modals.closeSettings();
@@ -2009,6 +2014,7 @@
         // A fresh chat has nothing left to undo.
         state.injectionStack = [];
         window.__ccbChat.closeQuickCommandMenu();
+        window.__ccbMsgNav.reset();
         window.__ccbChat.tryAutoInject();
         syncUndoInjectBtn();
       },
@@ -2047,6 +2053,7 @@
         state.gmAutoInjected = false;
         state.injectionStack = [];
         window.__ccbChat.closeQuickCommandMenu();
+        window.__ccbMsgNav.reset();
         syncUndoInjectBtn();
         window.__ccbChat.tryAutoInject();
       },

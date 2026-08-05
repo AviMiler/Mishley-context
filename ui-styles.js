@@ -49,6 +49,33 @@ window.__ccbCSS = (() => {
     .fab:hover { width: 28px; background: #2a2622; }
     .fab.hidden { left: -32px; pointer-events: none; }
 
+    /* Message navigation (2026-08-06) — two floating arrows, fixed near the
+       bottom-left of the viewport (page-fixed, like the FAB, not scoped to
+       the panel), stepping through the host page's own chat messages.
+       Always visible per the user's explicit choice — including while the
+       panel is open, unlike the FAB (which hides then) — so it shifts right
+       to just past the panel's own edge instead. #msgNav is a sibling of
+       .panel further down this same template (after #quickCmdMenu), so a
+       plain CSS sibling combinator reacts to the pre-existing #panel.open
+       toggle with no extra JS wiring needed. */
+    .msg-nav {
+      position: fixed; bottom: 16px; left: 16px; z-index: 3;
+      display: flex; flex-direction: column; gap: 6px;
+      pointer-events: auto;
+      transition: left var(--t-fast);
+    }
+    #panel.open ~ .msg-nav { left: calc(${w}px + 16px); }
+    .msg-nav-btn {
+      width: 34px; height: 34px; border-radius: 50%; border: none;
+      background: var(--text-strong); color: var(--bg-app); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 2px 0 8px rgba(0,0,0,.18);
+      transition: opacity var(--t-fast), background var(--t-fast);
+    }
+    .msg-nav-btn:hover:not(:disabled) { background: #2a2622; }
+    .msg-nav-btn:disabled { opacity: 0.35; cursor: default; }
+    .msg-nav-btn svg { width: 14px; height: 14px; }
+
     /* Sidebar */
     .panel {
       position: fixed; top: 0; left: 0;
