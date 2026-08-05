@@ -1755,8 +1755,28 @@ window.__ccbCSS = (() => {
     .code-tree-deps-btn svg, .code-tree-preview-btn svg { width: 14px; height: 14px; }
     .code-tree-row:hover .code-tree-deps-btn, .code-tree-row:hover .code-tree-preview-btn { opacity: 1; }
     .code-tree-deps-btn:hover, .code-tree-preview-btn:hover { background: var(--bg-clear); color: var(--text-strong); }
+    /* Favorite-toggle star (2026-08-05) — same sizing/hover-reveal as the
+       preview/deps buttons it sits beside in .code-tree-file-actions, plus
+       an "active" (favorited) state that stays visible even without a hover
+       and fills the star gold instead of only outlining it. */
+    .code-tree-favorite-btn {
+      width: 20px; height: 20px; flex-shrink: 0; border: none; background: none;
+      color: var(--text-faint); cursor: pointer; border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0.55; transition: opacity var(--t-fast), background var(--t-fast), color var(--t-fast);
+    }
+    .code-tree-favorite-btn svg { width: 14px; height: 14px; }
+    .code-tree-row:hover .code-tree-favorite-btn { opacity: 1; }
+    .code-tree-favorite-btn:hover { background: var(--bg-clear); color: var(--text-strong); }
+    .code-tree-favorite-btn.active { opacity: 1; color: #d99a00; }
+    .code-tree-favorite-btn.active svg polygon { fill: currentColor; }
     .code-tree-children { display: flex; flex-direction: column; }
     .code-tree-children.collapsed { display: none; }
+    /* Pinned favorites section (2026-08-05) — below the structure row, above
+       the scanned tree, same separator language as .code-tree-structure-row
+       and collapsible via the same .collapse-btn/.code-tree-children pattern
+       a folder row uses. */
+    .code-tree-favorites-header { border-bottom: 1px solid var(--border-subtle); margin-bottom: 4px; padding-bottom: 6px; }
     /* Manually-added files (addManualCodeFiles) — a flat list below the
        scanned tree, separated by a small uppercase label, same visual
        language as .code-tree-structure-row's separator above the tree. */

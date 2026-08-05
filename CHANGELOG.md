@@ -2,6 +2,23 @@
 
 ## Unreleased (pending commit)
 
+### 2026-08-05 — Feature: code-project file favorites section + refined folder-collapse default, full `enforcing-coding-workflow` pass
+
+**Folder-collapse refinement.** The 2026-07-30 "folders default collapsed" behavior collapsed every folder unconditionally on first view of a project. Refined: a folder now starts collapsed only if NONE of its descendant files (any depth) are enabled — `code-tree.js#initiallyCollapsedFolderPaths(docs)` (new) replaces `allFolderPaths(docs)` at the `renderInline` reset call site; the guard is `docs.some(d => d.enabled && d.name.startsWith(path + "/"))`, checked independently per ancestor path, so a deeply-nested enabled file expands every ancestor, not just its immediate parent. `allFolderPaths` itself is unchanged and still exists, just unused at this call site now.
+
+**Favorites.** Any code-project document — scanned or manually-added — can now be starred. Stage 1 (`spec-doc-agent`) flagged placement/scope/dedup as genuinely ambiguous; resolved via `AskUserQuestion`: (1) favorites section sits below the pinned structure row, above the scanned file tree, collapsible like a folder; (2) both scanned and manually-added files can be favorited; (3) a favorited file appears in BOTH the favorites section and its normal tree/manual-list spot — not moved or removed from its normal location.
+
+- `document-handler.js`: new `toggleFavorite(projectId, docId, favorite)`, structurally identical to the pre-existing `toggleDocument`, exported on `window.__ccbDocHandler`.
+- `ui-template.js`: new `star` icon added to `IC`.
+- `code-tree.js`: new `doc.favorite: boolean` field on code-project documents (both scanned and manually-added, same array, no schema split). New shared `buildFileRow(doc, { displayName, displayTitle } = {})` extracted from three near-duplicated row-building blocks — the scanned-tree file branch in `renderNode()`, `renderManualFilesSection()`, and the new favorites section — removing ~90 duplicated lines while adding the new favorite-star toggle in one place. New `renderFavoritesSection(container)` — renders nothing if no code doc is favorited; otherwise a collapsible header ("מועדפים (N)") + a `.code-tree-children` list of favorited rows, sorted by name, not filtered by search (matching the structure row's own always-visible precedent). New `_favoritesCollapsed` module boolean, reset alongside `_collapsedPaths`/`_searchCollapsedPaths`/`_query` on project switch. New `initiallyCollapsedFolderPaths(docs)` (see above) sits beside the unchanged `allFolderPaths(docs)`.
+- `ui-styles.js`: new `.code-tree-favorite-btn` CSS (same sizing/hover-reveal as `.code-tree-deps-btn`/`.code-tree-preview-btn`, plus an `.active` state that fills the star gold via `color:#d99a00` + `svg polygon { fill: currentColor }`), and `.code-tree-favorites-header` (matching `.code-tree-structure-row`'s visual language).
+
+**Verify:** fresh `verify-agent` pass (agent id aff1ea400e5bc6507), Go. Confirmed via direct diff read: `buildFileRow` is line-by-line behavior-equivalent to the two blocks it replaced (same toggle/preview/deps/remove logic and click-delegation, now a superset covering the star button); indentation preserved correctly after moving row-creation inside each `renderNode` branch; `initiallyCollapsedFolderPaths`'s prefix guard (`path + "/"`) avoids false sibling matches (e.g. "src" vs "src-old") and correctly expands every ancestor of a nested enabled file; `toggleFavorite` is structurally identical to `toggleDocument`; the favorites section's toggle-off-from-within-itself path hand-traced with no crash; all 4 confirmed spec answers implemented exactly; the `buildFileRow` extraction judged worth doing given the star button had to be added to 2-3 near-identical blocks regardless — not scope creep. `node --check` passes on all 4 touched files (`code-tree.js`, `document-handler.js`, `ui-template.js`, `ui-styles.js`).
+
+No new requirements emerged beyond the confirmed spec answers; no spec.md exists for this project (CLAUDE.md is the de-facto spec/index) — CLAUDE.md's "Code projects" bullet, Storage Schema `documents` shape, and Key Globals `__ccbDocHandler` entry updated instead.
+
+See [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md).
+
 ### 2026-08-05 — Fix: dropped the canned "Context loaded." auto-reply for GM/manual injection; quick-command injection now prepends to the front of the box instead of replacing the typed trigger in place, full `enforcing-coding-workflow` pass
 
 User gave two direct, unambiguous requests in the same message (Stage 1 done inline, no `AskUserQuestion` needed — same session as the quick-command word-boundary fix directly below).

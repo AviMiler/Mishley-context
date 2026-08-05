@@ -711,6 +711,25 @@
     return true;
   }
 
+  // Marks/unmarks a code-project file (scanned or manually-added — both live
+  // in the same project.documents array) as a favorite, so code-tree.js can
+  // pin it in a section above the normal tree. Mirrors toggleDocument exactly.
+  function toggleFavorite(projectId, docId, favorite) {
+    if (!_deps) return false;
+
+    const blocks = _deps.getBlocks();
+    const project = blocks[projectId];
+    if (!project || project.kind !== "project") return false;
+
+    const doc = (project.documents || []).find(d => d.id === docId);
+    if (!doc) return false;
+
+    doc.favorite = favorite;
+    project.updated = Date.now();
+    _deps.saveBlocks(blocks);
+    return true;
+  }
+
   function getDocumentContent(projectId, docId) {
     if (!_deps) return null;
 
@@ -1180,6 +1199,7 @@
     addDocument,
     removeDocument,
     toggleDocument,
+    toggleFavorite,
     getDocumentContent,
     getOrExtractContent,
     getCodeContents: codeContentGetMany,
