@@ -40,15 +40,33 @@
     return Array.from(document.querySelectorAll(sel.message));
   }
 
+  // With no prior position, the implicit standing point is always the LAST
+  // message (2026-08-06 — previously goPrev/goNext each assumed a different
+  // implicit anchor of their own: goPrev treated "no position yet" as the
+  // last message, goNext treated it as the FIRST — so which message a
+  // never-clicked cursor effectively started "at" depended on which arrow
+  // got clicked first. One shared anchor now: as if already standing at the
+  // bottom of the chat until the user actually moves away from it.
+  function effectiveIndex(count) {
+    return _currentIndex === null ? count - 1 : _currentIndex;
+  }
+
   // Disables an arrow once the cursor is at that end of the message list —
   // a real `disabled` attribute, not just a dimmed look, so it's genuinely
-  // non-interactive there too.
+  // non-interactive there too. Uses the same implicit-last-message anchor as
+  // goPrev/goNext, so with no prior position "next" already reads disabled
+  // (there's nothing after the last message) while "previous" doesn't.
   function syncButtons(count) {
     const prevBtn = $el("msgNavPrev");
     const nextBtn = $el("msgNavNext");
-    if (prevBtn) prevBtn.disabled = _currentIndex !== null && _currentIndex <= 0;
-    if (nextBtn)
-      nextBtn.disabled = _currentIndex !== null && _currentIndex >= count - 1;
+    if (!count) {
+      if (prevBtn) prevBtn.disabled = true;
+      if (nextBtn) nextBtn.disabled = true;
+      return;
+    }
+    const effective = effectiveIndex(count);
+    if (prevBtn) prevBtn.disabled = effective <= 0;
+    if (nextBtn) nextBtn.disabled = effective >= count - 1;
   }
 
   // The target message lives on the HOST PAGE, outside this extension's
@@ -93,22 +111,18 @@
     syncButtons(messages.length);
   }
 
-  // No prior position starts from the LAST message (as if already at the
-  // bottom of the chat, the common resting scroll position) and moves
-  // backward from there; an existing position just steps back by one.
   function goPrev() {
     const messages = getMessages();
     if (!messages.length) return;
-    const next = _currentIndex === null ? messages.length - 1 : _currentIndex - 1;
+    const next = effectiveIndex(messages.length) - 1;
     if (next < 0) return;
     goTo(next, messages);
   }
 
-  // No prior position starts from the FIRST message and moves forward.
   function goNext() {
     const messages = getMessages();
     if (!messages.length) return;
-    const next = _currentIndex === null ? 0 : _currentIndex + 1;
+    const next = effectiveIndex(messages.length) + 1;
     if (next > messages.length - 1) return;
     goTo(next, messages);
   }

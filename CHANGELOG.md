@@ -2,6 +2,18 @@
 
 ## Unreleased (pending commit)
 
+### 2026-08-06 — Fix: message navigation now anchors consistently on the last message when no arrow has been clicked yet
+
+Same-session follow-up to the message-navigation widget shipped earlier the same day (below). User report: with no arrow clicked yet, the implicit starting position depended on which arrow was clicked FIRST — the original code had `goPrev()` treat a fresh cursor as standing at the LAST message while `goNext()` separately treated it as standing at the FIRST, so a never-touched widget behaved differently depending on which direction the user happened to press first.
+
+**Fix (single file, `msg-nav.js` only):** extracted a new `effectiveIndex(count)` helper (`_currentIndex === null ? count - 1 : _currentIndex`) that `goPrev()`, `goNext()`, and `syncButtons()` all now route through instead of each picking their own anchor. `goPrev()` is now `effectiveIndex(count) - 1` (no-op below 0), `goNext()` is `effectiveIndex(count) + 1` (no-op past `count - 1`) — both consistently anchored on the LAST message until the user actually moves away from it. `syncButtons()` also gained an explicit `count === 0` branch (both buttons disabled) — a side effect of unifying the logic through one helper, not separately requested, since the old `_currentIndex !== null && ...` check left both buttons enabled even with zero messages.
+
+Deliberately did **not** add a `syncButtons()` call inside `init(deps)` (which would make "next" visibly read disabled immediately at page load, matching the new semantics) — considered and rejected: `init(deps)` can run before the host page's SPA has actually loaded its chat messages into the DOM, and since `msg-nav.js` has no MutationObserver (an explicit Stage-1 scope decision from when this feature was first built), a zero-message moment at init time could permanently disable both buttons with no way to ever re-sync them (a disabled button doesn't fire the click that would trigger a resync). Buttons keep their original at-rest default (enabled, no `disabled` attribute in the template) until the first real click or reset supplies an accurate live count.
+
+**Verify:** fresh `verify-agent` (agent id a0b52bbf9544939b4), Go — independently re-ran the actual file's logic in a Node `vm` sandbox (not just hand-derivation), confirming: a fresh 5-message list syncs to `{prev:false, next:true}` (implicitly at the last message); prev→prev→next lands on index 3 with both enabled; next-first-on-a-fresh-cursor is correctly a no-op; walking prev to the start clamps at 0; single/zero-message lists disable both. Confirmed the reasoning for skipping an `init()`-time sync is sound (no existing safe hook to learn "messages have loaded" without adding new observer machinery, already rejected at Stage 1) and that scope stayed minimal — no drive-by changes, the `count === 0` branch correctly characterized as a side effect, not scope creep. `node --check` passes.
+
+No spec change — this is a targeted correction to the same-day message-navigation feature, not a new requirement. See [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [ARCHITECTURE.md](ARCHITECTURE.md), [CLAUDE.md](CLAUDE.md).
+
 ### 2026-08-06 — Feature: message navigation widget (prev/next through the chat's own messages), full `enforcing-coding-workflow` pass
 
 User asked for a small floating control to step through the host page's own chat messages — scroll to and briefly highlight one at a time, independent of this panel's sidebar.
