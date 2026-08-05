@@ -348,6 +348,122 @@
     }
   }
 
+  // ============================================================
+  // Hover list of selected files (2026-08-06) — hovering the "X קבצים
+  // נבחרים" label shows which files are actually selected, reusing the
+  // shared #hiDropdown host and the exact row styling ctx-meter.js's own
+  // uploaded-files dropdown already uses (.ctx-files-dropdown/.ctx-file-item/
+  // .ctx-file-name/.ctx-file-tokens) — same concept (a dropdown listing
+  // files with their token counts), just a different data source.
+  //
+  // A short close-delay (not an immediate close on mouseleave) lets the
+  // mouse travel from the label into the dropdown itself without it
+  // vanishing first; the dropdown's own mouseenter/mouseleave (wired once,
+  // guarded by dd.dataset.menuType so it doesn't interfere with this
+  // module's OTHER #hiDropdown consumer, the per-file deps menu) cancels or
+  // re-arms that same timer.
+  // ============================================================
+  let _selectedFilesCloseTimer = null;
+  let _selectedFilesDropdownWired = false;
+
+  function scheduleSelectedFilesClose() {
+    if (_selectedFilesCloseTimer !== null) clearTimeout(_selectedFilesCloseTimer);
+    _selectedFilesCloseTimer = setTimeout(() => {
+      _deps.historyView.closeHiDropdown();
+      _selectedFilesCloseTimer = null;
+    }, 150);
+  }
+
+  function cancelSelectedFilesClose() {
+    if (_selectedFilesCloseTimer !== null) {
+      clearTimeout(_selectedFilesCloseTimer);
+      _selectedFilesCloseTimer = null;
+    }
+  }
+
+  function wireSelectedFilesHoverBridge(dd) {
+    if (_selectedFilesDropdownWired) return;
+    _selectedFilesDropdownWired = true;
+    dd.addEventListener("mouseenter", () => {
+      if (dd.dataset.menuType === "selectedFiles") cancelSelectedFilesClose();
+    });
+    dd.addEventListener("mouseleave", () => {
+      if (dd.dataset.menuType === "selectedFiles") scheduleSelectedFilesClose();
+    });
+  }
+
+  function openSelectedFilesHover() {
+    if (!_project) return;
+    // Same set updateTokenCount() itself counts — the structure doc is
+    // deliberately excluded there, so the list shown here must match.
+    const enabled = (_project.documents || []).filter(
+      (d) => d.enabled && d.type === "code",
+    );
+    if (!enabled.length) return;
+    const dd = _deps.getShadow?.()?.getElementById("hiDropdown");
+    if (!dd) return;
+    // Tear down this module's OWN other #hiDropdown consumer (the per-file
+    // deps menu) first — closeDepsMenu() removes its outside-click listener
+    // AND calls the generic historyView.closeHiDropdown() — so a currently-
+    // open deps menu doesn't get silently overwritten with a dangling
+    // listener left behind.
+    closeDepsMenu();
+    cancelSelectedFilesClose();
+    wireSelectedFilesHoverBridge(dd);
+    dd.innerHTML = "";
+    dd.classList.add("ctx-files-dropdown");
+    dd.dataset.menuType = "selectedFiles";
+    const sorted = [...enabled].sort((a, b) => a.name.localeCompare(b.name));
+    for (const doc of sorted) {
+      const item = document.createElement("div");
+      item.className = "hd-item ctx-file-item";
+      item.style.cursor = "default"; // read-only list, not a clickable action
+      const name = document.createElement("span");
+      name.className = "ctx-file-name";
+      name.textContent = doc.name;
+      name.title = doc.name;
+      const tokens = document.createElement("span");
+      tokens.className = "ctx-file-tokens";
+      tokens.textContent = (doc.estimatedTokens || 0).toLocaleString("he-IL");
+      item.append(name, tokens);
+      dd.appendChild(item);
+    }
+    // Shown BEFORE measuring/positioning — offsetWidth/offsetHeight read 0
+    // on a display:none element, which this still is until "open" is added.
+    dd.classList.add("open");
+    positionSelectedFilesDropdown(dd);
+  }
+
+  // A passive hover tooltip should stay visually INSIDE the panel, not spill
+  // onto the host page — unlike historyView.positionHiDropdown()'s deliberate
+  // side-popout style (anchorRect.right + 6), which is right for a clicked
+  // action menu (the per-file deps menu) but read as broken here: reported
+  // by the user as "the whole popup overflows." Positions directly below the
+  // label instead, clamped to the panel's own rect on every side so it can
+  // never extend past it.
+  function positionSelectedFilesDropdown(dd) {
+    const rect = _tokenEl.getBoundingClientRect();
+    const panelRect = _deps
+      .getShadow?.()
+      ?.getElementById("panel")
+      ?.getBoundingClientRect?.();
+    let top = rect.bottom + 6;
+    let left = rect.left;
+    if (panelRect) {
+      const margin = 12;
+      const minLeft = panelRect.left + margin;
+      const maxLeft = Math.max(minLeft, panelRect.right - margin - dd.offsetWidth);
+      left = Math.min(Math.max(left, minLeft), maxLeft);
+      const maxTop = Math.max(
+        panelRect.top + margin,
+        panelRect.bottom - margin - dd.offsetHeight,
+      );
+      top = Math.min(top, maxTop);
+    }
+    dd.style.top = top + "px";
+    dd.style.left = left + "px";
+  }
+
   function updateTokenCount() {
     if (!_tokenEl || !_project) return;
     // File count covers only actual code docs — the structure doc has its
@@ -637,6 +753,8 @@
     clearAll.addEventListener("click", () => setAllEnabled(false));
     _tokenEl = document.createElement("span");
     _tokenEl.className = "code-tree-token-count";
+    _tokenEl.addEventListener("mouseenter", openSelectedFilesHover);
+    _tokenEl.addEventListener("mouseleave", scheduleSelectedFilesClose);
     actions.appendChild(selectAll);
     actions.appendChild(clearAll);
     actions.appendChild(_tokenEl);

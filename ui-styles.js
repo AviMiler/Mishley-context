@@ -1826,7 +1826,8 @@ window.__ccbCSS = (() => {
       text-decoration: underline;
     }
     .code-tree-link-btn:hover { color: var(--text-strong); }
-    .code-tree-token-count { color: var(--text-ghost); }
+    .code-tree-token-count { color: var(--text-ghost); cursor: default; transition: color var(--t-fast); }
+    .code-tree-token-count:hover { color: var(--text-mute); }
     .code-tree-budget {
       display: flex; align-items: center; gap: 8px;
       direction: ltr; padding: 0 4px 6px;

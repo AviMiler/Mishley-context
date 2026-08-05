@@ -2,6 +2,36 @@
 
 ## Unreleased (pending commit)
 
+### 2026-08-06 — Fix: hover file-list dropdown could overflow past the panel's edge
+
+Same-day follow-up to the feature directly below — the user tested it live and reported "the whole popup overflows," not a number overflowing. Root cause: the dropdown positioned via `historyView.positionHiDropdown(dd, rect)` (the same helper the per-file deps menu uses), which deliberately pops out to the anchor's SIDE with no containment against the panel's edge — correct for a click-triggered action menu, wrong for a passive hover tooltip that should stay inside the 380px sidebar.
+
+**Fix (`code-tree.js` only):** new `positionSelectedFilesDropdown(dd)` positions the dropdown BELOW the label (`rect.bottom + 6`, `rect.left`) instead of to the side, then clamps both `left`/`top` against `#panel`'s own bounding rect (12px margin) so it can never extend past the panel's right/bottom edges. Also fixed an ordering bug found in the same pass: `dd.classList.add("open")` now happens BEFORE `positionSelectedFilesDropdown(dd)` is called — measuring `dd.offsetWidth`/`offsetHeight` on a still-`display:none` element reads 0, which would silently defeat the whole clamp.
+
+**Verify:** fresh `verify-agent` (agent id a7db010e41c9bdd2c), Go — confirmed the open-before-measure ordering is correct in the actual code, confirmed the clamp math can't invert/crash in either the small- or large-content case, confirmed the pre-existing per-file deps-menu call site (`historyView.positionHiDropdown`) is untouched and doesn't cross-wire with the new function. `node --check` passes.
+
+No spec change. See [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md), [ARCHITECTURE.md](ARCHITECTURE.md).
+
+### 2026-08-06 — Feature: hover file-list on the code-tree's token-count label
+
+User asked, explicitly twice, for hovering the code-project file tree's "X קבצים נבחרים · Y tokens" label to open a list of which files are actually selected — deliberately HOVER-triggered, not click, a new interaction pattern for this codebase (every other `#hiDropdown` consumer — the per-file deps menu, project rename/delete menu, ctx-meter's uploaded-files dropdown — is click-triggered). Stage 1 done inline by the main agent — small and unambiguous, no `AskUserQuestion` needed.
+
+**Files:** `code-tree.js`, one CSS line in `ui-styles.js`.
+
+- Reuses the shared `#hiDropdown` floating-menu host and ctx-meter.js's existing `.ctx-files-dropdown`/`.ctx-file-item`/`.ctx-file-name`/`.ctx-file-tokens` CSS classes (same visual concept — a dropdown listing files with token counts — just a different data source).
+- New module state: `_selectedFilesCloseTimer`, `_selectedFilesDropdownWired`.
+- `scheduleSelectedFilesClose()`/`cancelSelectedFilesClose()` — a 150ms-delayed close so the mouse has time to travel from the label into the dropdown without it vanishing first.
+- `wireSelectedFilesHoverBridge(dd)` attaches `mouseenter`/`mouseleave` directly on the shared, persistent `#hiDropdown` element exactly ONCE ever (guarded by `_selectedFilesDropdownWired` — unlike `_tokenEl`, which is rebuilt fresh every `buildShell()`, this element persists across renders). Each listener checks `dd.dataset.menuType === "selectedFiles"` so this module's hover-bridge logic stays inert whenever another `#hiDropdown` consumer currently owns the shared element.
+- `openSelectedFilesHover()` guards on no project/no enabled code docs; calls the pre-existing `closeDepsMenu()` first (not just `historyView.closeHiDropdown()` — `closeDepsMenu()` also clears this module's own `_depsMenuCleanup` tracking, so an open deps menu is torn down properly); builds rows for every `d.enabled && d.type === "code"` doc — the exact same filter `updateTokenCount()` uses for its own count, so the hover list always matches the number beside it — sorted by name, read-only rows with a `title` tooltip for the full filename.
+- `_tokenEl` (in `buildShell()`) gained `mouseenter`/`mouseleave` listeners directly — safe since it's a brand-new element every `buildShell()` call.
+- `ui-styles.js`: `.code-tree-token-count` gained explicit `cursor: default` plus a `:hover { color: var(--text-mute) }` affordance, matching the established `.ctx-files:hover` pattern used for an analogous label elsewhere in this codebase.
+
+**Verify:** fresh `verify-agent` (agent id a42e9b57077add607), Go — confirmed the hover-bridge timing is race-free (leaving the label schedules a delayed close, re-entering either the label or dropdown cancels it), confirmed the one-time wiring guard truly fires once across the content-script lifetime, confirmed the `dataset.menuType` guard correctly makes this module's listeners inert while the deps menu is open, confirmed `closeDepsMenu()` is safe even when no deps menu was ever open, confirmed the hover list's filter exactly matches `updateTokenCount()`'s own count filter. `node --check` passes on both touched files. ~60 new lines, no new files, judged proportionate.
+
+No spec.md exists for this project (CLAUDE.md is the de-facto spec/index) — CLAUDE.md/ARCHITECTURE.md updated (no new public methods on `window.__ccbCodeTree`, entirely internal to the module); no package added, no DECISIONS.md-worthy alternative weighed.
+
+See [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md), [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ### 2026-08-06 — Fix: message navigation now survives rapid next/next/next clicking (settle-timer added on top of the viewport-derivation rework)
 
 Same-day follow-up to the viewport-derivation rework directly below — that mechanism is not being replaced here, only supplemented. User report: "works once, then gets confused" — a real regression from the rework, not a false alarm. Root cause: `scrollIntoView({behavior:"smooth"})` animates over some hundreds of ms, and a second click before it settles reads the viewport mid-flight — `findCurrentIndex()` can't reliably tell whether the old or new message "wins" the overlap check at that moment, so rapid next/next/next (the normal way to page through several messages) landed unpredictably.
