@@ -1773,10 +1773,13 @@ window.__ccbCSS = (() => {
     .code-tree-children { display: flex; flex-direction: column; }
     .code-tree-children.collapsed { display: none; }
     /* Pinned favorites section (2026-08-05) — below the structure row, above
-       the scanned tree, same separator language as .code-tree-structure-row
-       and collapsible via the same .collapse-btn/.code-tree-children pattern
-       a folder row uses. */
-    .code-tree-favorites-header { border-bottom: 1px solid var(--border-subtle); margin-bottom: 4px; padding-bottom: 6px; }
+       the scanned tree, collapsible via the same .collapse-btn/
+       .code-tree-children pattern a folder row uses. The separator sits on
+       the OUTER section wrapper (below the whole header+list block, per the
+       user's explicit request), not on the header itself — same visual
+       language as .code-tree-structure-row's separator, just positioned at
+       the bottom of the section instead of directly under its header. */
+    .code-tree-favorites-section { border-bottom: 1px solid var(--border-subtle); margin-bottom: 4px; padding-bottom: 6px; }
     /* Manually-added files (addManualCodeFiles) — a flat list below the
        scanned tree, separated by a small uppercase label, same visual
        language as .code-tree-structure-row's separator above the tree. */

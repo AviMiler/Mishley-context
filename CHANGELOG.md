@@ -2,6 +2,18 @@
 
 ## Unreleased (pending commit)
 
+### 2026-08-05 — Fix: favorites section force-expands when a favorite is added; separator moved to the bottom of the favorites list
+
+Follow-up to the favorites feature shipped earlier the same day (below). Two user-reported issues, both scoped to `code-tree.js`/`ui-styles.js` only.
+
+**(1) "adding a favorite closes the list."** Read through the entire `_favoritesCollapsed` reset/toggle path and found no logic bug that would collapse the section purely from adding a favorite (the reset only fires on project switch, the toggle only fires via the header's own click). Working theory, not a confirmed browser reproduction (no test harness for this project — same standing caveat as every other UI fix here): if the section was previously manually collapsed (deliberately, or while it held different favorites), that state persists by design across renders — so a newly-added favorite renders into an invisible section, which reads exactly like "the list closed." `verify-agent` (Stage 3) reviewed the reasoning independently, agreed it's a plausible complete explanation given the actual code, found no alternative root cause, and confirmed the fix is low-risk. **Fix:** in `code-tree.js#buildFileRow`'s `favBtn` click handler, `_favoritesCollapsed` is force-reset to `false` right before re-render — but only when the file is newly marked favorite (`nowFavorite === true`), never on un-favorite, so removing an item doesn't fight a deliberate collapse.
+
+**(2) Separator placement.** The separator line sat directly under the "מועדפים" header, above the list; moved to the bottom of the whole favorites section instead. `renderFavoritesSection` now wraps the header + the favorited-files list in a new outer `<div class="code-tree-favorites-section">`; the separator CSS moved off `.code-tree-favorites-header` (removed) onto this new wrapper in `ui-styles.js`. Reason: the list itself uses the shared `.code-tree-children` class (`display:none` when collapsed) — a border on that element would vanish whenever the section is collapsed; the new outer wrapper is never itself hidden (only its inner list child is), so the separator stays visible at the bottom in both collapsed and expanded states.
+
+**Verify:** `verify-agent` (Stage 3, agent id a0e6ca473eddfc3f7), Go — confirmed via direct diff read: `nowFavorite` is captured before `toggleFavorite`'s mutation (no reordering hazard); the un-favorite path correctly leaves `_favoritesCollapsed` alone; the new `.code-tree-favorites-section` wrapper doesn't break collapse mechanics (only `.code-tree-children` toggles visibility) and has no selector collision with the unrelated `.code-tree-structure-row`. `node --check` passes on both touched files (`code-tree.js`, `ui-styles.js`).
+
+No spec change — this is a targeted fix to the same-day favorites feature, not a new requirement. See [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md).
+
 ### 2026-08-05 — Feature: code-project file favorites section + refined folder-collapse default, full `enforcing-coding-workflow` pass
 
 **Folder-collapse refinement.** The 2026-07-30 "folders default collapsed" behavior collapsed every folder unconditionally on first view of a project. Refined: a folder now starts collapsed only if NONE of its descendant files (any depth) are enabled — `code-tree.js#initiallyCollapsedFolderPaths(docs)` (new) replaces `allFolderPaths(docs)` at the `renderInline` reset call site; the guard is `docs.some(d => d.enabled && d.name.startsWith(path + "/"))`, checked independently per ancestor path, so a deeply-nested enabled file expands every ancestor, not just its immediate parent. `allFolderPaths` itself is unchanged and still exists, just unused at this call site now.

@@ -180,7 +180,15 @@
     favBtn.setAttribute("aria-label", favBtn.title);
     favBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      _deps.docHandler.toggleFavorite(_project.id, doc.id, !doc.favorite);
+      const nowFavorite = !doc.favorite;
+      _deps.docHandler.toggleFavorite(_project.id, doc.id, nowFavorite);
+      // Force the favorites section open on ADD (2026-08-05 fix) — otherwise
+      // a section the user had collapsed earlier (while it held other
+      // favorites, or was toggled shut out of curiosity) stays collapsed
+      // when a new file is starred, so the user never actually sees what
+      // they just added. Only forces open on add, never on remove — removing
+      // a favorite shouldn't fight a deliberate collapse.
+      if (nowFavorite) _favoritesCollapsed = false;
       _deps.render();
     });
 
@@ -471,6 +479,15 @@
     );
     if (!favDocs.length) return;
 
+    // Wraps the header + list together so the separator (2026-08-05: moved
+    // from directly under the header to the bottom of the whole favorites
+    // block, per the user's explicit request) stays visible below the list
+    // even when collapsed — it lives on this outer wrapper, not on the
+    // header or on .code-tree-children (which is display:none when
+    // collapsed and would take the separator down with it).
+    const section = document.createElement("div");
+    section.className = "code-tree-favorites-section";
+
     const header = document.createElement("div");
     header.className = "code-tree-row code-tree-favorites-header";
 
@@ -494,14 +511,16 @@
       _favoritesCollapsed = !_favoritesCollapsed;
       render();
     });
-    container.appendChild(header);
+    section.appendChild(header);
 
     const wrap = document.createElement("div");
     wrap.className =
       "code-tree-children" + (_favoritesCollapsed ? " collapsed" : "");
     const sorted = [...favDocs].sort((a, b) => a.name.localeCompare(b.name));
     for (const doc of sorted) wrap.appendChild(buildFileRow(doc));
-    container.appendChild(wrap);
+    section.appendChild(wrap);
+
+    container.appendChild(section);
   }
 
   // Re-renders only the tree body (folders/files) from the current _project +
