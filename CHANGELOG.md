@@ -2,6 +2,39 @@
 
 ## Unreleased (pending commit)
 
+### 2026-08-05 — Fix: dropped the canned "Context loaded." auto-reply for GM/manual injection; quick-command injection now prepends to the front of the box instead of replacing the typed trigger in place, full `enforcing-coding-workflow` pass
+
+User gave two direct, unambiguous requests in the same message (Stage 1 done inline, no `AskUserQuestion` needed — same session as the quick-command word-boundary fix directly below).
+
+**(1) config.js — dropped the canned auto-reply.** `FRAMING_GM_POST` and `FRAMING_MANUAL_POST` (the auto-reply-then-wait outros for General Memory and manual saved-prompt injection) had their `'Reply only with "Context loaded." and wait for the first instruction.\n'` sentence replaced with wording matching this codebase's existing precedent for `FRAMING_DOCS_POST`/`FRAMING_EVERY_POST` (both already read "end of X, the user's actual request follows — respond to it only" per a 2026-07-22 fix, for the same reason: the user's real request often follows in the SAME message, not a separate turn, so telling the model to just acknowledge and wait was actively wrong). New text:
+- `FRAMING_GM_POST`: `"End of general memory. The user's actual message follows — respond to it only."`
+- `FRAMING_MANUAL_POST`: `"End of the loaded context. The user's actual message follows — respond to it only."`
+
+`FRAMING_PROJ_POST` (project instructions) deliberately left untouched — the user only asked about this specific sentence, which only appeared in these two. `prompts.js`'s `manualOutroDefault`/`gmOutroDefault` are computed live from these config.js strings at module load and only overridden if the user already customized `manualOutro`/`gmOutro` via the prompts editor — so a user who never touched the prompts editor gets the new wording automatically, no migration needed.
+
+**(2) content.js — quick-command injection now lands at the front of the box.** `injectQuickCommand(typedText, text)` used to call `ccbInject.replaceTrailingText(typedText, wrapped)`, replacing the typed "/query" text IN PLACE — so typing a sentence first and a "/command" at its end left the injected content stranded AFTER that free text, instead of in the front-of-box "injection area" every other manual-injection path (`injectTracked(text, "prepend")`) lands in. Fixed to two steps:
+
+```js
+function injectQuickCommand(typedText, text) {
+  const removed = ccbInject.replaceTrailingText(typedText, "");
+  if (!removed.ok) return removed;
+  const { id, wrapped } = wrapForTracking(text);
+  const r = ccbInject.injectIntoInput(wrapped, "prepend");
+  if (r.ok) commitTrackedInjection(id, false);
+  return r;
+}
+```
+
+Step 1 deletes just the trailing "/query" text by reusing the existing `replaceTrailingText` primitive with an empty replacement string (no new `inject.js` function needed — it already generically handles both the `<textarea>`/`<input>` and `contenteditable` paths). Step 2 prepends the wrapped block via the pre-existing `injectIntoInput(wrapped, "prepend")` — the same primitive the footer button's `injectSelected` already uses — so quick commands now stack into the same front-of-box area as every other manual injection.
+
+**Files:** `config.js`, `content.js` only.
+
+**Verify:** `verify-agent` (Go) confirmed the empty-replacement deletion is safe on both the textarea and contenteditable paths (traced `buildLineFragment("")`/`insertRangeText` producing a no-op insert after the deletion already happened); the "typedText is the box's entire content" edge case (fresh box, "/" as the first character — the previous session's word-boundary-fix test case) still produces the same end result, no regression; and the chained-quick-command case (a second "/cmd2" typed after an earlier still-present injection) now correctly stacks the second block at the absolute front, ahead of the first — judged consistent with `injectTracked`'s pre-existing newest-first stacking, not a surprising new side effect. `node --check` passes on both changed files (plus `prompts.js`/`inject.js`/`chat-features.js`, read but unchanged during verification).
+
+No spec change — two scoped bugfixes using existing primitives.
+
+See [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md).
+
 ### 2026-08-05 — Fix: quick-command `/` trigger not detected after other typed text, full `enforcing-coding-workflow` pass
 
 User report (internal chat site, not Gemini): typing an ordinary sentence and then adding "/cmd" at the END of that same text didn't open the quick-command menu — it only worked when "/" was the very first character of an otherwise-empty input. Stage 1 was done inline by the main agent (one `AskUserQuestion` round to pin the exact repro) rather than delegated to `spec-doc-agent`.

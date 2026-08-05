@@ -162,7 +162,7 @@ const _ACTIVE = _SITE_CONFIG[ACTIVE_SITE] || _SITE_CONFIG.gemini;
 
   FRAMING_GM_POST:
     "\n</memory>\n\n" +
-    'Reply only with "Context loaded." and wait for the first instruction.\n',
+    "End of general memory. The user's actual message follows — respond to it only.\n",
 
   // Wrapper for manual saved-prompt block injections (content goes between PRE and POST)
   FRAMING_MANUAL_PRE:
@@ -176,7 +176,7 @@ const _ACTIVE = _SITE_CONFIG[ACTIVE_SITE] || _SITE_CONFIG.gemini;
 
   FRAMING_MANUAL_POST:
     "\n</context>\n\n" +
-    'Reply only with "Context loaded." and wait for the first instruction.\n',
+    "End of the loaded context. The user's actual message follows — respond to it only.\n",
 
   // Wrapper for project instructions (project content goes between PRE and POST)
   FRAMING_PROJ_PRE:

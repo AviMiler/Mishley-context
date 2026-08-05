@@ -1254,9 +1254,26 @@
   // right after a first one instead of only ever working on an empty box).
   // Reuses the same marker-wrap so the injected prompt participates in the
   // same undo stack as any other injection.
+  //
+  // 2026-08-05: used to insert the injected block IN PLACE of the typed
+  // "/query" (via ccbInject.replaceTrailingText alone) — so typing a
+  // sentence first and a "/command" at its end left the injected block
+  // stranded after that free text, instead of in the "injection area" the
+  // user expects every injection (the footer "טען פרומפטים" button,
+  // injectTracked's own "prepend" mode) to land in: the very front of the
+  // box, before anything the user typed themselves. Now a two-step
+  // operation: first delete just the "/query" text (replaceTrailingText
+  // with an empty replacement — a plain drop-in, not a new primitive, since
+  // that function already handles both the textarea and contenteditable
+  // paths generically), then prepend the wrapped block to the box's start
+  // exactly like injectTracked(text, "prepend") does — so free text typed
+  // before, after, or around the trigger always ends up trailing after
+  // every injected block, never interleaved with one.
   function injectQuickCommand(typedText, text) {
+    const removed = ccbInject.replaceTrailingText(typedText, "");
+    if (!removed.ok) return removed;
     const { id, wrapped } = wrapForTracking(text);
-    const r = ccbInject.replaceTrailingText(typedText, wrapped);
+    const r = ccbInject.injectIntoInput(wrapped, "prepend");
     // Never resets the stack: an earlier injection's marker may still be
     // sitting earlier in the box (that's exactly what makes chaining a
     // second quick command possible), and it's still a valid undo target.
