@@ -206,6 +206,8 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 
 `_GEMINI_SELECTORS` and `_INTERNAL_CHAT_SELECTORS` are defined separately — only `ACTIVE_SITE` decides which is active. Scripts gate by `AUTO_OPEN_URLS` so the panel stays inert on other sites.
 
+**Frame scope (2026-08-06):** `manifest.json`'s `content_scripts` entry sets `"all_frames": true`, so this same gating (`ACTIVE_SITE`/`AUTO_OPEN_URLS`) is now the ONLY thing deciding whether Mishley actually activates — it runs the script in every same-origin frame of a page, not just the top one, so a wrapper extension that puts the real chat UI inside a same-origin iframe (hiding the top document instead) still gets a working instance. `msg-nav.js` and `inject.js#findInput()` both search only their own frame's `document`, so without `all_frames` they silently find nothing when the live DOM is in a non-top frame. Verified statically only (manifest validity + the existing cross-tab-sync generation-counter design, see "Storage keys used"/cross-tab sync notes, already tolerating a second concurrent frame instance the same way it tolerates a second browser tab) — not yet exercised in a real browser against an actual wrapper extension.
+
 ## config.js exports (`window.__ccbRawConfig`)
 
 | Key                        | Type         | Description                                                                                                                                                                                                                                                                                                                                                                                                                                    |

@@ -2,6 +2,18 @@
 
 ## Unreleased (pending commit)
 
+### 2026-08-06 — Fix: content scripts didn't run inside a same-origin iframe wrapping the chat site
+
+User reported that when accessing the internal chat site through a separate, unrelated third-party Chrome extension ("multi-tab-extension") that wraps the site's real content in an `<iframe>` and hides the top document's own body via `display:none`, two Mishley features silently broke: the msg-nav prev/next widget couldn't find any messages, and manual/auto text injection couldn't find the chat input. Root cause: `manifest.json`'s `content_scripts` entry had no `all_frames` key, so per Chrome's default (`false`) Mishley only ran in the top frame — never inside the iframe holding the actual live chat DOM.
+
+**Fix:** added `"all_frames": true` to the single `content_scripts` entry in `manifest.json`. One line, no other files changed. Runtime activation is unaffected — still fully gated by `ACTIVE_SITE`/`AUTO_OPEN_URLS` in `config.js` regardless of frame.
+
+**Stage 1 (`spec-doc-agent`):** confirmed this doesn't contradict any existing requirement (no dedicated `spec.md` exists — CLAUDE.md is the de-facto spec) and is a permanent capability extension, not a one-time exception — general robustness for any host page that wraps the target chat in a same-origin iframe, not specific to this one third-party extension. Flagged two edge cases for Stage 3 to check rather than assume: (1) whether running twice per page (top frame + iframe) interacts safely with the cross-tab-sync generation-counter design, (2) whether the (now hidden) top-frame instance could produce any visible/external side effect.
+
+**Stage 3 (`verify-agent`), Go:** manifest parses correctly, `all_frames` correctly placed. Edge case 1 confirmed safe by inspection — structurally identical to the already-verified "two browser tabs on the same page" scenario the generation-counter design was built for. Edge case 2 found to be **pre-existing, unrelated to this diff** — the top frame was already fully initializing before this fix (since msg-nav/`findInput` being broken by top-document-only search implies the top frame's URL already matched `AUTO_OPEN_URLS`); `all_frames: true` only adds a second, correctly-functioning instance in the live iframe, it doesn't introduce a new hidden-frame execution path. Verification is static/code-reading only — **no live browser test against the real target site + the actual third-party wrapper extension was performed**, consistent with this codebase's existing "not yet browser-verified" pattern for other UI/behavior changes.
+
+No spec change beyond the documentation note itself (see CLAUDE.md's Rules section). See [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md), [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ### 2026-08-06 — Fix: hover file-list dropdown could overflow past the panel's edge
 
 Same-day follow-up to the feature directly below — the user tested it live and reported "the whole popup overflows," not a number overflowing. Root cause: the dropdown positioned via `historyView.positionHiDropdown(dd, rect)` (the same helper the per-file deps menu uses), which deliberately pops out to the anchor's SIDE with no containment against the panel's edge — correct for a click-triggered action menu, wrong for a passive hover tooltip that should stay inside the 380px sidebar.

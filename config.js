@@ -46,7 +46,7 @@ const _INTERNAL_CHAT_SELECTORS = {
 };
 
 // ⬇ CHANGE: בחר איזה site להפעיל — "gemini" או "internal"
-const ACTIVE_SITE = "gemini";
+const ACTIVE_SITE = "internal";
 
 // ─────────────────────────────────────────────────────────────────────────────
 
