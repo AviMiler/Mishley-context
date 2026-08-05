@@ -1743,19 +1743,20 @@ window.__ccbCSS = (() => {
        (the "בחר הכל"/"נקה הכל" toolbar above the tree) so the two rules don't
        collide. */
     .code-tree-file-actions {
-      /* 2026-08-06: gap tightened 3px→0 and each button's own hitbox
-         shrunk (20px→16px) — three buttons at the old size read as too
-         spaced out per user feedback on the favorites/preview/deps row. */
+      /* 2026-08-06: gap tightened 3px→0 — button hitboxes themselves stay at
+         their original size (20px/14px icon) per user feedback: shrinking
+         the buttons was the wrong fix, only the gap between them should
+         shrink. */
       display: flex; align-items: center; gap: 0; flex-shrink: 0;
       margin-inline-end: -10px;
     }
     .code-tree-deps-btn, .code-tree-preview-btn {
-      width: 16px; height: 16px; flex-shrink: 0; border: none; background: none;
+      width: 20px; height: 20px; flex-shrink: 0; border: none; background: none;
       color: var(--text-faint); cursor: pointer; border-radius: 4px;
       display: flex; align-items: center; justify-content: center;
       opacity: 0.55; transition: opacity var(--t-fast), background var(--t-fast), color var(--t-fast);
     }
-    .code-tree-deps-btn svg, .code-tree-preview-btn svg { width: 13px; height: 13px; }
+    .code-tree-deps-btn svg, .code-tree-preview-btn svg { width: 14px; height: 14px; }
     .code-tree-row:hover .code-tree-deps-btn, .code-tree-row:hover .code-tree-preview-btn { opacity: 1; }
     .code-tree-deps-btn:hover, .code-tree-preview-btn:hover { background: var(--bg-clear); color: var(--text-strong); }
     /* Favorite-toggle star (2026-08-05) — same sizing/hover-reveal as the
@@ -1763,12 +1764,12 @@ window.__ccbCSS = (() => {
        an "active" (favorited) state that stays visible even without a hover
        and fills the star gold instead of only outlining it. */
     .code-tree-favorite-btn {
-      width: 16px; height: 16px; flex-shrink: 0; border: none; background: none;
+      width: 20px; height: 20px; flex-shrink: 0; border: none; background: none;
       color: var(--text-faint); cursor: pointer; border-radius: 4px;
       display: flex; align-items: center; justify-content: center;
       opacity: 0.55; transition: opacity var(--t-fast), background var(--t-fast), color var(--t-fast);
     }
-    .code-tree-favorite-btn svg { width: 13px; height: 13px; }
+    .code-tree-favorite-btn svg { width: 14px; height: 14px; }
     .code-tree-row:hover .code-tree-favorite-btn { opacity: 1; }
     .code-tree-favorite-btn:hover { background: var(--bg-clear); color: var(--text-strong); }
     .code-tree-favorite-btn.active { opacity: 1; color: #d99a00; }

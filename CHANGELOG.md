@@ -4,7 +4,7 @@
 
 ### 2026-08-06 — Style: tightened the file-row action buttons (favorite/preview/deps)
 
-User feedback: the three per-file action buttons (favorite star, preview, deps) in `code-tree.js`'s file rows read as too spaced apart. `ui-styles.js` only: `.code-tree-file-actions`'s `gap` went `3px` → `0`, and `.code-tree-deps-btn`/`.code-tree-preview-btn`/`.code-tree-favorite-btn`'s hitboxes shrunk `20px` → `16px` (icon svgs `14px` → `13px` to match). `.code-tree-remove-btn` (manual-file rows) inherits the new `.code-tree-preview-btn` sizing automatically, no separate edit needed. Pure CSS, no logic change — handled inline (confirmed via `node --check` + direct diff read) rather than a full verify-agent/spec-doc-agent round-trip, given the size and risk of the change.
+User feedback: the three per-file action buttons (favorite star, preview, deps) in `code-tree.js`'s file rows read as too spaced apart. `ui-styles.js` only: `.code-tree-file-actions`'s `gap` went `3px` → `0`. First pass also shrunk the buttons themselves (`20px`→`16px`, icons `14px`→`13px`) — the user pushed back: keep the buttons at their original size, only the gap between them should shrink. Reverted the sizing to `20px`/`14px`, kept `gap: 0`. `.code-tree-remove-btn` (manual-file rows) inherits `.code-tree-preview-btn`'s sizing automatically, no separate edit needed. Pure CSS, no logic change — handled inline (confirmed via `node --check` + direct diff read) rather than a full verify-agent/spec-doc-agent round-trip, given the size and risk of the change.
 
 ### 2026-08-05 — Fix: favorites section force-expands when a favorite is added; separator moved to the bottom of the favorites list
 
