@@ -582,6 +582,17 @@
   // part of the box the user could actually still be freely typing into —
   // falling back to the whole box when there's no marker yet (a fresh box,
   // the original/common case).
+  //
+  // Word-boundary fix (2026-08-05): within that relevant suffix, the "/"
+  // still had to be its very FIRST character — typing an ordinary sentence
+  // first and then a "/command" at its end (reported on the internal chat
+  // site; same code path on Gemini, just less likely to be hit there since
+  // that usage habitually starts a message with "/") never opened the menu,
+  // since `relevant` there is "some sentence /sum", which doesn't start with
+  // "/". `_handleQuickCommandInput` now matches the LAST whitespace-
+  // delimited token in `relevant` instead of requiring it at position 0 —
+  // "/" only needs to start its own word (preceded by whitespace or the very
+  // start of the relevant suffix), not the whole segment.
   // ============================================================
   let _qcMenuOpen = false;
   let _qcMatches = [];
@@ -715,18 +726,18 @@
     }
     const raw = _qcRawBoxText(el);
     const relevant = _qcRelevantSuffix(raw);
-    if (!relevant.startsWith("/")) {
+    // The command word is the LAST whitespace-delimited token in the
+    // relevant suffix, anchored to its end — "/" starts its own word
+    // (preceded by whitespace or the start of the suffix), not necessarily
+    // the whole suffix. A match with trailing content past the command word
+    // (a space typed after it) naturally fails this same regex, since it's
+    // anchored with `$`.
+    const m = relevant.match(/(?:^|\s)(\/\S*)$/);
+    if (!m) {
       if (_qcMenuOpen) _closeQuickCommandMenu();
       return;
     }
-    const afterSlash = relevant.slice(1);
-    const spaceIdx = afterSlash.search(/\s/);
-    if (spaceIdx !== -1) {
-      // Past the command word — either already selected, or this is just a
-      // message that happens to start with "/".
-      if (_qcMenuOpen) _closeQuickCommandMenu();
-      return;
-    }
+    const afterSlash = m[1].slice(1);
     _openQuickCommandMenu(el, afterSlash, _qcMatchesFor(afterSlash));
   }
 

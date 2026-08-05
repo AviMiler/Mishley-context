@@ -2,6 +2,22 @@
 
 ## Unreleased (pending commit)
 
+### 2026-08-05 — Fix: quick-command `/` trigger not detected after other typed text, full `enforcing-coding-workflow` pass
+
+User report (internal chat site, not Gemini): typing an ordinary sentence and then adding "/cmd" at the END of that same text didn't open the quick-command menu — it only worked when "/" was the very first character of an otherwise-empty input. Stage 1 was done inline by the main agent (one `AskUserQuestion` round to pin the exact repro) rather than delegated to `spec-doc-agent`.
+
+**Root cause:** `chat-features.js#_handleQuickCommandInput` computed `relevant` (the box's text after the last completed injection's marker, or the whole box if none) and required `relevant.startsWith("/")` — the "/" had to be the first character of the whole segment, not just the start of a word within it. Both sites share the same plain-`<textarea>` code path; the internal site's "sentence first, command at the end" usage pattern simply exercised a gap Gemini's "always starts with /" usage never hit.
+
+**Fix:** replaced `relevant.startsWith("/")` plus a separate space-search with one regex: `relevant.match(/(?:^|\s)(\/\S*)$/)` — matches the last whitespace-delimited token, requiring it to start with "/" and be preceded by whitespace or the string start (so "hello/sum," glued mid-word, still correctly does not trigger). Downstream (`afterSlash`, `_qcMatchesFor`, `inject.js#replaceTrailingText`) is unchanged.
+
+**Files:** `chat-features.js` only (one function's logic + its doc comment).
+
+**Verify:** `verify-agent` Go (agent id `a967455442e837f41`) — 6 cases (fresh "/sum"; "hello /sum" newly fixed; "hello/sum" correctly rejected; text past the command word correctly rejected; empty string; multi-line "\n/cmd"); confirmed no regression to the chained-quick-command-right-after-a-completed-injection case (the `^` anchor still matches identically to the old check there); confirmed no dangling `spaceIdx` reference in any live project file. `node --check chat-features.js` passes.
+
+No spec change — a scoped bugfix within the existing, already-documented quick-commands feature.
+
+See [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md).
+
 ### 2026-08-04 — Storage/perf plan closed: D1 (backup content-completeness), D2 (import orphan cleanup), D3 (storage panel), D4 (automatic orphan GC), E1 (cross-tab sync), full `enforcing-coding-workflow` pass
 
 Remainder of the 6-phase storage/perf plan opened 2026-07-30. The conversation-history removal directly below (same day, earlier session) made Phase B (retention/multi-select-delete/autosave-off) and Phase C (History-tab render perf) moot — no History tab left for them to apply to — leaving D (finish it) and E as the actual remaining work. Stage 1 was re-run fresh for this remainder (confirmed no contradiction against the current v3-layout CLAUDE.md/ARCHITECTURE.md) and asked one question: D1's scope now that `blocks` is metadata-only and conversations are gone. **User's answer: content-completeness only, no chunking/streaming of the `JSON.stringify`.**
