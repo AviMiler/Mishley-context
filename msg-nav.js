@@ -31,17 +31,35 @@
 // reset needed; a manually-scrolled position is exactly what gets read the
 // next time an arrow is clicked.
 //
+// 2026-08-06 (same-day follow-up) — pure viewport-derivation on EVERY click
+// broke repeated clicking: scrollIntoView's smooth-scroll animation takes a
+// few hundred ms to settle, and a second click before it finishes reads the
+// viewport mid-flight — neither the old nor the new message reliably "wins"
+// the overlap check, so rapid next/next/next (the normal way to page through
+// several messages) landed on the wrong message unpredictably. Fixed with a
+// short-lived memory of our OWN last scroll target (_lastTarget): while a
+// recent click's animation could still be in flight (SETTLE_MS, restarted on
+// every click), goPrev/goNext step from that remembered target instead of
+// re-reading the DOM. Once the user pauses longer than that window — either
+// because the animation genuinely finished or because they've since done
+// something else entirely (manually scrolled, waited through a new message)
+// — the memory expires and the next click goes back to deriving fresh from
+// the live viewport. This keeps every scenario the rework was built for
+// (fresh load, mid-conversation, manual scroll) fully intact, since those
+// only ever matter once the user has actually stopped clicking.
+//
 // Public API:
 //   init(deps) — { getShadow, MSG_SELECTORS }
 //   goPrev()   — scroll+highlight the message before whichever is currently
 //                in view
 //   goNext()   — scroll+highlight the message after whichever is currently
 //                in view
-//   reset()    — clears any pending highlight and re-enables both buttons.
-//                Called on fresh-chat resets (same points chat-features.js's
-//                undo stack/quick-command menu already reset at) — there is
-//                no cursor left to reset, only stale highlight/disabled-
-//                state residue from the previous conversation.
+//   reset()    — clears any pending highlight/settle memory and re-enables
+//                both buttons. Called on fresh-chat resets (same points
+//                chat-features.js's undo stack/quick-command menu already
+//                reset at) — there is no cursor left to reset, only stale
+//                highlight/target/disabled-state residue from the previous
+//                conversation.
 
 (() => {
   if (window.__ccbMsgNavInstalled) return;
@@ -50,6 +68,23 @@
   let _deps = null;
   let _highlightedEl = null;
   let _highlightTimer = null;
+
+  // Rough upper bound for scrollIntoView({behavior:"smooth"}) to settle —
+  // while a click's own scroll could still be animating, goPrev/goNext trust
+  // this remembered target instead of re-reading a possibly mid-flight
+  // viewport. Restarted on every click; expires back to null once the user
+  // actually pauses.
+  const SETTLE_MS = 700;
+  let _lastTarget = null;
+  let _settleTimer = null;
+
+  function armSettleTimer() {
+    if (_settleTimer !== null) clearTimeout(_settleTimer);
+    _settleTimer = setTimeout(() => {
+      _lastTarget = null;
+      _settleTimer = null;
+    }, SETTLE_MS);
+  }
 
   const $shadow = () => _deps?.getShadow?.();
   const $el = (id) => $shadow()?.getElementById(id);
@@ -139,12 +174,21 @@
     el.scrollIntoView({ behavior: "smooth", block: "center" });
     highlightElement(el);
     syncButtons(index, messages.length);
+    _lastTarget = index;
+    armSettleTimer();
+  }
+
+  // While a recent click's own scroll could still be settling, base the next
+  // step on where we just told it to go rather than a possibly mid-flight
+  // viewport read — see the SETTLE_MS comment above.
+  function currentBase(messages) {
+    return _lastTarget !== null ? _lastTarget : findCurrentIndex(messages);
   }
 
   function goPrev() {
     const messages = getMessages();
     if (!messages.length) return;
-    const next = findCurrentIndex(messages) - 1;
+    const next = currentBase(messages) - 1;
     if (next < 0) return;
     goTo(next, messages);
   }
@@ -152,7 +196,7 @@
   function goNext() {
     const messages = getMessages();
     if (!messages.length) return;
-    const next = findCurrentIndex(messages) + 1;
+    const next = currentBase(messages) + 1;
     if (next > messages.length - 1) return;
     goTo(next, messages);
   }
@@ -164,8 +208,13 @@
     }
     if (_highlightedEl) clearHighlight(_highlightedEl);
     _highlightedEl = null;
-    // No cursor to clear anymore — just make sure neither button is left
-    // showing a disabled state carried over from the previous conversation.
+    if (_settleTimer !== null) {
+      clearTimeout(_settleTimer);
+      _settleTimer = null;
+    }
+    _lastTarget = null;
+    // Make sure neither button is left showing a disabled state carried
+    // over from the previous conversation.
     const prevBtn = $el("msgNavPrev");
     const nextBtn = $el("msgNavNext");
     if (prevBtn) prevBtn.disabled = false;
