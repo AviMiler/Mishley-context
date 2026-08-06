@@ -49,16 +49,6 @@ window.__ccbCSS = (() => {
     .fab:hover { width: 28px; background: #2a2622; }
     .fab.hidden { left: -32px; pointer-events: none; }
 
-    /* Sessions FAB — a second, smaller trigger stacked below the main FAB,
-       opening the parallel-sessions overlay (#sessionsView). Shares the
-       .fab class (same base look + the pre-existing .hidden rule content.js
-       already toggles alongside the main FAB whenever the panel opens) with
-       only its vertical offset overridden. Hidden outright (not just via
-       .hidden) when this content-script instance is itself running inside
-       one of our own session iframes — see sessions.js#isInsideOwnIframe —
-       to prevent opening session management from within a session. */
-    .fab-sessions { top: calc(50% + 64px); }
-
     /* Message navigation (2026-08-06) — two floating arrows, fixed near the
        bottom-left of the viewport (page-fixed, like the FAB, not scoped to
        the panel), stepping through the host page's own chat messages.
@@ -102,6 +92,14 @@ window.__ccbCSS = (() => {
       z-index: 2; pointer-events: auto;
     }
     .panel.open { transform: translateX(0); }
+    /* Pushed down by the sessions tab strip's height (40px, must match
+       .sessions-tabstrip below and sessions.js's STRIP_HEIGHT) whenever it's
+       mounted — .panel lives in the same shadow root as the strip, so it
+       isn't reached by push.js#pushTop's host-page style injection and would
+       otherwise render its own header right underneath the strip. The class
+       is added once by sessions.js#init at the top level only (never inside
+       a session iframe, where no strip is shown). */
+    :host(.ccb-strip-active) .panel { top: 40px; height: calc(100vh - 40px); }
 
     /* ── Header ──
        No title text anymore (2026-07-28, at the user's request — the
@@ -1892,69 +1890,103 @@ window.__ccbCSS = (() => {
       padding: 10px; color: var(--text-ghost); font-style: italic; font-size: 12px;
     }
 
-    /* ── Parallel sessions overlay (#sessionsView) ──
-       A full-viewport takeover (inset:0, NOT confined to the panel's own
-       380px like #filePreviewView/#depManagerView/etc.) that lets the user
-       switch between the chat that's actually loaded in the top-level page
-       (the "native" tab, no iframe of its own) and same-origin <iframe>
-       copies of the same site, each an independent chat session with its
-       own fully-mounted Mishley instance inside it (content_scripts run in
-       all_frames — see the manifest.json rule at the bottom of this file's
-       host CLAUDE.md). Sits above literally everything else this shadow
-       root renders, including #quickCmdMenu (2147483000) — when open it's
-       meant to dominate the screen. Selecting the native tab's pill hides
-       this whole overlay outright rather than showing any "native" content
-       inside it, since the native page's own DOM already sits underneath
-       and needs no representation here — see sessions.js#switchSession. */
+    /* ── Persistent sessions tab strip (#sessionsView) ──
+       Reworked 2026-08-06 (same day as first ship) from a FAB-triggered
+       full-viewport takeover into an always-visible top strip — real user
+       feedback after trying the takeover live was that switching
+       conversations shouldn't mean "leaving and re-entering" anything. Now
+       #sessionsView is ALWAYS mounted (no open/closed state of its own) and
+       only as tall as its own tabstrip — push.js#pushTop shifts the site's
+       own content down by that height once, permanently, at sessions.js's
+       init, so the strip never overlaps real content. Only
+       .sessions-frame-container (the layer that shows the selected SESSION
+       iframe, not the native tab) is a full-viewport cover, and only while
+       a non-native tab is active — see sessions.js#switchSession/render.
+       Sits above literally everything else this shadow root renders,
+       including #quickCmdMenu (2147483000), so the strip is always
+       reachable and an active session's cover always dominates the screen
+       while shown. */
     #sessionsView {
-      position: fixed; inset: 0; z-index: 2147483001;
-      display: none; flex-direction: column;
-      background: var(--bg-app);
+      position: fixed; top: 0; left: 0; right: 0; z-index: 2147483001;
+      display: flex; flex-direction: column;
       font-family: var(--font-he); font-size: 13px; direction: rtl;
       color: var(--text-strong);
-      pointer-events: auto;
+      pointer-events: none; /* wrapper itself must not block the page below the strip — children opt in */
     }
-    #sessionsView.sv-open { display: flex; }
     .sessions-tabstrip {
       display: flex; align-items: center; gap: 6px;
-      padding: 8px 10px; flex-shrink: 0;
+      height: 40px; padding: 0 10px; flex-shrink: 0; box-sizing: border-box;
       border-bottom: 1px solid var(--border-subtle);
       background: var(--bg-card);
+      pointer-events: auto;
     }
+    /* Chrome-style structure: tabs sit adjacent along the strip's bottom
+       edge, top corners rounded, the active one taller/lighter so it reads
+       as "merged" with the content below — same colors/font as the rest of
+       the panel (--bg-tag/--text-mute/--font-he), only the SHAPE changed
+       from the original isolated pill buttons. */
     .sessions-tabs {
-      display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0;
-      overflow-x: auto;
+      display: flex; align-items: flex-end; gap: 2px; flex: 0 1 auto; min-width: 0;
+      height: 100%; overflow-x: auto;
     }
+    /* Fixed width for every tab (native + sessions) so the strip has a
+       stable, predictable rhythm regardless of title length — long titles
+       ellipsize via .sessions-tab-label instead of growing the tab. */
     .sessions-tab {
-      display: flex; align-items: center; gap: 6px;
-      padding: 6px 10px; border: 1px solid var(--border-input);
-      border-radius: var(--r-pill); background: var(--bg-tag);
+      display: flex; align-items: center; gap: 4px;
+      width: 150px; flex: 0 0 150px; box-sizing: border-box;
+      height: 30px; margin-top: 8px; padding: 0 10px;
+      border: 1px solid var(--border-input); border-bottom: none;
+      border-radius: 8px 8px 0 0; background: var(--bg-tag);
       color: var(--text-mute); font-family: var(--font-he); font-size: 12px;
-      cursor: pointer; white-space: nowrap; flex-shrink: 0;
+      cursor: pointer; flex-shrink: 0; position: relative;
       transition: background var(--t-fast), color var(--t-fast);
     }
     .sessions-tab:hover { background: var(--bg-clear); }
+    /* Dark fill for the active tab — the same high-contrast
+       background:var(--text-strong)/color:var(--bg-app) pairing already used
+       for every other "selected" state in this panel (e.g. .fab, dropdown
+       active rows), swapped in here after the original bg-app/text-strong
+       pairing read as too subtle against the tabstrip's own bg-card. */
     .sessions-tab.active {
+      height: 31px; margin-top: 7px; z-index: 1;
       background: var(--text-strong); color: var(--bg-app);
       border-color: var(--text-strong);
     }
     .sessions-tab-label {
-      max-width: 160px; overflow: hidden; text-overflow: ellipsis;
+      flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    .sessions-tab-close {
+    .sessions-tab-edit, .sessions-tab-refresh, .sessions-tab-close {
       display: flex; align-items: center; justify-content: center;
-      width: 14px; height: 14px; border-radius: 50%;
+      flex-shrink: 0; width: 14px; height: 14px; border-radius: 50%;
       opacity: .7;
     }
-    .sessions-tab-close:hover { opacity: 1; }
-    .sessions-tab-close svg { width: 9px; height: 9px; }
-    .sessions-add-btn, .sessions-close-btn {
+    .sessions-tab-edit:hover, .sessions-tab-refresh:hover, .sessions-tab-close:hover {
+      opacity: 1; background: var(--bg-clear);
+    }
+    .sessions-tab-edit svg, .sessions-tab-refresh svg, .sessions-tab-close svg { width: 9px; height: 9px; }
+    /* Inline rename input — replaces .sessions-tab-label in place, same box
+       so the tab doesn't reflow while editing. */
+    .sessions-tab-input {
+      flex: 1; min-width: 0; border: 1px solid var(--border-strong);
+      border-radius: 4px; padding: 1px 4px; font-family: var(--font-he);
+      font-size: 12px; background: var(--bg-app); color: var(--text-strong);
+    }
+    .sessions-add-btn {
       flex-shrink: 0; width: 30px; height: 30px; border: none;
       background: var(--bg-tag); color: var(--text-mute); border-radius: 8px;
       display: flex; align-items: center; justify-content: center; cursor: pointer;
     }
-    .sessions-add-btn:hover, .sessions-close-btn:hover { background: var(--bg-clear); color: var(--text-strong); }
-    .sessions-frame-container { position: relative; flex: 1; min-height: 0; }
+    .sessions-add-btn:hover { background: var(--bg-clear); color: var(--text-strong); }
+    /* Out of #sessionsView's flex flow (position:fixed of its own) so the
+       wrapper's intrinsic height stays just the tabstrip's 40px when this is
+       hidden — only takes up (and covers) the rest of the viewport while a
+       non-native tab is actually selected. See sessions.js#render. */
+    .sessions-frame-container {
+      display: none; position: fixed; top: 40px; left: 0; right: 0; bottom: 0;
+      background: var(--bg-app); pointer-events: auto;
+    }
+    .sessions-frame-container.sfc-active { display: block; }
     .sessions-iframe {
       position: absolute; inset: 0; width: 100%; height: 100%; border: 0;
     }

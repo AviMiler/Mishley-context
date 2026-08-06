@@ -32,7 +32,6 @@ window.__ccbTpl = (() => {
 
   const PANEL_HTML = `
     <button class="fab" id="fab" title="משלי קוד (Ctrl+Shift+L)">${IC.menu}</button>
-    <button class="fab fab-sessions" id="sessionsBtn" title="ניהול סשנים מקבילים" aria-label="ניהול סשנים מקבילים">${IC.layers}</button>
     <div class="panel" id="panel">
 
       <div class="sidebar-header">
@@ -707,11 +706,10 @@ window.__ccbTpl = (() => {
       <button type="button" class="msg-nav-btn" id="msgNavNext" title="הודעה הבאה" aria-label="הודעה הבאה">${IC.chevronDown}</button>
     </div>
 
-    <div id="sessionsView" aria-hidden="true">
+    <div id="sessionsView">
       <div class="sessions-tabstrip">
         <div class="sessions-tabs" id="sessionsTabs"></div>
         <button type="button" class="sessions-add-btn" id="sessionsAddBtn" title="שיחה מקבילה חדשה" aria-label="שיחה מקבילה חדשה">${IC.plus}</button>
-        <button type="button" class="sessions-close-btn" id="sessionsCloseBtn" title="סגור ניהול סשנים" aria-label="סגור ניהול סשנים">${IC.x}</button>
       </div>
       <div class="sessions-frame-container" id="sessionsFrameContainer">
         <div class="sessions-empty-hint" id="sessionsEmptyHint">

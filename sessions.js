@@ -1,8 +1,8 @@
-// sessions.js — parallel session tabs: an internal tab strip that lets the
-// user run several independent conversations on the SAME active chat site
-// (Gemini/internal) inside one real browser tab, instead of juggling real
-// Chrome tabs. Loaded before content.js, after msg-nav.js.
-// Exposes: window.__ccbSessions
+// sessions.js — parallel session tabs: a persistent, always-visible tab strip
+// pinned to the top of the page that lets the user run several independent
+// conversations on the SAME active chat site (Gemini/internal) inside one
+// real browser tab, instead of juggling real Chrome tabs. Loaded before
+// content.js, after msg-nav.js. Exposes: window.__ccbSessions
 //
 // Mechanism: tab #1 ("native") is whatever the top-level page already has
 // loaded — never touched, never wrapped in an iframe, so it's never at risk
@@ -22,12 +22,23 @@
 // resuming a session at the exact conversation it was on is out of scope
 // for this version — see the CLAUDE.md plan this was built from.
 //
-// Nesting guard: the FAB button that opens this view (#sessionsBtn) is only
-// meaningful in the TOP-LEVEL page — opening "session management" from
-// inside a session iframe would let the user nest sessions inside sessions
-// pointlessly. isInsideOwnIframe() reports whether this content-script
-// instance is itself running inside a frame (window.top !== window.self);
-// content.js hides #sessionsBtn outright when it's true.
+// UX (reworked 2026-08-06, same day as first ship): the strip used to be a
+// full-viewport takeover you opened via a FAB and had to close again to see
+// the underlying page — real user feedback after trying it live was that
+// switching conversations shouldn't mean "leaving and re-entering" anything.
+// The strip (#sessionsView → .sessions-tabstrip) is now ALWAYS visible, a
+// thin bar pinned to the top of the page (pushed down via push.js#pushTop so
+// it doesn't sit over the site's own content) — switching tabs is one click,
+// no open/close step. Only the SELECTED session's content still needs to
+// visually cover the page: .sessions-frame-container is a fixed, full-width
+// layer below the strip that's shown only while a non-native tab is active
+// (native tab = nothing to cover, the real page is what's underneath).
+//
+// Nesting guard: the strip only makes sense in the TOP-LEVEL page — mounting
+// it inside a session iframe would let the user nest sessions inside
+// sessions pointlessly. isInsideOwnIframe() reports whether this
+// content-script instance is itself running inside a frame
+// (window.top !== window.self); init() skips mounting the strip when true.
 
 (() => {
   if (window.__ccbSessionsInstalled) return;
@@ -35,14 +46,19 @@
 
   const NATIVE_ID = "__native__";
   const STORAGE_KEY = "ccb_sessions";
+  // The native tab's custom title is stored separately from the sessions
+  // array — it isn't a session this module created, just a display label
+  // for the real top-level page, so it doesn't belong in _sessions/
+  // STORAGE_KEY's shape.
+  const NATIVE_TITLE_KEY = "ccb_sessions_native_title";
+  const NATIVE_TITLE_DEFAULT = "השיחה הנוכחית";
+  // Must match .sessions-tabstrip's fixed height in ui-styles.js.
+  const STRIP_HEIGHT = 40;
 
   let _deps = null;
   let _sessions = []; // [{id, title, createdAt}] — iframe-backed tabs only
+  let _nativeTitle = NATIVE_TITLE_DEFAULT;
   let _activeId = NATIVE_ID;
-  // Whether #sessionsView itself is shown at all — kept separate from
-  // _activeId so "no sessions yet, but the overlay is open so + is
-  // reachable" is representable (see openSessionsView).
-  let _overlayOpen = false;
   let _iframes = new Map(); // id -> <iframe>
   let _loaded = false;
 
@@ -72,8 +88,11 @@
   async function loadSessions() {
     if (_loaded) return _sessions;
     try {
-      const data = await window.__ccbStorage.get(STORAGE_KEY);
+      const data = await window.__ccbStorage.get([STORAGE_KEY, NATIVE_TITLE_KEY]);
       _sessions = Array.isArray(data[STORAGE_KEY]) ? data[STORAGE_KEY] : [];
+      if (typeof data[NATIVE_TITLE_KEY] === "string" && data[NATIVE_TITLE_KEY].trim()) {
+        _nativeTitle = data[NATIVE_TITLE_KEY];
+      }
     } catch {
       _sessions = [];
     }
@@ -83,6 +102,20 @@
 
   function saveSessions() {
     return window.__ccbStorage.set({ [STORAGE_KEY]: _sessions });
+  }
+
+  // Renaming the native tab has nowhere to persist inside a `session`
+  // object (render() rebuilds a fresh {id, title} literal for it every
+  // call — it isn't backed by an entry in _sessions), so it's routed
+  // through its own storage key instead of saveSessions().
+  async function commitRename(session, name) {
+    if (session.id === NATIVE_ID) {
+      _nativeTitle = name;
+      await window.__ccbStorage.set({ [NATIVE_TITLE_KEY]: name });
+    } else {
+      session.title = name;
+      await saveSessions();
+    }
   }
 
   function ensureIframe(session) {
@@ -101,24 +134,65 @@
     return iframe;
   }
 
-  function buildTabPill(session, closable) {
-    const pill = document.createElement("button");
-    pill.type = "button";
-    pill.className = "sessions-tab" + (session.id === _activeId ? " active" : "");
-    pill.dataset.id = session.id;
+  // Chrome-style tab: a structural row (div, not a <button>) so its shape
+  // can read as a real browser tab rather than an isolated pill button —
+  // click-to-select still works via a plain click listener, keyboard access
+  // via role="tab" + tabindex + Enter/Space. Rename/close/refresh are
+  // independent capabilities (not one combined "closable" flag). Close is
+  // deliberately native-tab-only-false: the native tab is the real
+  // top-level page, not a session this module manages — closing it isn't a
+  // real action (there's nothing to remove), and a prior round that gave it
+  // a close-X that just switched tabs was reverted at the user's explicit
+  // request in favor of no close button there at all. Rename and refresh
+  // stay available on every tab, including native.
+  function buildTabPill(session, { canRename, canClose, canRefresh }) {
+    const tab = document.createElement("div");
+    tab.className = "sessions-tab" + (session.id === _activeId ? " active" : "");
+    tab.dataset.id = session.id;
+    tab.setAttribute("role", "tab");
+    tab.tabIndex = 0;
 
     const label = document.createElement("span");
     label.className = "sessions-tab-label";
     label.textContent = session.title;
-    pill.appendChild(label);
+    tab.appendChild(label);
 
-    pill.addEventListener("click", () => switchSession(session.id));
-    pill.addEventListener("dblclick", (e) => {
-      e.stopPropagation();
-      if (closable) void renameSession(session.id);
+    const select = () => switchSession(session.id);
+    tab.addEventListener("click", select);
+    tab.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        select();
+      }
     });
 
-    if (closable) {
+    if (canRename) {
+      const editBtn = document.createElement("span");
+      editBtn.className = "sessions-tab-edit";
+      editBtn.setAttribute("role", "button");
+      editBtn.setAttribute("aria-label", "שנה שם");
+      editBtn.innerHTML = _deps?.IC?.pencil || "✎";
+      editBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        startInlineRename(tab, label, session);
+      });
+      tab.appendChild(editBtn);
+    }
+
+    if (canRefresh) {
+      const refreshBtn = document.createElement("span");
+      refreshBtn.className = "sessions-tab-refresh";
+      refreshBtn.setAttribute("role", "button");
+      refreshBtn.setAttribute("aria-label", "רענן");
+      refreshBtn.innerHTML = _deps?.IC?.refresh || "↻";
+      refreshBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        refreshTab(session.id);
+      });
+      tab.appendChild(refreshBtn);
+    }
+
+    if (canClose) {
       const closeBtn = document.createElement("span");
       closeBtn.className = "sessions-tab-close";
       closeBtn.setAttribute("role", "button");
@@ -128,18 +202,58 @@
         e.stopPropagation();
         void closeSession(session.id);
       });
-      pill.appendChild(closeBtn);
+      tab.appendChild(closeBtn);
     }
 
-    return pill;
+    return tab;
+  }
+
+  // Swaps the tab's label span for a text <input>, in place — no popup, no
+  // window.prompt(). Enter/blur commits, Escape cancels; either path just
+  // re-renders (render() rebuilds every tab from _sessions, so a cancelled
+  // edit simply reverts to the stored title with no separate "undo" state).
+  function startInlineRename(tabEl, labelEl, session) {
+    if (tabEl.querySelector(".sessions-tab-input")) return; // already editing
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "sessions-tab-input";
+    input.value = session.title;
+    input.addEventListener("click", (e) => e.stopPropagation());
+    input.addEventListener("keydown", (e) => {
+      e.stopPropagation(); // don't let Enter/Space bubble to the tab's own keydown (select())
+      if (e.key === "Enter") {
+        e.preventDefault();
+        input.blur(); // triggers commit via the blur listener below
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        render(); // discard — re-render from the unmodified session
+      }
+    });
+    input.addEventListener("blur", async () => {
+      const name = input.value.trim();
+      if (name && name !== session.title) {
+        await commitRename(session, name);
+      }
+      render();
+    });
+    labelEl.replaceWith(input);
+    input.focus();
+    input.select();
   }
 
   function render() {
     const tabsEl = $el("sessionsTabs");
     if (tabsEl) {
       tabsEl.textContent = "";
-      tabsEl.appendChild(buildTabPill({ id: NATIVE_ID, title: "השיחה הנוכחית" }, false));
-      for (const s of _sessions) tabsEl.appendChild(buildTabPill(s, true));
+      tabsEl.appendChild(
+        buildTabPill(
+          { id: NATIVE_ID, title: _nativeTitle },
+          { canRename: true, canClose: false, canRefresh: false },
+        ),
+      );
+      for (const s of _sessions) {
+        tabsEl.appendChild(buildTabPill(s, { canRename: true, canClose: true, canRefresh: true }));
+      }
     }
 
     for (const [id, iframe] of _iframes) {
@@ -151,32 +265,65 @@
       emptyHint.style.display = _sessions.length === 0 ? "flex" : "none";
     }
 
-    const view = $el("sessionsView");
-    if (view) {
-      if (_overlayOpen) {
-        view.classList.add("sv-open");
-        view.setAttribute("aria-hidden", "false");
-      } else {
-        view.classList.remove("sv-open");
-        view.setAttribute("aria-hidden", "true");
-      }
-    }
+    // The frame-container only needs to cover the viewport while a non-native
+    // tab is selected — on the native tab, the real page underneath (pushed
+    // down by the strip's own height, see pushTop) is what's shown, so the
+    // container stays out of the way entirely (see .sfc-active in
+    // ui-styles.js — without it the container is position:fixed but
+    // display:none, out of flow, so it can't block clicks to the page below
+    // the strip even though #sessionsView itself is always mounted).
+    const container = $el("sessionsFrameContainer");
+    if (container) container.classList.toggle("sfc-active", _activeId !== NATIVE_ID);
   }
 
-  // Selecting the native tab hides the whole overlay — per this feature's
-  // own design, the native page's content is never rendered INSIDE the
-  // overlay (it isn't an iframe this module controls), so "showing" it
-  // simply means getting the overlay out of the way.
+  // Selecting the native tab hides the frame-container — the native page's
+  // content is never rendered INSIDE it (it isn't an iframe this module
+  // controls), so "showing" the native tab simply means getting the
+  // container out of the way so the real page (visible underneath the
+  // always-on strip) shows through.
   function switchSession(id) {
     if (id !== NATIVE_ID && !_sessions.some((s) => s.id === id)) return;
     _activeId = id;
-    if (id === NATIVE_ID) {
-      _overlayOpen = false;
-    } else {
-      _overlayOpen = true;
+    if (id !== NATIVE_ID) {
+      // The frame-container covers the full viewport below the strip at a
+      // very high z-index — well above the panel's own full-pane views
+      // (file preview / dependency manager / dependency picker / onboarding
+      // guide), which would otherwise be stuck open but visually hidden
+      // underneath it. Close them first, same mutual-exclusion reasoning
+      // this module has had since it was a full-viewport overlay.
+      window.__ccbCodeTree?.closeFilePreview?.();
+      window.__ccbCodeTree?.closeDepsManager?.();
+      window.__ccbCodeTree?.closeDepPicker?.();
+      window.__ccbModals?.closeOnboarding?.();
       ensureIframe(_sessions.find((s) => s.id === id));
     }
     render();
+  }
+
+  // Switches back to the native tab if a session's frame-container is
+  // currently covering the viewport. Called by the panel's other full-pane
+  // views (file preview / dependency manager / dependency picker / onboarding
+  // guide) when THEY open, so the panel becomes visible again instead of
+  // staying hidden underneath the cover — the reverse direction of the
+  // mutual exclusion in switchSession above. A no-op on the native tab.
+  function showNativeTab() {
+    if (_activeId !== NATIVE_ID) switchSession(NATIVE_ID);
+  }
+
+  // Reloads a session tab's iframe by reassigning its own `src` to itself
+  // (rather than going through `iframe.contentWindow`, since re-triggering
+  // a navigation via `src` works uniformly whether or not the iframe has
+  // ever been focused/activated and avoids any same-origin access nuance).
+  // Native-tab-only-false: the native tab is the real top-level page, and
+  // refreshing it would reload the whole page (dropping anything unsaved
+  // there) — deliberately not offered here, same reasoning as its missing
+  // close-X (see canClose above; render() passes canRefresh:false for it).
+  // A session that was never switched to yet (no iframe created) has
+  // nothing to reload, so this only acts if one already exists (switching
+  // to it via the tab click is what creates it — see ensureIframe).
+  function refreshTab(id) {
+    const iframe = _iframes.get(id);
+    if (iframe) iframe.src = iframe.src;
   }
 
   async function addSession() {
@@ -194,13 +341,10 @@
   async function closeSession(id) {
     const session = _sessions.find((s) => s.id === id);
     if (!session) return;
-    // Native confirm(), not _deps.modals.showConfirm — that dialog lives
-    // INSIDE #panel (the 380px sidebar), which translateX(-100%)s itself
-    // off-screen whenever the panel is closed, taking any descendant with
-    // it. This overlay is meant to work regardless of whether the sidebar
-    // panel happens to be open, so it can't depend on that dialog.
-    const ok = window.confirm(`לסגור את "${session.title}"? אי אפשר לשחזר אותה.`);
-    if (!ok) return;
+    // No confirmation prompt — at the user's explicit request, closing a
+    // session tab is a direct, single-click action, same as closing a real
+    // browser tab (no built-in undo either way, but neither warrants a
+    // confirm() gate).
     const iframe = _iframes.get(id);
     if (iframe) {
       iframe.remove();
@@ -212,65 +356,39 @@
     else render();
   }
 
-  async function renameSession(id) {
-    const session = _sessions.find((s) => s.id === id);
-    if (!session) return;
-    // Native prompt() — same reasoning as closeSession's native confirm().
-    const name = window.prompt("שם חדש לשיחה:", session.title);
-    if (name === null || !name.trim()) return;
-    session.title = name.trim();
-    await saveSessions();
-    render();
-  }
-
-  function openSessionsView() {
-    if (isInsideOwnIframe()) return; // defensive — the trigger button is already hidden in this case
-    // Same full-pane takeover area as the file preview / dependency manager /
-    // dependency picker / onboarding guide — close them first so two
-    // full-viewport views are never open together (mirrors the calls those
-    // four already make to each other in code-tree.js/ui-modals.js).
-    window.__ccbCodeTree?.closeFilePreview?.();
-    window.__ccbCodeTree?.closeDepsManager?.();
-    window.__ccbCodeTree?.closeDepPicker?.();
-    window.__ccbModals?.closeOnboarding?.();
-    void loadSessions().then(() => {
-      _overlayOpen = true;
-      // Reopening on the native selection has nothing of its own to show
-      // inside the overlay (see switchSession) — jump straight to the most
-      // recently added session tab if one exists so there's real content to
-      // land on; otherwise stay on the empty tabstrip so "+" is reachable.
-      if (_activeId === NATIVE_ID && _sessions.length) {
-        _activeId = _sessions[_sessions.length - 1].id;
-        ensureIframe(_sessions[_sessions.length - 1]);
-      } else if (_activeId !== NATIVE_ID) {
-        ensureIframe(_sessions.find((s) => s.id === _activeId));
-      }
-      render();
-    });
-  }
-
-  // Hides the overlay without resetting which session tab was selected, so
-  // reopening via the FAB lands back on the same tab. Distinct from
-  // switchSession(NATIVE_ID), which explicitly switches the selection.
-  function closeSessionsView() {
-    _overlayOpen = false;
-    render();
-  }
-
   window.__ccbSessions = {
     /**
-     * @param {{ getShadow: () => ShadowRoot, AUTO_OPEN_URLS: string[], IC: object, setStatus: (msg:string) => void }} deps
+     * @param {{ getShadow: () => ShadowRoot, AUTO_OPEN_URLS: string[], IC: object, setStatus: (msg:string) => void, pushTop: (px:number) => void }} deps
      */
     init(deps) {
       _deps = deps;
-      void loadSessions();
+      if (isInsideOwnIframe()) {
+        // The strip only makes sense at the top level — a session iframe
+        // already has its own fully independent Mishley instance mounted
+        // inside it, and showing a nested strip there would let the user
+        // nest sessions inside sessions pointlessly. Hide the markup
+        // outright rather than just skipping render(), since the tabstrip
+        // is otherwise unconditionally present in the template.
+        const view = $el("sessionsView");
+        if (view) view.style.display = "none";
+        return;
+      }
+      void loadSessions().then(() => {
+        _deps?.pushTop?.(STRIP_HEIGHT);
+        // Pushes the SITE's own content down — Mishley's own panel lives in
+        // this same shadow root, unaffected by that host-page style
+        // injection, and would otherwise render its header right under the
+        // strip. A host class lets ui-styles.js push .panel down too via
+        // :host(.ccb-strip-active), the same declarative pattern as every
+        // other conditional style in that file, instead of inline JS styles.
+        $shadow()?.host?.classList.add("ccb-strip-active");
+        render();
+      });
     },
-    openSessionsView,
-    closeSessionsView,
     addSession,
     closeSession,
-    renameSession,
     switchSession,
+    showNativeTab,
     isInsideOwnIframe,
   };
 })();

@@ -726,7 +726,7 @@
     window.__ccbCodeTree?.closeFilePreview?.();
     window.__ccbCodeTree?.closeDepsManager?.();
     window.__ccbCodeTree?.closeDepPicker?.();
-    window.__ccbSessions?.closeSessionsView?.();
+    window.__ccbSessions?.showNativeTab?.();
 
     wireOnboardingOnce();
     // Once dismissed, the row never comes back — this only ever hides it,
