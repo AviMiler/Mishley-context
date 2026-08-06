@@ -11,6 +11,7 @@
 //   openScanSettings() / closeScanSettings() / saveScanSettings() / resetScanSettingsToDefaults()
 //   openPromptsEditor() / closePromptsEditor()
 //   savePromptsEditor() / resetPromptsEditor(key)
+//   openOnboarding() / closeOnboarding()
 
 (() => {
   if (window.__ccbModalsInstalled) return;
@@ -218,12 +219,19 @@
     const box = $el("settingsBox");
     const btn = $el("settingsBtn");
     if (!overlay || !box || !btn) return;
+    // Horizontal position is fixed by CSS now (.settings-box: left/right:
+    // 12px — spans the panel's full width, 2026-07-28), so only `top` needs
+    // computing here, below the button that opened it.
     const panelRect = $el("panel").getBoundingClientRect();
     const btnRect = btn.getBoundingClientRect();
-    const left = btnRect.left - panelRect.left;
     const top = btnRect.bottom - panelRect.top + 10;
-    box.style.left = Math.max(12, Math.min(left, panelRect.width - 282)) + "px";
-    box.style.top = Math.max(12, top) + "px";
+    const clampedTop = Math.max(12, top);
+    box.style.top = clampedTop + "px";
+    // The box's own content grows over time (settings rows + an ever-growing
+    // .settings-list) — without a cap it can exceed the panel's fixed
+    // 100vh/overflow:hidden height and clip its bottom silently, with no way
+    // to scroll to it. Clamp to the space actually available below `top`.
+    box.style.maxHeight = Math.max(120, panelRect.height - clampedTop - 12) + "px";
     await _deps.loadCtxWindow();
     const input = $el("ccb-ctx-size");
     if (input) input.value = String(Math.round(_deps.getCtxWindow() / 1000));
@@ -434,6 +442,109 @@
   }
 
   // ============================================================
+  // Storage-usage dialog (#storageInfoOverlay, D3)
+  // ============================================================
+  // Byte counts + the manual orphan sweep both come from content.js (via
+  // _deps.getStorageUsage/_deps.runOrphanSweep) — this module owns only the
+  // dialog UI, not chrome.storage.local access.
+  function formatBytes(n) {
+    // null/undefined means "couldn't read" (storage.js#getBytesInUse) — must
+    // not render as if it were a real zero.
+    if (n == null) return "לא זמין";
+    if (!n) return "0 KB";
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  const STORAGE_PREFIX_LABELS = {
+    "depGraph_": "גרפי תלויות (פרויקטי קוד)",
+    "codeContent_": "תוכן קבצי קוד",
+    "docBlob_": "קבצים שהועלו",
+  };
+
+  function renderStorageInfoRow(label, bytes) {
+    const row = document.createElement("div");
+    row.className = "storage-info-row";
+    const l = document.createElement("span");
+    l.className = "storage-info-row-label";
+    l.textContent = label;
+    const v = document.createElement("span");
+    v.className = "storage-info-row-value";
+    v.textContent = formatBytes(bytes);
+    row.appendChild(l);
+    row.appendChild(v);
+    return row;
+  }
+
+  async function renderStorageInfo() {
+    const body = $el("storageInfoBody");
+    if (!body) return;
+    body.innerHTML = '<div class="storage-info-loading">טוען…</div>';
+    const usage = await _deps.getStorageUsage?.();
+    body.innerHTML = "";
+    if (!usage) {
+      const msg = document.createElement("div");
+      msg.className = "storage-info-unavailable";
+      msg.textContent = "לא ניתן לקרוא נתוני אחסון בדפדפן זה";
+      body.appendChild(msg);
+      return;
+    }
+    const total = renderStorageInfoRow("סה״כ", usage.total);
+    total.classList.add("storage-info-total");
+    body.appendChild(total);
+    body.appendChild(renderStorageInfoRow("בלוקים (הקשרים/פרויקטים/הודעות)", usage.blocksBytes));
+    if (usage.byPrefix) {
+      for (const [prefix, label] of Object.entries(STORAGE_PREFIX_LABELS)) {
+        body.appendChild(renderStorageInfoRow(label, usage.byPrefix[prefix] || 0));
+      }
+    } else {
+      const note = document.createElement("div");
+      note.className = "storage-info-unavailable";
+      note.textContent = "פירוט לפי סוג אינו זמין בגרסת דפדפן זו";
+      body.appendChild(note);
+    }
+  }
+
+  async function openStorageInfo() {
+    const overlay = $el("storageInfoOverlay");
+    if (!overlay) return;
+    overlay.classList.add("show");
+    const result = $el("storageInfoSweepResult");
+    if (result) result.remove();
+    await renderStorageInfo();
+
+    const sweepBtn = $el("storageInfoSweepBtn").cloneNode(true);
+    $el("storageInfoSweepBtn").replaceWith(sweepBtn);
+    sweepBtn.addEventListener("click", async () => {
+      sweepBtn.disabled = true;
+      const removed = await _deps.runOrphanSweep?.();
+      sweepBtn.disabled = false;
+      const box = $el("storageInfoBody")?.parentElement;
+      $el("storageInfoSweepResult")?.remove();
+      const msg = document.createElement("div");
+      msg.id = "storageInfoSweepResult";
+      msg.className = "storage-info-sweep-result";
+      msg.textContent =
+        removed === null
+          ? "לא ניתן לסרוק מפתחות יתומים בגרסת דפדפן זו"
+          : removed > 0
+            ? `נוקו ${removed} מפתחות יתומים ✓`
+            : "לא נמצאו מפתחות יתומים";
+      box?.insertBefore(msg, box.querySelector(".dialog-btns"));
+      await renderStorageInfo();
+    });
+
+    const closeBtn = $el("storageInfoCloseBtn").cloneNode(true);
+    $el("storageInfoCloseBtn").replaceWith(closeBtn);
+    closeBtn.addEventListener("click", closeStorageInfo);
+  }
+
+  function closeStorageInfo() {
+    const overlay = $el("storageInfoOverlay");
+    if (overlay) overlay.classList.remove("show");
+  }
+
+  // ============================================================
   // Prompts editor
   // ============================================================
   function openPromptsEditor() {
@@ -455,10 +566,6 @@
       $el("promptFramingGmIntro").value = editable.gmIntro || "";
     if ($el("promptFramingGmOutro"))
       $el("promptFramingGmOutro").value = editable.gmOutro || "";
-    if ($el("promptFramingConvIntro"))
-      $el("promptFramingConvIntro").value = editable.convIntro || "";
-    if ($el("promptFramingConvOutro"))
-      $el("promptFramingConvOutro").value = editable.convOutro || "";
     if ($el("promptFramingProjIntro"))
       $el("promptFramingProjIntro").value = editable.projIntro || "";
     if ($el("promptFramingProjOutro"))
@@ -492,8 +599,6 @@
     const manualOutro  = ($el("promptFramingManualOutro")?.value  || "").trim();
     const gmIntro      = ($el("promptFramingGmIntro")?.value      || "").trim();
     const gmOutro      = ($el("promptFramingGmOutro")?.value      || "").trim();
-    const convIntro    = ($el("promptFramingConvIntro")?.value    || "").trim();
-    const convOutro    = ($el("promptFramingConvOutro")?.value    || "").trim();
     const projIntro    = ($el("promptFramingProjIntro")?.value    || "").trim();
     const projOutro    = ($el("promptFramingProjOutro")?.value    || "").trim();
     const docsIntro    = ($el("promptFramingDocsIntro")?.value    || "").trim();
@@ -506,7 +611,7 @@
       return;
     }
 
-    const payload = { manualIntro, manualOutro, gmIntro, gmOutro, convIntro, convOutro, projIntro, projOutro, docsIntro, docsOutro, everyIntro, everyOutro };
+    const payload = { manualIntro, manualOutro, gmIntro, gmOutro, projIntro, projOutro, docsIntro, docsOutro, everyIntro, everyOutro };
 
     await api.save(payload);
     _deps.refreshPromptsFromRawConfig();
@@ -528,10 +633,6 @@
       if ($el("promptFramingGmIntro")) $el("promptFramingGmIntro").value = editable.gmIntro || "";
       if ($el("promptFramingGmOutro")) $el("promptFramingGmOutro").value = editable.gmOutro || "";
     };
-    const refreshConv = () => {
-      if ($el("promptFramingConvIntro")) $el("promptFramingConvIntro").value = editable.convIntro || "";
-      if ($el("promptFramingConvOutro")) $el("promptFramingConvOutro").value = editable.convOutro || "";
-    };
     const refreshProj = () => {
       if ($el("promptFramingProjIntro")) $el("promptFramingProjIntro").value = editable.projIntro || "";
       if ($el("promptFramingProjOutro")) $el("promptFramingProjOutro").value = editable.projOutro || "";
@@ -547,7 +648,6 @@
     if (key === "framingAll") {
       refreshManual();
       refreshGm();
-      refreshConv();
       refreshProj();
       refreshDocs();
       refreshEvery();
@@ -555,8 +655,6 @@
       refreshManual();
     } else if (key === "framingGm") {
       refreshGm();
-    } else if (key === "framingConv") {
-      refreshConv();
     } else if (key === "framingProj") {
       refreshProj();
     } else if (key === "framingDocs") {
@@ -565,6 +663,87 @@
       refreshEvery();
     }
     _deps.setStatus("הפרומפט אופס ✓");
+  }
+
+  // ============================================================
+  // Onboarding guide (#onboardingView) — static, full-pane reference content.
+  // "Seen" state (whether the guide should keep auto-opening on panel open)
+  // lives in content.js (getOnboardingSeen/setOnboardingSeen), same split as
+  // ctxWindow/docMaxChars: this module only owns the DOM/interaction.
+  // ============================================================
+  let _onboardingWired = false;
+
+  // Once seen (via either the checkbox or scrolling to the bottom), the
+  // dismiss row itself disappears for good — there's no way to re-show it
+  // from the guide, per the user's explicit spec ("תיבה ייעודית שלא תופיע
+  // שוב אחרי שסימן"). Native `hidden` is used rather than a CSS class since
+  // .ob-dismiss-row declares no competing `display`.
+  function markOnboardingSeen() {
+    void _deps.setOnboardingSeen?.(true);
+    const row = $el("obDismissRow");
+    if (row) row.hidden = true;
+  }
+
+  // Wired once (module-level guard, same idea as _scanDraft's lifecycle) —
+  // the guide's content is fully static, so there's nothing to re-render on
+  // every open, just the collapse/scroll/checkbox listeners.
+  function wireOnboardingOnce() {
+    if (_onboardingWired) return;
+    _onboardingWired = true;
+
+    const body = $el("obBody");
+    body?.addEventListener("click", (e) => {
+      const header = e.target.closest(".ob-section-header");
+      if (!header) return;
+      const section = header.closest(".ob-section");
+      const chevron = header.querySelector(".collapse-btn");
+      const collapsed = !section.classList.contains("collapsed");
+      section.classList.toggle("collapsed", collapsed);
+      chevron?.classList.toggle("collapsed", collapsed);
+    });
+
+    // Reaching the bottom counts as genuinely having read through the guide
+    // — same dismissal effect as ticking "don't show again" below, per the
+    // user's explicit choice. A plain close (X/Escape) deliberately does not
+    // set this, so the guide keeps auto-opening until one of these happens.
+    body?.addEventListener("scroll", () => {
+      if (body.scrollHeight - body.scrollTop - body.clientHeight < 24) {
+        markOnboardingSeen();
+      }
+    });
+
+    $el("obDismissCheckbox")?.addEventListener("change", (e) => {
+      if (e.target.checked) markOnboardingSeen();
+    });
+  }
+
+  function openOnboarding() {
+    const view = $el("onboardingView");
+    if (!view) return;
+
+    // Same fixed, same-z-index takeover area as the file-preview/
+    // dependency-manager views — never show more than one at once.
+    window.__ccbCodeTree?.closeFilePreview?.();
+    window.__ccbCodeTree?.closeDepsManager?.();
+    window.__ccbCodeTree?.closeDepPicker?.();
+
+    wireOnboardingOnce();
+    // Once dismissed, the row never comes back — this only ever hides it,
+    // never re-shows it (there is deliberately no "re-enable" path).
+    const row = $el("obDismissRow");
+    if (row && _deps.getOnboardingSeen?.()) row.hidden = true;
+
+    view.classList.add("cv-open");
+    view.setAttribute("aria-hidden", "false");
+    const body = $el("obBody");
+    if (body) body.scrollTop = 0;
+  }
+
+  function closeOnboarding() {
+    const view = $el("onboardingView");
+    if (!view) return;
+    view.classList.remove("cv-open");
+    view.setAttribute("aria-hidden", "true");
   }
 
   // ============================================================
@@ -586,6 +765,10 @@
      *   getScanSettings: () => object,        // live global code-project scan rules
      *   saveScanSettings: (next) => Promise<object>,
      *   getDefaultScanSettings: () => object, // built-in defaults, for "reset to defaults"
+     *   getOnboardingSeen: () => boolean,
+     *   setOnboardingSeen: (seen: boolean) => Promise<void>,
+     *   getStorageUsage: () => Promise<{total, blocksBytes, byPrefix: object|null}|null>,
+     *   runOrphanSweep: () => Promise<number|null>,
      * }} deps
      */
     init(deps) { _deps = deps; },
@@ -599,9 +782,13 @@
     closeScanSettings,
     saveScanSettings,
     resetScanSettingsToDefaults,
+    openStorageInfo,
+    closeStorageInfo,
     openPromptsEditor,
     closePromptsEditor,
     savePromptsEditor,
     resetPromptsEditor,
+    openOnboarding,
+    closeOnboarding,
   };
 })();

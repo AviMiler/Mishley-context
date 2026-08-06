@@ -66,7 +66,14 @@
   // for the innerText read + token scan; a stable message costs one cheap
   // property read. An edit that preserves the exact length is missed, which is
   // acceptable for a length-derived estimate.
-  const msgTokenCache = new WeakMap();
+  let msgTokenCache = new WeakMap();
+
+  // הטוקנייזר האמיתי נטען עצלה, אחרי שהודעות קיימות כבר נמדדו היוריסטית.
+  // בלי איפוס, שיחה שהייתה על המסך ברגע הטעינה נשארת עם האומדן הישן לכל
+  // אורך הסשן — הזיכרון ממופתח לפי אורך התוכן, שלא משתנה.
+  function resetTokenCache() {
+    msgTokenCache = new WeakMap();
+  }
 
   function measureMessage(node, sel) {
     const rawLen = node.textContent?.length || 0;
@@ -468,6 +475,7 @@
       _deps = deps;
     },
     update: updateCtxMeter,
+    resetTokenCache,
     watchConversation,
     watchFileInputs,
     openFilesDropdown,

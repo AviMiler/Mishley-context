@@ -37,14 +37,14 @@
   } = window.__ccbRawConfig;
 
   const CONFIG_PUBLIC = { AUTO_OPEN_URLS, SEND_BUTTON_SELECTOR, SIDEBAR_WIDTH };
-  const { loadBlocks: _loadBlocks, saveBlocks: _saveBlocks } = window.__ccbStorage;
+  const storage = window.__ccbStorage;
+  const { loadBlocks: _loadBlocks, saveBlocks: _saveBlocks } = storage;
   const ccbInject = window.__ccbInject;
   const { pushPage } = window.__ccbPush;
   const CSS = window.__ccbCSS;
   const { IC, PANEL_HTML } = window.__ccbTpl;
   const isActiveSitePage = () =>
     CONFIG_PUBLIC.AUTO_OPEN_URLS.some((u) => location.href.startsWith(u));
-
 
   // ============================================================
   // Shared state — modules receive a reference and mutate directly
@@ -54,19 +54,12 @@
     blocksLoaded: false,
     selected: new Set(),
     editingId: null,
-    historySearchMode: "title",
     // The globally active project (or null = "no project"), selected via the
-    // persistent bar above both tabs. Drives: which blocks/documents show in
-    // the Context tab, which project a newly-started conversation is stamped
-    // with, and the History tab's project filter. Persisted across sessions
-    // (see loadActiveProjectId/setActiveProjectId in history-view.js).
+    // persistent bar at the top of the panel. Drives which blocks/documents
+    // show in the Context view. Persisted across sessions (see
+    // loadActiveProjectId/setActiveProjectId in history-view.js).
     currentProjectId: null,
     activeProjectLoaded: false,
-    // History tab: when a project is active, the list is filtered to that
-    // project's conversations by default — this overrides the filter to show
-    // everything. Transient (resets each panel session), like historySearchMode.
-    historyShowAll: false,
-    historyCollapsed: false,
     projectDocumentsCollapsed: false,
     blocksCollapsed: false,
     ctxWindow: CTX_WINDOW_DEFAULT,
@@ -89,43 +82,67 @@
     scanSettings: null,
     scanSettingsLoaded: false,
     gmAutoInjected: false,
-    currentConversationViewId: null,
-    cvSelectedIndices: new Set(),
-    cvMatchElements: [],
-    cvMatchIndex: 0,
-    cvOpenedFromProject: false,
     hiDropdownCleanup: null,
-    // Auto-save: id of the conversation block bound to *this* page load.
-    // Cleared on URL change (SPA new chat); page refresh naturally resets it
-    // because content scripts re-execute.
-    currentConversationId: null,
+    // Undo stack for the chat input's own text box (Phase 4.1). Array of
+    // injection ids, oldest first — each undo click pops the most recent one
+    // and surgically removes just that block's marked text from the box (see
+    // injectTracked/undoLastInjection). Transient, per tab.
+    injectionStack: [],
+    // Onboarding guide (Phase 5): whether the user has dismissed the guide's
+    // auto-open for good — either by scrolling it to the bottom, or by
+    // checking its "don't show again" box. Plain closing (X/Escape) does NOT
+    // set this, so the guide keeps auto-opening on the next panel open until
+    // one of those two happens.
+    onboardingSeen: false,
+    onboardingSeenLoaded: false,
   };
 
   // Live FRAMING getters — picks up edits from prompts.js automatically
   const framing = {
-    get manualPre()    { return window.__ccbRawConfig.FRAMING_MANUAL_PRE || window.__ccbRawConfig.FRAMING || ""; },
-    get manualPost()   { return window.__ccbRawConfig.FRAMING_MANUAL_POST || ""; },
-    get gmPre()        { return window.__ccbRawConfig.FRAMING_GM_PRE || window.__ccbRawConfig.FRAMING || ""; },
-    get gmPost()       { return window.__ccbRawConfig.FRAMING_GM_POST || ""; },
-    get convPre()      { return window.__ccbRawConfig.FRAMING_CONV_PRE || ""; },
-    get convPost()     { return window.__ccbRawConfig.FRAMING_CONV_POST || ""; },
-    get projPre()      { return window.__ccbRawConfig.FRAMING_PROJ_PRE || ""; },
-    get projPost()     { return window.__ccbRawConfig.FRAMING_PROJ_POST || ""; },
-    get docsPre()      { return window.__ccbRawConfig.FRAMING_DOCS_PRE || ""; },
-    get docsPost()     { return window.__ccbRawConfig.FRAMING_DOCS_POST || ""; },
-    get everyPre()     { return window.__ccbRawConfig.FRAMING_EVERY_PRE || ""; },
-    get everyPost()    { return window.__ccbRawConfig.FRAMING_EVERY_POST || ""; },
-    get summaryPrompt() { return window.__ccbRawConfig.SUMMARY_PROMPT || ""; },
+    get manualPre() {
+      return (
+        window.__ccbRawConfig.FRAMING_MANUAL_PRE ||
+        window.__ccbRawConfig.FRAMING ||
+        ""
+      );
+    },
+    get manualPost() {
+      return window.__ccbRawConfig.FRAMING_MANUAL_POST || "";
+    },
+    get gmPre() {
+      return (
+        window.__ccbRawConfig.FRAMING_GM_PRE ||
+        window.__ccbRawConfig.FRAMING ||
+        ""
+      );
+    },
+    get gmPost() {
+      return window.__ccbRawConfig.FRAMING_GM_POST || "";
+    },
+    get projPre() {
+      return window.__ccbRawConfig.FRAMING_PROJ_PRE || "";
+    },
+    get projPost() {
+      return window.__ccbRawConfig.FRAMING_PROJ_POST || "";
+    },
+    get docsPre() {
+      return window.__ccbRawConfig.FRAMING_DOCS_PRE || "";
+    },
+    get docsPost() {
+      return window.__ccbRawConfig.FRAMING_DOCS_POST || "";
+    },
+    get everyPre() {
+      return window.__ccbRawConfig.FRAMING_EVERY_PRE || "";
+    },
+    get everyPost() {
+      return window.__ccbRawConfig.FRAMING_EVERY_POST || "";
+    },
   };
 
   let shadow = null;
   let $el = null;
   let mounted = false;
   let toastTimer = null;
-  let searchTimeout = null;
-  const ENABLE_SEARCH_DEBOUNCE = true;
-
-  const DEBOUNCE_MS = 300;
 
   // ============================================================
   // Storage wrappers (mutate state.blocks / state.ctxWindow)
@@ -148,16 +165,210 @@
     if (changed) await saveBlocks();
   }
 
+  // ============================================================
+  // Storage migration
+  // ============================================================
+  // v2 (2026-07-30) split the one giant `blocks` key: a code project's
+  // depGraph was stored INLINE on its block, and since `blocks` is a single
+  // storage key rewritten in full on every saveBlocks(), every file checkbox
+  // re-serialized every dependency graph in the profile. Graphs moved to
+  // their own `depGraph_<id>` keys (see storage.js's layout comment).
+  //
+  // v3 (2026-08-04) retired the conversation-history feature. Its blocks and
+  // their `conv_<id>` data are now unreachable from any UI, so they're
+  // deleted rather than left occupying storage forever (one real profile had
+  // ~138MB of them). v2 also used to MOVE those messages out to `conv_<id>`;
+  // that step is gone — anything still inline is deleted along with its block.
+  //
+  // The depGraph half is resumable by construction: each batch's own keys are
+  // written and confirmed BEFORE the inline copies are stripped, so an
+  // interrupted migration can only ever leave data in both places (harmless —
+  // the next load re-migrates whatever is still inline), never in neither.
+  const STORAGE_VERSION_KEY = "ccb_storageVersion";
+  const STORAGE_VERSION = 3;
+  // Keys per chrome.storage.local call. Each call is an IPC round-trip, so
+  // bulk reads/writes are chunked rather than sent one key at a time.
+  const STORAGE_BATCH = 50;
+
+  async function migrateStorage() {
+    let stored;
+    try {
+      stored = await storage.get([STORAGE_VERSION_KEY]);
+    } catch {
+      return false;
+    }
+    if ((stored[STORAGE_VERSION_KEY] || 1) >= STORAGE_VERSION) return false;
+
+    // E1 guard: this mutates state.blocks across several awaits before its
+    // own final save — see beginBlocksMutation's comment.
+    beginBlocksMutation();
+    try {
+      const convIds = [];
+      const graphs = [];
+      for (const b of Object.values(state.blocks)) {
+        if (!b) continue;
+        if (b.kind === "conversation") convIds.push(b.id);
+        if (b.depGraph && typeof b.depGraph === "object") graphs.push(b);
+      }
+
+      const total = convIds.length + graphs.length;
+      let done = 0;
+      if (total) {
+        setProgress({ phase: "save", label: "מעדכן אחסון…", done: 0, total });
+
+        for (const id of convIds) {
+          delete state.blocks[id];
+          state.selected.delete(id);
+        }
+        done += convIds.length;
+        setProgress({ phase: "save", label: "מעדכן אחסון…", done, total });
+
+        for (let i = 0; i < graphs.length; i += STORAGE_BATCH) {
+          const batch = graphs.slice(i, i + STORAGE_BATCH);
+          const items = {};
+          for (const b of batch) items[storage.depGraphKey(b.id)] = b.depGraph;
+          await storage.setBatched(items);
+          for (const b of batch) delete b.depGraph;
+          done += batch.length;
+          setProgress({ phase: "save", label: "מעדכן אחסון…", done, total });
+        }
+
+        await flushSaveBlocks();
+      }
+
+      // After the blocks are durably rewritten — a purge that ran first and
+      // was then interrupted would orphan nothing, but doing it in this order
+      // means an interruption can only ever leave conv_ keys whose block is
+      // already gone, which the next run's getKeys() sweep still finds and
+      // removes.
+      const purged = await storage.purgeConversationData(convIds);
+
+      try {
+        await storage.setBatched({ [STORAGE_VERSION_KEY]: STORAGE_VERSION });
+      } catch {}
+      if (total || purged) {
+        setProgress({
+          phase: "save",
+          label: "האחסון עודכן",
+          done: total,
+          total,
+          state: "done",
+        });
+        clearProgress(2000);
+        console.log("[ccb-timing] storage.migrate", {
+          version: STORAGE_VERSION,
+          conversationKeysRemoved: purged,
+          conversationBlocksRemoved: convIds.length,
+          depGraphs: graphs.length,
+        });
+      }
+      return total > 0;
+    } finally {
+      endBlocksMutation();
+    }
+  }
+
   async function loadBlocks() {
     if (state.blocksLoaded) return;
     state.blocks = await _loadBlocks(STORAGE_KEY);
     await migrateCtxProjects();
+    await migrateStorage();
     await window.__ccbHistoryView.loadActiveProjectId();
     state.blocksLoaded = true;
   }
 
-  async function saveBlocks() {
+  // ============================================================
+  // saveBlocks — coalesced
+  // ============================================================
+  // A bulk action (folder select-all in the code tree, "load with
+  // dependencies", a rescan's document sync) mutates state.blocks many times
+  // and calls saveBlocks() after each mutation. Each of those calls used to
+  // re-serialize and rewrite the whole map. Writes within the coalesce window
+  // are therefore merged into one.
+  //
+  // Trailing throttle, NOT a resetting debounce: the first call schedules
+  // the flush and later calls join it without pushing the deadline back, so a
+  // continuous stream of writes still lands on disk instead of starving.
+  const SAVE_COALESCE_MS = 150;
+  let _saveTimer = null;
+  let _savePending = null;
+  // E1: how many multi-await block-mutating operations are currently
+  // in-flight in THIS tab (scan, rescan, backup import, storage migration —
+  // see beginBlocksMutation/endBlocksMutation). A counter, not a boolean,
+  // since these can nest/overlap (e.g. an import re-running the migration).
+  // The cross-tab storage listener below must not overwrite state.blocks
+  // while this is > 0: those operations hold a local reference they keep
+  // mutating across several awaits before their own final save, so accepting
+  // an external snapshot mid-operation would make that final save silently
+  // discard everything the operation built. While the guard is up, an
+  // external change is simply not applied — this reverts to ordinary
+  // last-write-wins for that window, which is what every write did before
+  // E1 existed, so it is not a new regression.
+  let _blocksMutationDepth = 0;
+  function beginBlocksMutation() {
+    _blocksMutationDepth++;
+  }
+  function endBlocksMutation() {
+    _blocksMutationDepth = Math.max(0, _blocksMutationDepth - 1);
+  }
+
+  // E1: a plain "skip our own echo once" flag is NOT enough here — it was
+  // tried and rejected (see DECISIONS.md). The trailing-throttle coalescing
+  // above deliberately allows a NEW edit to be queued while an earlier
+  // write's chrome.storage.local.set() is still in flight (that's the whole
+  // point of "a continuous stream of writes still lands on disk instead of
+  // starving"). That means a write's own onChanged echo can arrive AFTER a
+  // newer, not-yet-saved local edit already happened — applying that echo
+  // (a boolean flag has no way to tell it's stale) would silently revert the
+  // newer edit. _writeGeneration/_lastSavedGeneration below track exactly
+  // "does state.blocks currently hold an edit not yet confirmed durable?" —
+  // the E1 listener refuses to apply ANY incoming snapshot (self-echo or
+  // genuinely external) while that's true, which is correct for both cases:
+  // a stale self-echo must not overwrite a newer local edit, and a genuinely
+  // external write must not clobber this tab's own pending edit either.
+  let _writeGeneration = 0;
+  let _lastSavedGeneration = 0;
+
+  function saveBlocks() {
+    _writeGeneration++;
+    if (!_savePending) {
+      let resolve;
+      const promise = new Promise((r) => (resolve = r));
+      _savePending = { promise, resolve };
+    }
+    const pending = _savePending;
+    if (!_saveTimer) {
+      _saveTimer = setTimeout(() => {
+        flushSaveBlocks();
+      }, SAVE_COALESCE_MS);
+    }
+    return pending.promise;
+  }
+
+  // Write immediately, bypassing the coalesce window. Used by the migration
+  // (which must know the stripped map is durable before marking the version)
+  // and on page unload.
+  async function flushSaveBlocks() {
+    if (_saveTimer) {
+      clearTimeout(_saveTimer);
+      _saveTimer = null;
+    }
+    const pending = _savePending;
+    _savePending = null;
+    // Capture BEFORE the write starts (nothing yields between here and the
+    // set() call below, so this is exactly the generation this payload
+    // reflects) — see _writeGeneration's comment above.
+    const myGeneration = _writeGeneration;
     await _saveBlocks(STORAGE_KEY, state.blocks);
+    // Only advance up to the generation THIS write actually captured. If a
+    // newer edit happened while this write was in flight, _writeGeneration is
+    // now ahead of myGeneration — that gap is exactly what tells the E1
+    // listener a further save is still outstanding, and it's correct: that
+    // newer edit already scheduled its own flush (saveBlocks() always
+    // arms a new timer once _saveTimer/_savePending are cleared, which
+    // happened at the top of this call), so it will catch up on its own.
+    if (myGeneration > _lastSavedGeneration) _lastSavedGeneration = myGeneration;
+    pending?.resolve();
   }
 
   async function loadCtxWindow() {
@@ -185,8 +396,28 @@
     const data = await new Promise((r) =>
       chrome.storage.local.get("docMaxChars", r),
     );
-    state.docMaxChars = Number(data.docMaxChars) > 0 ? Number(data.docMaxChars) : DOC_MAX_CHARS_DEFAULT;
+    state.docMaxChars =
+      Number(data.docMaxChars) > 0
+        ? Number(data.docMaxChars)
+        : DOC_MAX_CHARS_DEFAULT;
     state.docMaxCharsLoaded = true;
+  }
+
+  async function loadOnboardingSeen() {
+    if (state.onboardingSeenLoaded) return;
+    const data = await new Promise((r) =>
+      chrome.storage.local.get("ccb_onboardingSeen", r),
+    );
+    state.onboardingSeen = !!data.ccb_onboardingSeen;
+    state.onboardingSeenLoaded = true;
+  }
+
+  async function setOnboardingSeen(seen) {
+    state.onboardingSeen = !!seen;
+    state.onboardingSeenLoaded = true;
+    await new Promise((r) =>
+      chrome.storage.local.set({ ccb_onboardingSeen: !!seen }, r),
+    );
   }
 
   async function setDocMaxChars(k) {
@@ -205,7 +436,11 @@
     if (state.autoInjectModeLoaded) return;
     const data = await new Promise((r) =>
       chrome.storage.local.get(
-        ["ccb_autoInjectModeGm", "ccb_autoInjectModeProject", "ccb_autoInjectMode"],
+        [
+          "ccb_autoInjectModeGm",
+          "ccb_autoInjectModeProject",
+          "ccb_autoInjectMode",
+        ],
         r,
       ),
     );
@@ -214,9 +449,13 @@
     // neither has been set yet, so a user who already chose "every" doesn't
     // silently revert to "start" the first time this loads post-split.
     const legacy = data.ccb_autoInjectMode === "every" ? "every" : "start";
-    const normalize = (v, fallback) => (v === "every" || v === "start" ? v : fallback);
+    const normalize = (v, fallback) =>
+      v === "every" || v === "start" ? v : fallback;
     state.autoInjectModeGm = normalize(data.ccb_autoInjectModeGm, legacy);
-    state.autoInjectModeProject = normalize(data.ccb_autoInjectModeProject, legacy);
+    state.autoInjectModeProject = normalize(
+      data.ccb_autoInjectModeProject,
+      legacy,
+    );
     state.autoInjectModeLoaded = true;
   }
 
@@ -246,7 +485,9 @@
   }
 
   function getAutoInjectMode(source) {
-    return source === "project" ? state.autoInjectModeProject : state.autoInjectModeGm;
+    return source === "project"
+      ? state.autoInjectModeProject
+      : state.autoInjectModeGm;
   }
 
   // Global code-project scan rules. On first ever load there's no stored
@@ -270,10 +511,19 @@
       );
     } else {
       state.scanSettings = {
-        denyDirs: Array.isArray(stored.denyDirs) ? stored.denyDirs : defaults.denyDirs,
-        denyFilenames: Array.isArray(stored.denyFilenames) ? stored.denyFilenames : defaults.denyFilenames,
-        codeExtensions: Array.isArray(stored.codeExtensions) ? stored.codeExtensions : defaults.codeExtensions,
-        maxFileSizeKb: Number(stored.maxFileSizeKb) > 0 ? Number(stored.maxFileSizeKb) : defaults.maxFileSizeKb,
+        denyDirs: Array.isArray(stored.denyDirs)
+          ? stored.denyDirs
+          : defaults.denyDirs,
+        denyFilenames: Array.isArray(stored.denyFilenames)
+          ? stored.denyFilenames
+          : defaults.denyFilenames,
+        codeExtensions: Array.isArray(stored.codeExtensions)
+          ? stored.codeExtensions
+          : defaults.codeExtensions,
+        maxFileSizeKb:
+          Number(stored.maxFileSizeKb) > 0
+            ? Number(stored.maxFileSizeKb)
+            : defaults.maxFileSizeKb,
       };
     }
     state.scanSettingsLoaded = true;
@@ -282,14 +532,25 @@
   async function saveScanSettings(next) {
     const defaults = window.__ccbDocHandler.getDefaultScanSettings();
     const val = {
-      denyDirs: Array.isArray(next?.denyDirs) ? next.denyDirs : defaults.denyDirs,
-      denyFilenames: Array.isArray(next?.denyFilenames) ? next.denyFilenames : defaults.denyFilenames,
-      codeExtensions: Array.isArray(next?.codeExtensions) ? next.codeExtensions : defaults.codeExtensions,
-      maxFileSizeKb: Math.max(1, Number(next?.maxFileSizeKb) || defaults.maxFileSizeKb),
+      denyDirs: Array.isArray(next?.denyDirs)
+        ? next.denyDirs
+        : defaults.denyDirs,
+      denyFilenames: Array.isArray(next?.denyFilenames)
+        ? next.denyFilenames
+        : defaults.denyFilenames,
+      codeExtensions: Array.isArray(next?.codeExtensions)
+        ? next.codeExtensions
+        : defaults.codeExtensions,
+      maxFileSizeKb: Math.max(
+        1,
+        Number(next?.maxFileSizeKb) || defaults.maxFileSizeKb,
+      ),
     };
     state.scanSettings = val;
     state.scanSettingsLoaded = true;
-    await new Promise((r) => chrome.storage.local.set({ ccb_scanSettings: val }, r));
+    await new Promise((r) =>
+      chrome.storage.local.set({ ccb_scanSettings: val }, r),
+    );
     return val;
   }
 
@@ -322,13 +583,6 @@
     wireEvents();
   }
 
-  function moveTabIndicator(tab) {
-    const indicator = $el("tabIndicator");
-    if (!indicator) return;
-    indicator.style.left = tab.offsetLeft + "px";
-    indicator.style.width = tab.offsetWidth + "px";
-  }
-
   // ============================================================
   // Module wiring — build deps + call each module's init()
   // ============================================================
@@ -346,13 +600,15 @@
       CTX_WINDOW_DEFAULT,
       getCtxWindow: () => state.ctxWindow,
       closeDropdown: () => historyView.closeHiDropdown(),
-      setDropdownCleanup: (fn) => { state.hiDropdownCleanup = fn; },
+      setDropdownCleanup: (fn) => {
+        state.hiDropdownCleanup = fn;
+      },
     });
 
     modals.init({
       getShadow,
       setStatus,
-      refreshPromptsFromRawConfig: () => {},  // framing uses live getters; no-op
+      refreshPromptsFromRawConfig: () => {}, // framing uses live getters; no-op
       loadBlocks,
       loadCtxWindow,
       getCtxWindow: () => state.ctxWindow,
@@ -365,9 +621,14 @@
       // Never null: falls back to the built-in defaults if a scan somehow
       // fires before loadScanSettings() resolved, so a scan can't run with
       // every filter silently disabled.
-      getScanSettings: () => state.scanSettings || docHandler.getDefaultScanSettings(),
+      getScanSettings: () =>
+        state.scanSettings || docHandler.getDefaultScanSettings(),
       saveScanSettings,
       getDefaultScanSettings: () => docHandler.getDefaultScanSettings(),
+      getOnboardingSeen: () => state.onboardingSeen,
+      setOnboardingSeen,
+      getStorageUsage: getStorageUsageBreakdown,
+      runOrphanSweep: sweepOrphanKeys,
     });
 
     docHandler.init({
@@ -380,8 +641,14 @@
       docHandler,
       getShadow,
       historyView,
+      modals,
+      loadBlocks,
+      saveBlocks,
       setStatus,
       render,
+      getCtxWindow: () => state.ctxWindow,
+      // A2: the scanned graph is no longer inline on the project block.
+      loadDepGraph: (projectId) => storage.loadDepGraph(projectId),
     });
 
     historyView.init({
@@ -399,19 +666,39 @@
       inject: ccbInject,
       openEdit,
       updateInjectBtn,
+      injectTracked,
+      // A code project's scanned graph (A2) lives in its own `depGraph_<id>`
+      // key — written only on scan, so it must not ride along on every
+      // saveBlocks().
+      saveDepGraph: (projectId, graph) => storage.saveDepGraph(projectId, graph),
+      removeDepGraph: (projectId) => storage.removeDepGraph(projectId),
+      // E1: a scan/rescan mutates state.blocks across several awaits before
+      // its own final save — bracket it so the cross-tab storage listener
+      // doesn't overwrite state.blocks mid-scan. See beginBlocksMutation's
+      // comment in content.js.
+      beginBlocksMutation,
+      endBlocksMutation,
       getDocMaxChars: () => state.docMaxChars,
+      getCtxWindow: () => state.ctxWindow,
       getAutoInjectMode,
       setAutoInjectMode,
       // Never null: falls back to the built-in defaults if a scan somehow
       // fires before loadScanSettings() resolved, so a scan can't run with
       // every filter silently disabled.
-      getScanSettings: () => state.scanSettings || docHandler.getDefaultScanSettings(),
+      getScanSettings: () =>
+        state.scanSettings || docHandler.getDefaultScanSettings(),
     });
 
     chat.init({
       getShadow,
       state,
-      config: { GM_ID, SEND_BUTTON_SELECTOR, NEW_CHAT_BTN_SELECTOR, MSG_SELECTORS, CHARS_PER_TOKEN },
+      config: {
+        GM_ID,
+        SEND_BUTTON_SELECTOR,
+        NEW_CHAT_BTN_SELECTOR,
+        MSG_SELECTORS,
+        CHARS_PER_TOKEN,
+      },
       framing,
       inject: ccbInject,
       modals,
@@ -423,6 +710,9 @@
       render,
       updateInjectBtn,
       openEdit,
+      injectTracked,
+      injectQuickCommand,
+      clearInjectionStack,
       getAutoInjectMode,
       setAutoInjectMode,
     });
@@ -431,41 +721,6 @@
   // ============================================================
   // Wire events (central switchboard)
   // ============================================================
-  function debouncedRender() {
-    if (!ENABLE_SEARCH_DEBOUNCE) {
-      render();
-      return;
-    }
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(render, DEBOUNCE_MS);
-  }
-
-  function resetTabDefaults(tabName) {
-    try {
-      const historyView = window.__ccbHistoryView;
-      if (tabName === "history") {
-        state.historySearchMode = "title";
-        $el("toggleSearchTitle")?.classList.add("active");
-        $el("toggleSearchContent")?.classList.remove("active");
-        if ($el("searchHistory")) $el("searchHistory").value = "";
-        state.historyCollapsed = false;
-        historyView.closeConversationView();
-      } else if (tabName === "context") {
-        state.selected.clear();
-        updateInjectBtn();
-        historyView.closeHiDropdown();
-        const expanded = $el("ccb-ctx-expanded");
-        if (expanded) {
-          expanded.style.display = "none";
-          expanded.setAttribute("aria-hidden", "true");
-          $el("ccb-ctx-expand")?.setAttribute("aria-expanded", "false");
-        }
-      }
-    } catch (e) {
-      console.error("resetTabDefaults error", e);
-    }
-  }
-
   function wireEvents() {
     const modals = window.__ccbModals;
     const historyView = window.__ccbHistoryView;
@@ -485,10 +740,17 @@
       if (e.key === "Escape") {
         modals.closeSettings();
         modals.closeScanSettings();
+        modals.closeOnboarding();
+        window.__ccbCodeTree?.closeFilePreview?.();
+        window.__ccbCodeTree?.closeDepsManager?.();
+        window.__ccbCodeTree?.closeDepPicker?.();
       }
     });
     $el("scanSettingsOverlay")?.addEventListener("click", (e) => {
       if (e.target === $el("scanSettingsOverlay")) modals.closeScanSettings();
+    });
+    $el("storageInfoOverlay")?.addEventListener("click", (e) => {
+      if (e.target === $el("storageInfoOverlay")) modals.closeStorageInfo();
     });
     $el("exportBackupBtn").addEventListener("click", exportBackup);
     $el("importBackupBtn").addEventListener("click", () => {
@@ -503,6 +765,15 @@
       modals.closeSettings();
       void modals.openScanSettings();
     });
+    $el("storageInfoBtn")?.addEventListener("click", () => {
+      modals.closeSettings();
+      void modals.openStorageInfo();
+    });
+    $el("openOnboardingBtn")?.addEventListener("click", () => {
+      modals.closeSettings();
+      modals.openOnboarding();
+    });
+    $el("obClose")?.addEventListener("click", () => modals.closeOnboarding());
     $el("importBackupInput").addEventListener("change", async () => {
       const file = $el("importBackupInput").files?.[0];
       await importBackupFile(file);
@@ -513,7 +784,10 @@
       "click",
       () => void modals.savePromptsEditor(),
     );
-    $el("cancelPromptsBtn")?.addEventListener("click", modals.closePromptsEditor);
+    $el("cancelPromptsBtn")?.addEventListener(
+      "click",
+      modals.closePromptsEditor,
+    );
     $el("resetFramingBtn")?.addEventListener(
       "click",
       () => void modals.resetPromptsEditor("framingAll"),
@@ -525,10 +799,6 @@
     $el("resetFramingGmBtn")?.addEventListener(
       "click",
       () => void modals.resetPromptsEditor("framingGm"),
-    );
-    $el("resetFramingConvBtn")?.addEventListener(
-      "click",
-      () => void modals.resetPromptsEditor("framingConv"),
     );
     $el("resetFramingProjBtn")?.addEventListener(
       "click",
@@ -570,7 +840,9 @@
     });
     $el("ccb-doc-max-chars").addEventListener("change", async () => {
       const input = $el("ccb-doc-max-chars");
-      const revert = () => { input.value = String(Math.round(state.docMaxChars / 1000)); };
+      const revert = () => {
+        input.value = String(Math.round(state.docMaxChars / 1000));
+      };
       const raw = input?.value?.trim() || "";
       if (!raw) return revert();
       const value = Number(raw);
@@ -596,16 +868,19 @@
         setStatus("לא ניתן לשמור את מצב הטעינה", true);
       }
     });
-    $el("ccb-auto-inject-mode-project")?.addEventListener("change", async (e) => {
-      try {
-        await setAutoInjectMode("project", e.target.value);
-        render(); // refresh the project-instructions card's live badge
-      } catch (err) {
-        console.error("Failed to save autoInjectModeProject", err);
-        e.target.value = state.autoInjectModeProject;
-        setStatus("לא ניתן לשמור את מצב הטעינה", true);
-      }
-    });
+    $el("ccb-auto-inject-mode-project")?.addEventListener(
+      "change",
+      async (e) => {
+        try {
+          await setAutoInjectMode("project", e.target.value);
+          render(); // refresh the project-instructions card's live badge
+        } catch (err) {
+          console.error("Failed to save autoInjectModeProject", err);
+          e.target.value = state.autoInjectModeProject;
+          setStatus("לא ניתן לשמור את מצב הטעינה", true);
+        }
+      },
+    );
     $el("closeBtn").addEventListener("click", async () => {
       if ($el("panel").classList.contains("editing") && hasUnsavedChanges()) {
         const ok = await modals.showConfirm({
@@ -617,40 +892,23 @@
       }
       setPanelOpen(false);
     });
-    $el("addProjectBtn").addEventListener("click", () => void historyView.addProject());
-    $el("addCodeProjectBtn").addEventListener("click", () => void historyView.createCodeProjectBookmark());
+    $el("addProjectBtn").addEventListener(
+      "click",
+      () => void historyView.addProject(),
+    );
+    $el("addCodeProjectBtn").addEventListener(
+      "click",
+      () => void historyView.createCodeProjectBookmark(),
+    );
     $el("projectSelectBtn").addEventListener("click", () => {
       historyView.toggleProjectSelectDropdown();
     });
-    $el("historyShowAll").addEventListener("change", (e) => {
-      state.historyShowAll = e.target.checked;
-      historyView.renderHistoryList();
-    });
-    $el("searchHistory").addEventListener("input", debouncedRender);
-    $el("toggleSearchTitle").addEventListener("click", () => {
-      state.historySearchMode = "title";
-      $el("toggleSearchTitle").classList.add("active");
-      $el("toggleSearchContent").classList.remove("active");
-      $el("searchHistory").placeholder = "חיפוש בשיחות...";
-      historyView.renderHistoryList();
-    });
-    $el("toggleSearchContent").addEventListener("click", () => {
-      state.historySearchMode = "content";
-      $el("toggleSearchContent").classList.add("active");
-      $el("toggleSearchTitle").classList.remove("active");
-      $el("searchHistory").placeholder = "חיפוש מילה בתוכן...";
-      historyView.renderHistoryList();
-    });
-    $el("historyCollapseBtn").addEventListener("click", () => {
-      state.historyCollapsed = !state.historyCollapsed;
-      historyView.syncCollapsibleSections();
-    });
     $el("addBtn").addEventListener("click", () => openEdit(null));
     $el("injectBtn").addEventListener("click", () => chat.injectSelected());
-    $el("injectDocsBtn").addEventListener("click", () => historyView.injectProjectDocuments());
-    // No manual "save chat" button anymore — auto-save (chat-features.js#
-    // scheduleAutoSave) covers it. chat.saveChat() is still exported and still
-    // does the full scroll-to-top capture; it just has no UI trigger today.
+    $el("injectDocsBtn").addEventListener("click", () =>
+      historyView.injectProjectDocuments(),
+    );
+    $el("undoInjectBtn").addEventListener("click", () => undoLastInjection());
     $el("saveBtn").addEventListener("click", saveEdit);
     $el("cancelBtn").addEventListener("click", closeEdit);
     $el("deleteBtn").addEventListener("click", deleteEdit);
@@ -690,98 +948,20 @@
     $el("projectEditBtn").addEventListener("click", (e) => {
       e.stopPropagation();
       const project = historyView.getProjectById(state.currentProjectId);
-      if (project) historyView.openProjectDropdown(project, $el("projectEditBtn"));
+      if (project)
+        historyView.openProjectDropdown(project, $el("projectEditBtn"));
     });
 
-    // Conversation View
-    $el("cvBack")?.addEventListener("click", historyView.closeConversationView);
-
-    let cvSearchTimer = null;
-    $el("cvSearch")?.addEventListener("input", () => {
-      clearTimeout(cvSearchTimer);
-      cvSearchTimer = setTimeout(() => {
-        const b = state.currentConversationViewId ? state.blocks[state.currentConversationViewId] : null;
-        if (b) historyView.renderConversationMessages(b, ($el("cvSearch")?.value || "").trim());
-      }, DEBOUNCE_MS);
-    });
-
-    $el("cvNavPrev")?.addEventListener("click", () => {
-      if (!state.cvMatchElements.length) return;
-      state.cvMatchIndex =
-        (state.cvMatchIndex - 1 + state.cvMatchElements.length) % state.cvMatchElements.length;
-      historyView.updateNavMatch();
-    });
-    $el("cvNavNext")?.addEventListener("click", () => {
-      if (!state.cvMatchElements.length) return;
-      state.cvMatchIndex = (state.cvMatchIndex + 1) % state.cvMatchElements.length;
-      historyView.updateNavMatch();
-    });
-
-    $el("cvSelAll")?.addEventListener("click", () => {
-      const b = state.currentConversationViewId ? state.blocks[state.currentConversationViewId] : null;
-      if (!b) return;
-      state.cvSelectedIndices = new Set(historyView.buildHistoryMessages(b).map((_, i) => i));
-      historyView.renderConversationMessages(b, ($el("cvSearch")?.value || "").trim());
-    });
-    $el("cvSelNone")?.addEventListener("click", () => {
-      state.cvSelectedIndices = new Set();
-      const b = state.currentConversationViewId ? state.blocks[state.currentConversationViewId] : null;
-      if (b) historyView.renderConversationMessages(b, ($el("cvSearch")?.value || "").trim());
-      else historyView.updateCvFooter();
-    });
-
-    // "טען נבחרים" — inject selected messages into current chat as context
-    // (does NOT bind to the loaded conversation; current chat stays its own).
-    // Deliberately does not auto-send — the user reviews/edits and sends
-    // themselves, same as file loading (injectProjectDocuments).
-    $el("cvLoadBtn")?.addEventListener("click", () => {
-      const b = state.currentConversationViewId ? state.blocks[state.currentConversationViewId] : null;
-      if (!b || !state.cvSelectedIndices.size) return;
-      const allMsgs = historyView.buildHistoryMessages(b);
-      const selectedMsgs = allMsgs.filter((_, i) => state.cvSelectedIndices.has(i));
-      const text = historyView.buildConversationInjectionText(selectedMsgs);
-      const r = ccbInject.injectIntoInput(text, "replace");
-      if (r.ok) {
-        historyView.closeConversationView();
-        setStatus("נטען — ניתן לערוך ולשלוח ✓");
-      } else {
-        setStatus(r.error || "נכשל", true);
-      }
-    });
-
-    shadow.querySelectorAll(".tab").forEach((tab) => {
-      tab.addEventListener("click", async () => {
-        historyView.closeConversationView();
-        historyView.closeProjectSelectDropdown();
-        resetTabDefaults(tab.dataset.tab);
-        if ($el("panel").classList.contains("editing")) {
-          if (hasUnsavedChanges()) {
-            const ok = await modals.showConfirm({
-              title: "שינויים שלא נשמרו",
-              msg: "אם תצא עכשיו, השינויים שעשית יאבדו.",
-              confirmLabel: "צא בלי לשמור",
-            });
-            if (!ok) return;
-          }
-          closeEdit();
-        }
-        shadow.querySelectorAll(".tab").forEach((t) => {
-          t.classList.remove("active");
-          t.setAttribute("aria-selected", "false");
-        });
-        shadow.querySelectorAll(".tab-pane").forEach((p) => p.classList.remove("active"));
-        tab.classList.add("active");
-        tab.setAttribute("aria-selected", "true");
-        shadow.getElementById("pane-" + tab.dataset.tab).classList.add("active");
-        moveTabIndicator(tab);
-        render();
-        window.__ccbCtxMeter.update();
-      });
-    });
-    requestAnimationFrame(() => {
-      const activeTab = shadow.querySelector(".tab.active");
-      if (activeTab) moveTabIndicator(activeTab);
-    });
+    // Full-pane takeover views
+    $el("fpBack")?.addEventListener("click", () =>
+      window.__ccbCodeTree?.closeFilePreview?.(),
+    );
+    $el("dmBack")?.addEventListener("click", () =>
+      window.__ccbCodeTree?.closeDepsManager?.(),
+    );
+    $el("dpBack")?.addEventListener("click", () =>
+      window.__ccbCodeTree?.closeDepPicker?.(),
+    );
   }
 
   // ============================================================
@@ -799,13 +979,16 @@
       render();
       updateInjectBtn();
       window.__ccbCtxMeter.update();
-      // Only the history pane has a search field to focus — guard against
-      // focusing it while hidden behind the (now-default) context tab.
-      if (shadow.querySelector(".tab.active")?.dataset.tab === "history") {
-        $el("searchHistory").focus();
-      }
+      // Onboarding guide: auto-opens on every panel open until the user
+      // actually dismisses it (scrolled to the end, or checked "don't show
+      // again") — not just once ever. See loadOnboardingSeen/setOnboardingSeen.
+      await loadOnboardingSeen();
+      if (!state.onboardingSeen) window.__ccbModals.openOnboarding();
     } else {
-      window.__ccbHistoryView.closeConversationView();
+      window.__ccbCodeTree?.closeFilePreview?.();
+      window.__ccbCodeTree?.closeDepsManager?.();
+      window.__ccbCodeTree?.closeDepPicker?.();
+      window.__ccbModals?.closeOnboarding();
       window.__ccbHistoryView.closeProjectSelectDropdown();
       $el("panel").classList.remove("open");
       $el("fab").classList.remove("hidden");
@@ -822,7 +1005,7 @@
 
   // ============================================================
   // Render orchestrator
-  // Timing/operation log only — counts, never block/conversation content.
+  // Timing/operation log only — counts, never block content.
   // Every scan/inject flow ends by calling this; before this it had zero
   // timing, so a slow render here was indistinguishable from "stuck" in
   // the console (see [ccb-timing] history-view.render for the breakdown
@@ -836,6 +1019,7 @@
     const blocksListMs = Date.now() - t1;
     syncBlocksSection();
     syncInjectDocsBtn();
+    syncUndoInjectBtn();
     const t2 = Date.now();
     window.__ccbHistoryView.render();
     const historyViewMs = Date.now() - t2;
@@ -848,7 +1032,9 @@
     const ctxMeterMs = Date.now() - t3;
     console.log("[ccb-timing] render", {
       totalBlocks: Object.keys(state.blocks || {}).length,
-      blocksListMs, historyViewMs, ctxMeterMs,
+      blocksListMs,
+      historyViewMs,
+      ctxMeterMs,
       totalMs: Date.now() - startedAt,
     });
   }
@@ -861,8 +1047,17 @@
     if (btn) {
       btn.classList.toggle("collapsed", collapsed);
       btn.title = collapsed ? "פתח פרומפטים" : "סגור פרומפטים";
-      btn.setAttribute("aria-label", collapsed ? "פתח פרומפטים" : "סגור פרומפטים");
+      btn.setAttribute(
+        "aria-label",
+        collapsed ? "פתח פרומפטים" : "סגור פרומפטים",
+      );
     }
+
+    // Show context hint only in "no project" mode
+    const hasProject = !!state.currentProjectId;
+    const noProjectHint = $el("noProjectHint");
+    if (noProjectHint)
+      noProjectHint.style.display = hasProject ? "none" : "block";
   }
 
   // ============================================================
@@ -913,17 +1108,6 @@
     }
 
     main.appendChild(head);
-    if ((b.tags || []).length) {
-      const tagsRow = document.createElement("div");
-      tagsRow.className = "block-tags";
-      for (const t of b.tags || []) {
-        const span = document.createElement("span");
-        span.className = "tag";
-        span.textContent = t;
-        tagsRow.appendChild(span);
-      }
-      main.appendChild(tagsRow);
-    }
 
     row.addEventListener("click", () => openEdit(b.id));
     row.appendChild(cbWrap);
@@ -971,18 +1155,160 @@
   function syncInjectDocsBtn() {
     const btn = $el("injectDocsBtn");
     if (!btn) return;
-    const project = state.currentProjectId ? state.blocks[state.currentProjectId] : null;
+    const project = state.currentProjectId
+      ? state.blocks[state.currentProjectId]
+      : null;
     const docs = project?.documents || [];
     if (!docs.length) {
       btn.style.display = "none";
       return;
     }
     btn.style.display = "flex";
-    // A code project's auto-generated "structure" doc is always enabled and
-    // never exposed in the file tree to toggle off — it alone shouldn't
-    // count as "something is selected" and keep the button clickable.
-    const hasSelectable = docs.some((d) => d.type !== "structure" && d.enabled);
+    // A code project's auto-generated "structure" doc used to be forced
+    // always-enabled and hidden from the file tree, so it couldn't count as
+    // "something is selected" on its own. It now has its own checkbox
+    // (code-tree.js#renderStructureRow) like any other doc, so a project
+    // where the user has deliberately checked only the structure doc should
+    // make this button clickable too — no type exclusion needed anymore.
+    const hasSelectable = docs.some((d) => d.enabled);
     btn.disabled = !hasSelectable;
+  }
+
+  // ============================================================
+  // Undo last injection (Phase 4.1)
+  //
+  // Reworked (2026-07-28, second pass) after a real-browser report: the first
+  // version compared the box's text before/after each injection to decide
+  // whether to extend one combined undo or start a new one, and that
+  // comparison silently broke in practice (prompts-then-files only undid the
+  // files) — almost certainly the target site's contenteditable normalizing
+  // its own DOM between our read and the next one, exactly the risk flagged
+  // in Stage 3 review. Per the user's explicit direction: a real LIFO stack
+  // of every tracked injection, each wrapped with its OWN small id marker
+  // pair directly in the injected text — "בטל הזרקה" always undoes the single
+  // MOST RECENT one, repeatable. The marker (plain ASCII brackets + a short
+  // alnum id) survives contenteditable round-tripping far more reliably than
+  // comparing large snapshots of the whole box, and — as a bonus over the
+  // snapshot approach — still works correctly even if the user typed
+  // something of their own before/after/between injected blocks, since undo
+  // now surgically removes just the marked span instead of reverting the
+  // entire box to an earlier state.
+  //
+  // Covers the manual, non-auto-send injection paths: prompts
+  // (chat.injectSelected) and files (historyView.injectProjectDocuments →
+  // runProjectDocumentsInjection) — both call injectTracked(text, mode)
+  // instead of inject.injectIntoInput(text, mode) directly.
+  // ============================================================
+  // A simple, ever-increasing counter (1, 2, 3, ...) rather than a
+  // timestamp+random id — the marker only needs to be unique among
+  // injections currently sitting in the box during THIS page load (old ones
+  // are gone the moment they're undone, sent, or the chat resets), and a
+  // monotonic counter guarantees that with a much shorter, readable id.
+  let _injectionIdCounter = 0;
+  function generateInjectionId() {
+    return String(++_injectionIdCounter);
+  }
+
+  function injectionMarkers(id) {
+    return { start: `[[CCB:INJ:${id}]]`, end: `[[CCB:INJ-END:${id}]]` };
+  }
+
+  // Shared by injectTracked and injectQuickCommand (Phase 4.2): mints a new
+  // id and wraps `text` with its marker pair, ready to hand to whichever
+  // inject.js primitive actually writes it into the box.
+  function wrapForTracking(text) {
+    const id = generateInjectionId();
+    const { start, end } = injectionMarkers(id);
+    return { id, wrapped: `${start}\n${text}\n${end}\n` };
+  }
+
+  // Records a successful tracked injection on the undo stack and refreshes
+  // the button. `resetStack` clears everything before pushing — used
+  // whenever the write we just did wiped out (or never included) any
+  // earlier markers, so nothing older would still be findable anyway.
+  function commitTrackedInjection(id, resetStack) {
+    if (resetStack) state.injectionStack = [];
+    state.injectionStack.push(id);
+    syncUndoInjectBtn();
+  }
+
+  // Drop-in replacement for ccbInject.injectIntoInput at the three tracked
+  // call sites — same return shape ({ ok, error? }) — that also wraps the
+  // text with a per-injection marker pair and records it on the undo stack.
+  function injectTracked(text, mode) {
+    const { id, wrapped } = wrapForTracking(text);
+    const r = ccbInject.injectIntoInput(wrapped, mode);
+    // "replace" wipes the whole box, taking every earlier marker with it —
+    // nothing left on the stack would still be findable.
+    if (r.ok) commitTrackedInjection(id, mode === "replace");
+    return r;
+  }
+
+  // Phase 4.2 — quick commands ("/" + a saved prompt's own trigger, typed
+  // anywhere the chat box's trigger-detection allows — see
+  // chat-features.js#_qcRelevantSuffix — like invoking a skill in Claude
+  // Code). `typedText` is exactly the trailing "/query" text chat-features.js
+  // detected (2026-07-28 fix: this is no longer necessarily the box's ENTIRE
+  // content — it's whatever comes after the last completed injection's own
+  // end-marker, if any, which is what lets a SECOND quick command be typed
+  // right after a first one instead of only ever working on an empty box).
+  // Reuses the same marker-wrap so the injected prompt participates in the
+  // same undo stack as any other injection.
+  function injectQuickCommand(typedText, text) {
+    const { id, wrapped } = wrapForTracking(text);
+    const r = ccbInject.replaceTrailingText(typedText, wrapped);
+    // Never resets the stack: an earlier injection's marker may still be
+    // sitting earlier in the box (that's exactly what makes chaining a
+    // second quick command possible), and it's still a valid undo target.
+    if (r.ok) commitTrackedInjection(id, false);
+    return r;
+  }
+
+  // Called when a real send goes out with stray injection markers still in
+  // the box (chat-features.js#_interceptSend strips the marker tokens from
+  // the sent text itself) — those injections are gone from the box now, so
+  // their ids are no longer valid undo targets.
+  function clearInjectionStack() {
+    state.injectionStack = [];
+    syncUndoInjectBtn();
+  }
+
+  function syncUndoInjectBtn() {
+    const btn = $el("undoInjectBtn");
+    if (!btn) return;
+    const n = state.injectionStack.length;
+    if (!n) {
+      btn.style.display = "none";
+      return;
+    }
+    btn.style.display = "flex";
+    btn.innerHTML =
+      n > 1 ? IC.undo + ' <span class="count-pill">' + n + "</span>" : IC.undo;
+  }
+
+  function undoLastInjection() {
+    if (!state.injectionStack.length) return;
+    const id = state.injectionStack.pop();
+    const { start, end } = injectionMarkers(id);
+    // Delegates to inject.js#removeMarkedSpan — a direct DOM-range deletion
+    // of just the marked block, O(removed span) rather than reading the
+    // whole field (innerText, layout-forcing) and rewriting everything still
+    // in it via "replace" mode. That read-whole+rebuild-whole approach was
+    // the first cut of this function and is what made undo slow/hang after
+    // a large "טען קבצים" load — the box's UNCHANGED remainder was being
+    // fully torn down and rebuilt as new DOM on every single undo click.
+    const r = ccbInject.removeMarkedSpan(start, end);
+    syncUndoInjectBtn();
+    if (r.ok) {
+      setStatus("ההזרקה האחרונה בוטלה ✓");
+    } else if (r.error === "not-found") {
+      // The marked block is gone already — sent, hand-edited, or the chat
+      // was reset. Nothing to remove; the stale entry is already popped, so
+      // the next click targets whatever was injected before it.
+      setStatus("ההזרקה הזו כבר לא נמצאת בתיבה", true);
+    } else {
+      setStatus(r.error || "נכשל", true);
+    }
   }
 
   // ============================================================
@@ -1002,7 +1328,8 @@
       );
     return (
       $el("editTitle").value.trim() !== (b.title || "") ||
-      $el("editContent").value.trim() !== (b.content || "")
+      $el("editContent").value.trim() !== (b.content || "") ||
+      $el("editTrigger").value.trim() !== (b.trigger || "")
     );
   }
 
@@ -1010,19 +1337,21 @@
     state.editingId = id;
     const b = id ? state.blocks[id] : null;
     $el("editTitle").value = b ? b.title : prefill?.title || "";
-    $el("editTags").value = b ? (b.tags || []).join(", ") : prefill?.tags || "";
+    $el("editTrigger").value = b ? b.trigger || "" : "";
     $el("editContent").value = b ? b.content : prefill?.content || "";
     // Project blocks have their own delete flow (historyView.deleteProject,
-    // behind #projectEditBtn's dropdown) that also cleans up child blocks/
-    // conversation links — this generic delete doesn't, so it stays hidden
-    // for kind:"project".
-    $el("deleteBtn").style.display = id && b?.kind !== "project" ? "block" : "none";
+    // behind #projectEditBtn's dropdown) that also cleans up child blocks —
+    // this generic delete doesn't, so it stays hidden for kind:"project".
+    $el("deleteBtn").style.display =
+      id && b?.kind !== "project" ? "block" : "none";
 
     // Show which project this block belongs to: an existing block's own
     // projectId, or — for a brand-new block — the currently active project
     // it's about to be created into.
     const projectId = b ? b.projectId : state.currentProjectId;
-    const project = projectId ? window.__ccbHistoryView.getProjectById(projectId) : null;
+    const project = projectId
+      ? window.__ccbHistoryView.getProjectById(projectId)
+      : null;
     const tag = $el("editProjectTag");
     if (tag) {
       tag.style.display = project ? "flex" : "none";
@@ -1043,10 +1372,7 @@
   async function saveEdit() {
     const title = $el("editTitle").value.trim();
     const content = $el("editContent").value.trim();
-    const tags = $el("editTags")
-      .value.split(",")
-      .map((t) => t.trim())
-      .filter(Boolean);
+    const triggerRaw = $el("editTrigger").value.trim();
     if (!title || !content) {
       setStatus("צריך כותרת ותוכן", true);
       return;
@@ -1054,12 +1380,48 @@
     const id =
       state.editingId ||
       "b_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7);
+
+    // Quick-command trigger (Phase 4.2) — optional. Normalized to always
+    // carry its own leading "/" so storage/lookup never has to guess;
+    // empty clears any previously-saved trigger (spread below would
+    // otherwise keep a stale one from `existing`).
+    let trigger;
+    if (triggerRaw) {
+      trigger = triggerRaw.startsWith("/") ? triggerRaw : "/" + triggerRaw;
+      if (/\s/.test(trigger)) {
+        setStatus("קיצור לא יכול להכיל רווחים", true);
+        return;
+      }
+      // Case-insensitive — matching at typing time (chat-features.js) is
+      // also case-insensitive, so two triggers differing only by case would
+      // otherwise both save fine yet be indistinguishable when typed.
+      const conflict = Object.values(state.blocks).find(
+        (b) =>
+          b &&
+          b.id !== id &&
+          (b.trigger || "").toLowerCase() === trigger.toLowerCase(),
+      );
+      if (conflict) {
+        setStatus(`הקיצור ${trigger} כבר בשימוש ע"י "${conflict.title}"`, true);
+        return;
+      }
+    }
+
     const existing = state.blocks[id];
     // Spread existing first so fields the form doesn't know about (kind,
     // autoLoad, projectId, and — critically — a project's documents/
     // isCodeProject/dirHandleId/lastScanned/depGraph) survive an edit
-    // instead of being silently dropped.
-    state.blocks[id] = { ...existing, id, title, content, tags, updated: Date.now() };
+    // instead of being silently dropped. Tags were retired 2026-07-28 — any
+    // stale `tags` array on an old block rides along harmlessly via the
+    // spread but is never read or rendered anymore.
+    state.blocks[id] = {
+      ...existing,
+      id,
+      title,
+      content,
+      trigger,
+      updated: Date.now(),
+    };
     // A brand-new block is created into whichever project is currently
     // active (or general, if none is); an existing block keeps its own.
     if (!existing && state.currentProjectId)
@@ -1073,13 +1435,17 @@
     if (!state.editingId) return;
     const ok = await window.__ccbModals.showConfirm({
       title: "מחיקת בלוק",
-      msg: 'למחוק את "' + state.blocks[state.editingId].title + '"? לא ניתן לשחזר.',
+      msg:
+        'למחוק את "' +
+        state.blocks[state.editingId].title +
+        '"? לא ניתן לשחזר.',
       confirmLabel: "מחק",
       danger: true,
     });
     if (!ok) return;
-    delete state.blocks[state.editingId];
-    state.selected.delete(state.editingId);
+    const deletedId = state.editingId;
+    delete state.blocks[deletedId];
+    state.selected.delete(deletedId);
     await saveBlocks();
     closeEdit();
     render();
@@ -1159,7 +1525,10 @@
     if (text.length <= maxLen) return text;
     const parts = text.split("/");
     let tail = parts.pop() || text;
-    while (parts.length && tail.length + parts[parts.length - 1].length + 1 < maxLen) {
+    while (
+      parts.length &&
+      tail.length + parts[parts.length - 1].length + 1 < maxLen
+    ) {
       tail = parts.pop() + "/" + tail;
     }
     return "…/" + tail;
@@ -1177,12 +1546,21 @@
 
     const total = Number(p.total) || 0;
     const done = Number(p.done) || 0;
-    $el("scanProgressPhase").textContent = p.label || PROGRESS_PHASE_LABELS[p.phase] || "";
-    $el("scanProgressCount").textContent = total ? `${done} / ${total}` : done ? String(done) : "";
-    $el("scanProgressCurrent").textContent = p.current ? shortenPath(p.current) : "";
+    $el("scanProgressPhase").textContent =
+      p.label || PROGRESS_PHASE_LABELS[p.phase] || "";
+    $el("scanProgressCount").textContent = total
+      ? `${done} / ${total}`
+      : done
+        ? String(done)
+        : "";
+    $el("scanProgressCurrent").textContent = p.current
+      ? shortenPath(p.current)
+      : "";
 
     const fill = $el("scanProgressFill");
-    fill.className = "scan-progress-fill" + (p.state === "done" ? " done" : p.state === "error" ? " error" : "");
+    fill.className =
+      "scan-progress-fill" +
+      (p.state === "done" ? " done" : p.state === "error" ? " error" : "");
     if (total > 0) {
       fill.style.width = Math.min(100, Math.round((done / total) * 100)) + "%";
     } else if (p.state === "done" || p.state === "error") {
@@ -1210,7 +1588,10 @@
     const hide = () => {
       // A newer operation started during the hold — leave its indicator alone.
       if (progressSeq !== seq) return;
-      if (progressTimer) { clearTimeout(progressTimer); progressTimer = 0; }
+      if (progressTimer) {
+        clearTimeout(progressTimer);
+        progressTimer = 0;
+      }
       progressPending = null;
       const box = $el("scanProgress");
       if (box) box.style.display = "none";
@@ -1220,11 +1601,181 @@
   }
 
   // ============================================================
+  // Content-key bookkeeping — shared by backup (D1/D2) and orphan GC (D3/D4)
+  // ============================================================
+  // Every id a given `blocks` map currently "owns" content for, by prefix.
+  // `conv_` is deliberately not tracked here — see storage.js's comment on
+  // CONTENT_KEY_PREFIXES for why that space is a one-time purge, not this.
+  function collectAliveContentIds(blocks) {
+    const projectIds = new Set();
+    const codeDocIds = new Set();
+    const blobDocIds = new Set();
+    for (const b of Object.values(blocks || {})) {
+      if (!b) continue;
+      if (b.isCodeProject) projectIds.add(b.id);
+      for (const doc of b.documents || []) {
+        if (!doc) continue;
+        if (doc.type === "code") codeDocIds.add(doc.id);
+        if (doc.hasBlob) blobDocIds.add(doc.id);
+      }
+    }
+    return { projectIds, codeDocIds, blobDocIds };
+  }
+
+  // Removes depGraph_*/codeContent_*/docBlob_* keys owned by `oldBlocks` but
+  // not by `newBlocks` — the case that arises when import replaces the whole
+  // map wholesale (D2) and, more generally, whenever a delete path forgets a
+  // storage key (D4's automatic sweep uses the same alive-set logic, but
+  // computed once from a live key listing instead of an old/new diff).
+  async function removeOrphansForReplacedBlocks(oldBlocks, newBlocks) {
+    const before = collectAliveContentIds(oldBlocks);
+    const after = collectAliveContentIds(newBlocks);
+    const keys = [];
+    for (const id of before.projectIds) {
+      if (!after.projectIds.has(id)) keys.push(storage.depGraphKey(id));
+    }
+    for (const id of before.codeDocIds) {
+      if (!after.codeDocIds.has(id)) keys.push(storage.codeContentKey(id));
+    }
+    for (const id of before.blobDocIds) {
+      if (!after.blobDocIds.has(id)) keys.push(storage.docBlobKey(id));
+    }
+    if (keys.length) await storage.remove(keys);
+    return keys.length;
+  }
+
+  // ============================================================
+  // Orphan GC (D3 manual button + D4 automatic throttled sweep)
+  // ============================================================
+  // Lists every depGraph_*/codeContent_*/docBlob_* key actually in storage
+  // (via listAllKeys — see storage.js) and removes whichever ones no live
+  // block/document owns per collectAliveContentIds(state.blocks). Returns
+  // null when the key listing isn't available (older Chrome) rather than a
+  // count of 0 — "unknown" and "nothing to clean" must stay distinguishable,
+  // same convention storage.js#purgeConversationData already uses.
+  async function sweepOrphanKeys() {
+    const allKeys = await storage.listAllKeys();
+    if (allKeys === null) return null;
+    const alive = collectAliveContentIds(state.blocks);
+    const aliveKeys = new Set([
+      ...Array.from(alive.projectIds, storage.depGraphKey),
+      ...Array.from(alive.codeDocIds, storage.codeContentKey),
+      ...Array.from(alive.blobDocIds, storage.docBlobKey),
+    ]);
+    const orphans = allKeys.filter(
+      (k) =>
+        storage.CONTENT_KEY_PREFIXES.some((p) => k.startsWith(p)) &&
+        !aliveKeys.has(k),
+    );
+    if (orphans.length) await storage.remove(orphans);
+    return orphans.length;
+  }
+
+  // D3: byte breakdown backing the storage-usage panel in Advanced Options.
+  // `byPrefix`/an unlistable total are null (not 0) when getKeys()/
+  // getBytesInUse() aren't available — the UI must show "unknown", not
+  // report a false zero.
+  async function getStorageUsageBreakdown() {
+    const total = await storage.getBytesInUse(null);
+    const blocksBytes = await storage.getBytesInUse([STORAGE_KEY]);
+    const allKeys = await storage.listAllKeys();
+    let byPrefix = null;
+    if (allKeys) {
+      byPrefix = {};
+      for (const prefix of storage.CONTENT_KEY_PREFIXES) {
+        const keys = allKeys.filter((k) => k.startsWith(prefix));
+        byPrefix[prefix] = keys.length ? await storage.getBytesInUse(keys) : 0;
+      }
+    }
+    return { total, blocksBytes, byPrefix };
+  }
+
+  // Automatic, throttled to once per calendar day — an orphan key is a slow
+  // leak (interrupted scans, a delete path that missed a key), not something
+  // that needs sweeping on every load. Tracked via a plain timestamp key
+  // rather than storage.local's own quota APIs, since "was this checked
+  // today" is all that's needed.
+  const ORPHAN_GC_KEY = "ccb_lastOrphanGC";
+  const ORPHAN_GC_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+  async function maybeRunAutomaticOrphanGc() {
+    let last = 0;
+    try {
+      const data = await storage.get([ORPHAN_GC_KEY]);
+      last = data[ORPHAN_GC_KEY] || 0;
+    } catch {
+      return;
+    }
+    if (Date.now() - last < ORPHAN_GC_INTERVAL_MS) return;
+    try {
+      const removed = await sweepOrphanKeys();
+      if (removed) console.log("[ccb-timing] storage.orphanGC", { removed });
+    } catch {
+      // Best-effort — a failed sweep just tries again on the next load past
+      // the interval; it must never block panel init.
+    } finally {
+      await storage.setBatched({ [ORPHAN_GC_KEY]: Date.now() });
+    }
+  }
+
+  // ============================================================
   // Backup export/import (uses modals.showConfirm, mutates state.blocks)
   // ============================================================
+  // Backup format v3. A code project's dependency graph doesn't live on its
+  // block (A2), so exporting `blocks` alone would produce a backup with every
+  // graph missing; it gets its own section here and is restored to its own
+  // key on import.
+  //
+  // v3 dropped the `conversations` section along with the conversation-history
+  // feature itself (2026-08-04). A v2 file's conversation data is ignored on
+  // import rather than restored — nothing can read it anymore.
+  //
+  // D1 (2026-08-04, same day): backup now includes codeContent_*/docBlob_*
+  // content too — a restore that lists files with no text/blob behind them
+  // was a real gap. Still one synchronous JSON.stringify, deliberately not
+  // chunked/streamed: `blocks` is metadata-only since Phase A and the
+  // conversation data that used to dominate the total size is gone, so at
+  // today's scale streaming would be complexity without a real problem to
+  // solve (confirmed with the user rather than assumed — see DECISIONS.md).
+  const BACKUP_VERSION = 3;
+
   async function exportBackup() {
     await loadBlocks();
-    const blob = new Blob([JSON.stringify(state.blocks, null, 2)], {
+    const { projectIds, codeDocIds, blobDocIds } = collectAliveContentIds(state.blocks);
+
+    setProgress({ phase: "read", label: "מכין גיבוי…", done: 0, total: 0 });
+    const depGraphs = {};
+    for (const id of projectIds) {
+      const graph = state.blocks[id].depGraph || (await storage.loadDepGraph(id));
+      if (graph) depGraphs[id] = graph;
+    }
+    const codeContents = {};
+    if (codeDocIds.size) {
+      const data = await storage.get(Array.from(codeDocIds, storage.codeContentKey));
+      for (const id of codeDocIds) {
+        const content = data[storage.codeContentKey(id)];
+        if (content != null) codeContents[id] = content;
+      }
+    }
+    const docBlobs = {};
+    if (blobDocIds.size) {
+      const data = await storage.get(Array.from(blobDocIds, storage.docBlobKey));
+      for (const id of blobDocIds) {
+        const blob = data[storage.docBlobKey(id)];
+        if (blob != null) docBlobs[id] = blob;
+      }
+    }
+    clearProgress();
+
+    const payload = {
+      __ccbBackupVersion: BACKUP_VERSION,
+      exportedAt: Date.now(),
+      blocks: state.blocks,
+      depGraphs,
+      codeContents,
+      docBlobs,
+    };
+    const blob = new Blob([JSON.stringify(payload)], {
       type: "application/json;charset=utf-8",
     });
     const url = URL.createObjectURL(blob);
@@ -1263,11 +1814,64 @@
     });
     if (!ok) return;
 
-    state.blocks = parsed;
-    state.blocksLoaded = true;
-    state.selected.clear();
-    state.editingId = null;
-    await saveBlocks();
+    // A v1 backup is a bare { [id]: block } map with data inline on the
+    // blocks; v2/v3 separate it out, matching the storage layout. All are
+    // accepted — an inline copy from a v1 file is simply migrated on the
+    // next load, exactly like any other pre-v2 block. A v2 file's
+    // `conversations` section is deliberately not restored: the feature that
+    // read it is gone, so restoring it would only re-create the unreachable
+    // data the v3 migration exists to purge.
+    const isWrapped = parsed.__ccbBackupVersion >= 2 && parsed.blocks;
+    const blocks = isWrapped ? parsed.blocks : parsed;
+    if (!blocks || typeof blocks !== "object" || Array.isArray(blocks)) {
+      setStatus("מבנה קובץ לא תקין", true);
+      return;
+    }
+
+    setProgress({ phase: "save", label: "מייבא…", done: 0, total: 0 });
+    // E1 guard: everything from here on mutates state.blocks across several
+    // awaits before the operation is durably done — see
+    // beginBlocksMutation's comment. Deliberately NOT covering the JSON
+    // parse / confirm-dialog wait above, which don't mutate anything and can
+    // sit open indefinitely on user input.
+    beginBlocksMutation();
+    try {
+      if (isWrapped) {
+        const items = {};
+        for (const [id, graph] of Object.entries(parsed.depGraphs || {})) {
+          items[storage.depGraphKey(id)] = graph;
+        }
+        // D1: restore code-file text and uploaded-doc blobs from the backup —
+        // without this a restored project lists files with nothing behind it.
+        for (const [id, content] of Object.entries(parsed.codeContents || {})) {
+          items[storage.codeContentKey(id)] = content;
+        }
+        for (const [id, blob] of Object.entries(parsed.docBlobs || {})) {
+          items[storage.docBlobKey(id)] = blob;
+        }
+        await storage.setBatched(items);
+      }
+
+      // D2: import replaces `blocks` wholesale, so anything the OLD data
+      // owned that the NEW data doesn't would otherwise sit orphaned in
+      // storage forever. Compute this before overwriting state.blocks.
+      const oldBlocks = state.blocks;
+
+      state.blocks = blocks;
+      state.blocksLoaded = true;
+      state.selected.clear();
+      state.editingId = null;
+      await flushSaveBlocks();
+      await removeOrphansForReplacedBlocks(oldBlocks, blocks);
+      // Rewind the version marker so the migration runs over the imported
+      // blocks: a v1 file puts inline graphs back on them, and any file can
+      // carry conversation blocks that must be purged under the v3 layout.
+      await storage.setBatched({ [STORAGE_VERSION_KEY]: 1 });
+      await migrateStorage();
+    } finally {
+      endBlocksMutation();
+    }
+    clearProgress();
     closeEdit();
     window.__ccbModals.closeSettings();
     render();
@@ -1279,8 +1883,42 @@
   // Cleanup
   // ============================================================
   window.addEventListener("beforeunload", () => {
-    window.__ccbChat?.stopMsgObserver();
     window.__ccbCtxMeter?.cleanup();
+    // Don't let a write still sitting in the 150ms coalesce window die with
+    // the page. Fire-and-forget — unload can't await, but issuing the set()
+    // here is strictly better than dropping it.
+    if (_savePending) flushSaveBlocks();
+  });
+
+  // ============================================================
+  // Cross-tab sync (E1)
+  // ============================================================
+  // Two tabs on chat pages both hold their own state.blocks, loaded once and
+  // never re-read (state.blocksLoaded guards loadBlocks against it) — before
+  // this, editing in one tab and then saving from another was silent
+  // last-write-wins over the WHOLE map, discarding the first tab's change.
+  // Since Phase A moved bulk data (depGraph, previously conversation
+  // messages) off `blocks` entirely, this mostly matters now for two tabs
+  // both toggling the same project's documents/code-tree selection.
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== "local" || !changes.blocks || !state.blocksLoaded) return;
+    // A scan/import/migration in THIS tab is mid-flight, holding its own
+    // local reference across several awaits before its final save — accepting
+    // an external snapshot now would make that final save silently discard
+    // everything it built. Skip; its own save will supersede this event
+    // anyway once it completes (ordinary last-write-wins for this window).
+    if (_blocksMutationDepth > 0) return;
+    // A local edit exists that isn't confirmed durable yet (either mid-flight
+    // or still waiting out the coalesce window) — this incoming snapshot,
+    // even if it's this tab's own echo, could predate that edit. Skip; once
+    // the pending save completes, _lastSavedGeneration catches up and this
+    // listener resumes accepting updates. See _writeGeneration's comment.
+    if (_writeGeneration !== _lastSavedGeneration) return;
+    state.blocks = changes.blocks.newValue || {};
+    // The block being edited in THIS tab was deleted from another one —
+    // close the form rather than let Save silently resurrect a stale copy.
+    if (state.editingId && !state.blocks[state.editingId]) closeEdit();
+    if (shadow) render();
   });
 
   // ============================================================
@@ -1351,13 +1989,11 @@
       () => {
         if (!isActiveSitePage()) return;
         state.gmAutoInjected = false;
-        // SPA navigation = new chat → unbind any auto-saved conversation
-        state.currentConversationId = null;
-        // Reattach msg observer in case the chat container was re-mounted
-        window.__ccbChat.startMsgObserver();
+        // A fresh chat has nothing left to undo.
+        state.injectionStack = [];
+        window.__ccbChat.closeQuickCommandMenu();
         window.__ccbChat.tryAutoInject();
-        // Refresh the sidebar so the active-conversation marker clears.
-        render();
+        syncUndoInjectBtn();
       },
       true,
     );
@@ -1369,8 +2005,8 @@
   // Clicking the chat's "new chat" button should behave LOGICALLY like a
   // refresh — without actually reloading the page. We do NOT preventDefault:
   // the chat's own click handler clears its UI for us. We piggyback on the
-  // click to reset OUR in-memory state to match (active-conversation marker,
-  // GM auto-inject flag).
+  // click to reset OUR in-memory state to match (GM auto-inject flag, the
+  // undo stack).
   //
   // Event delegation on document (capture phase) — survives re-renders.
   // ============================================================
@@ -1392,9 +2028,9 @@
         console.debug("[ccb] new-chat button click → resetting state");
 
         state.gmAutoInjected = false;
-        state.currentConversationId = null;
-        window.__ccbChat.startMsgObserver();
-        render();
+        state.injectionStack = [];
+        window.__ccbChat.closeQuickCommandMenu();
+        syncUndoInjectBtn();
         window.__ccbChat.tryAutoInject();
       },
       true,
@@ -1405,17 +2041,27 @@
   // Init
   // ============================================================
   function shouldAutoOpen() {
-    return CONFIG_PUBLIC.AUTO_OPEN_URLS.some((u) => location.href.startsWith(u));
+    return CONFIG_PUBLIC.AUTO_OPEN_URLS.some((u) =>
+      location.href.startsWith(u),
+    );
   }
 
   async function init() {
     if (!isActiveSitePage()) return;
+    // עצל ולא חוסם בכוונה: אוצר המילים שוקל 3.6MB, ורק דפי האתר הפעיל
+    // משלמים עליו. עד שהוא מוכן, estimateTextTokens מחזיר את האומדן
+    // ההיוריסטי — הפאנל עולה מיד ומדייק את עצמו כשהטעינה מסתיימת.
+    window.__ccbTokenizer?.load().then((ok) => {
+      if (!ok || !shadow) return;
+      window.__ccbCtxMeter.resetTokenCache();
+      if ($el("panel")?.classList.contains("open")) render();
+      else window.__ccbCtxMeter.update();
+    });
     await loadCtxWindow();
     await loadDocMaxChars();
     await loadScanSettings();
     // mountUI must run before chat module touches shadow DOM
     mountUI();
-    window.__ccbChat.startMsgObserver();
     window.__ccbCtxMeter.watchFileInputs();
     window.__ccbCtxMeter.watchConversation();
     await loadBlocks();
@@ -1427,6 +2073,9 @@
     installNewChatBtnWatcher();
     window.__ccbChat.tryAutoInject();
     if (shouldAutoOpen()) setPanelOpen(true);
+    // D4: fire-and-forget, throttled to once/day internally — must never
+    // delay panel init, so it isn't awaited.
+    maybeRunAutomaticOrphanGc();
   }
 
   if (
@@ -1437,18 +2086,4 @@
   } else {
     window.addEventListener("DOMContentLoaded", init, { once: true });
   }
-
-  // API for summarizer.js
-  window.__ccb = {
-    MSG_SELECTORS,
-    get blocks() {
-      return state.blocks;
-    },
-    saveBlocks,
-    loadBlocks,
-    setStatus,
-    renderPanel: () => {
-      if (shadow && $el("panel").classList.contains("open")) render();
-    },
-  };
 })();

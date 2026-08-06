@@ -23,27 +23,107 @@ window.__ccbInject = (() => {
     return el.isContentEditable ? el.innerText || "" : el.value || "";
   }
 
-  function setInputValue(el, value) {
-    if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") {
-      const proto = el.tagName === "TEXTAREA"
-        ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-      const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
-      setter.call(el, value);
-      el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: value }));
-      el.dispatchEvent(new Event("input",  { bubbles: true }));
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-      el.focus();
-    } else if (el.isContentEditable) {
-      el.focus();
-      try {
-        const sel = window.getSelection();
-        sel.selectAllChildren(el);
-        const ok = document.execCommand("insertText", false, value);
-        if (!ok) throw new Error("execCommand failed");
-      } catch {
-        el.textContent = value;
-        el.dispatchEvent(new Event("input", { bubbles: true }));
+  function setNativeValue(el, value) {
+    const proto = el.tagName === "TEXTAREA"
+      ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
+    setter.call(el, value);
+    el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: value }));
+    el.dispatchEvent(new Event("input",  { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    el.focus();
+  }
+
+  // בונה טקסט רב-שורות כ-DocumentFragment של text-node-ים מופרדים ב-<br>,
+  // ולא כמחרוזת גולמית עם "\n" בתוך node אחד — contenteditable לא בהכרח
+  // מוגדר עם white-space:pre-wrap, כך ש-"\n" גולמי בתוך text node יכול
+  // להיקרס לרווח בודד במקום לשבור שורה. <br> אמיתי לכל מעבר שורה נכון
+  // בלי תלות ב-CSS של השדה — אותה תוצאה ש-execCommand("insertText") היה
+  // מייצר בעצמו פנימית.
+  function buildLineFragment(text) {
+    const frag = document.createDocumentFragment();
+    const lines = text.split("\n");
+    let last = null;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i]) {
+        const node = document.createTextNode(lines[i]);
+        frag.appendChild(node);
+        last = node;
       }
+      if (i < lines.length - 1) {
+        const br = document.createElement("br");
+        frag.appendChild(br);
+        last = br;
+      }
+    }
+    return { frag, last };
+  }
+
+  // מכניס את ה-fragment בטווח הנתון ומשאיר את הסמן (caret) מיד אחריו —
+  // אותה התנהגות ש-execCommand("insertText") היה נותן, בלי execCommand.
+  //
+  // למה לא execCommand: נמדד בפועל (benchmark בדפדפן אמיתי, לא Node) —
+  // document.execCommand("insertText", false, text) על contenteditable
+  // כבר על ~300,000 תווים לא הסתיים תוך יותר מדקה (חוסם את ה-thread
+  // הראשי לגמרי, תקוע). הכנסת DOM ישירה דרך Range.insertNode סקיילת
+  // לינארית: 100K תווים ~100ms, 2M תווים ~2s, 5M תווים ~5.3s — פער
+  // של סדרי גודל, לא שיפור שולי. זו הסיבה האמיתית לתקיעת "טען קבצים"
+  // שדווחה ב-2026-07-27 — התיקון הקודם (הכנסה בנקודה קבועה במקום
+  // קריאה-והחלפה מלאה) שינה איפה מכניסים אבל לא את המנגנון עצמו, ו-
+  // execCommand על טקסט גדול נשאר איטי/תקוע גם כשמכניסים רק את הטקסט
+  // החדש בלבד.
+  function insertRangeText(range, sel, text) {
+    const { frag, last } = buildLineFragment(text);
+    range.insertNode(frag);
+    if (last) {
+      range.setStartAfter(last);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  }
+
+  function replaceContentEditable(el, value) {
+    el.focus();
+    try {
+      el.replaceChildren();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(true);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      insertRangeText(range, sel, value);
+      el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: value }));
+    } catch {
+      el.textContent = value;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  }
+
+  // מכניס טקסט בנקודה אחת (תחילת/סוף השדה) בלי לקרוא או להחליף את כל
+  // התוכן הקיים. אחרי "טען קבצים" השדה יכול להכיל מאות KB — select-all
+  // + insertText מעבד את כל זה (מחיקה והחלפה מלאה), ו-getCurrentValue
+  // (innerText) כופה layout סינכרוני עליו. הכנסה בנקודה קבועה היא
+  // O(טקסט חדש) בלבד, לא O(כל השדה).
+  function insertAtEdge(el, text, atStart) {
+    el.focus();
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(atStart);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      insertRangeText(range, sel, text);
+      el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: text }));
+    } catch {
+      // נתיב גיבוי נדיר בלבד (למשל אין Selection/Range API) — כאן כן צריך
+      // לקרוא את התוכן הקיים, במחיר שהפונקציה הזו קיימת כדי להימנע ממנו.
+      const current = el.innerText || "";
+      const next = atStart ? text + current : current + text;
+      el.textContent = next;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
     }
   }
 
@@ -64,18 +144,173 @@ window.__ccbInject = (() => {
     return null;
   }
 
+  // חושף החוצה קריאה בלבד (ללא הזרקה) של תוכן שדה הקלט הנוכחי — לשימוש
+  // ה-undo (content.js#undoLastInjection), שצריך לחפש בתוכן הנוכחי את
+  // סמני ה-ID של ההזרקה שמבטלים, בלי לשכפל את getCurrentValue.
+  function getCurrentInputValue() {
+    const el = findInput();
+    return el ? getCurrentValue(el) : "";
+  }
+
+  // מוחק טווח מסומן ב-start/end markers ישירות מה-DOM החי — לא קורא את כל
+  // השדה כמחרוזת (innerText כופה layout, בדיוק כמו הבאג שכבר תועד למעלה)
+  // ולא בונה מחדש את כל מה שנשאר (מה ש-injectIntoInput(..., "replace") עושה
+  // — O(כל השדה)). זו הסיבה שביטול הזרקה היה איטי/נתקע אחרי "טען קבצים"
+  // גדול: undoLastInjection הישן קרא innerText על השדה כולו ואז שיחזר את כל
+  // מה שנשאר מחדש כ-DOM חדש, גם כשהקטע שהוסר עצמו קטן. כאן: TreeWalker על
+  // textContent (לא innerText — אינו כופה layout) מאתר את ה-text node-ים
+  // שמכילים את שני הסמנים, ו-Range.deleteContents() אמיתי מוחק רק את
+  // הטווח ביניהם — O(גודל הטווח שמוסר), בלי לגעת בשאר השדה בכלל.
+  function removeMarkedSpan(startMarker, endMarker) {
+    const el = findInput();
+    if (!el) return { ok: false, error: "לא נמצא שדה קלט" };
+
+    if (!el.isContentEditable) {
+      // .value של textarea/input הוא getter/setter נייטיבי — אין עץ DOM
+      // לבנות מחדש, כך שהחלפת מחרוזת רגילה כאן זולה ולא זקוקה לתיקון.
+      const current = getCurrentValue(el);
+      const startIdx = current.indexOf(startMarker);
+      const endIdx = startIdx === -1 ? -1 : current.indexOf(endMarker, startIdx);
+      if (startIdx === -1 || endIdx === -1) return { ok: false, error: "not-found" };
+      // בולע רצף שלם של "\n" עוקבים, לא רק אחד — 2026-07-28: תיקון לדיווח
+      // על "הרבה רווחים/ירידות שורה" שנשארות אחרי כמה ביטולים ברצף.
+      let removeEnd = endIdx + endMarker.length;
+      while (current[removeEnd] === "\n") removeEnd++;
+      const next = current.slice(0, startIdx) + current.slice(removeEnd);
+      setNativeValue(el, next);
+      return { ok: true };
+    }
+
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let startNode = null, startOffset = -1;
+    let endNode = null, endOffset = -1;
+    let node;
+    while ((node = walker.nextNode())) {
+      const t = node.textContent || "";
+      if (!startNode) {
+        const idx = t.indexOf(startMarker);
+        if (idx !== -1) { startNode = node; startOffset = idx; }
+        continue;
+      }
+      const idx = t.indexOf(endMarker);
+      if (idx !== -1) { endNode = node; endOffset = idx + endMarker.length; break; }
+    }
+    if (!startNode || !endNode) return { ok: false, error: "not-found" };
+
+    const range = document.createRange();
+    range.setStart(startNode, startOffset);
+    range.setEnd(endNode, endOffset);
+    // בולע רצף שלם של <br>/text node-ים ריקים מיד אחרי סמן הסיום — לא רק
+    // אחד — אותה כוונה כמו בליטוף ה-"\n" בנתיב הטקסט הרגיל, אבל רצף מלא כדי
+    // שביטול לא ישאיר שורות ריקות שמצטברות אחרי כמה ביטולים ברצף (2026-07-28
+    // תיקון — הגרסה הקודמת בלעה <br> בודד בלבד).
+    if (endOffset === (endNode.textContent || "").length) {
+      let after = endNode.nextSibling;
+      while (
+        after &&
+        (after.nodeName === "BR" ||
+          (after.nodeType === Node.TEXT_NODE && !(after.textContent || "").trim()))
+      ) {
+        const next = after.nextSibling;
+        range.setEndAfter(after);
+        after = next;
+      }
+    }
+    range.deleteContents();
+    el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "deleteContentBackward" }));
+    return { ok: true };
+  }
+
+  // מוצא node+offset (ב-text node) הנמצא charOffset תווים מתחילת root, לפי
+  // textContent (לא innerText) — אותו walk כמו removeMarkedSpan, לשימוש
+  // replaceTrailingText.
+  //
+  // תיקון 2026-07-28 (verify-agent תפס בזמן אימות הזרקה שנייה): כשcharOffset
+  // נופל בדיוק על הגבול שבין שני text node-ים, הגרסה הישנה עצרה ב"סוף ה-node
+  // הנוכחי" — אבל אם יש ביניהם sibling שאינו טקסט (בעיקר <br>, מפריד
+  // הבלוקים שinjectTracked/wrapForTracking מוסיפים), "סוף ה-node הנוכחי"
+  // יושב **לפני** ה-<br> ההוא, לא אחריו. הטווח שנמחק (התחלה→סוף) היה
+  // בולע את ה-<br> המפריד בטעות, ומדביק את הבלוק הבא לשורה של הקודם בלי
+  // מעבר שורה. עכשיו: כשremaining===len בדיוק, מציצים ל-text node הבא (אם
+  // יש) ומחזירים אותו ב-offset 0 — עוקף TreeWalker(SHOW_TEXT) אוטומטית כל
+  // <br> שביניהם, כך שהגבול נופל **אחרי** המפריד, לא לפניו.
+  function findOffsetPosition(root, charOffset) {
+    if (charOffset <= 0) return { node: root, offset: 0 };
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let remaining = charOffset;
+    let node;
+    while ((node = walker.nextNode())) {
+      const len = (node.textContent || "").length;
+      if (remaining < len) return { node, offset: remaining };
+      if (remaining === len) {
+        const next = walker.nextNode();
+        return next ? { node: next, offset: 0 } : { node, offset: len };
+      }
+      remaining -= len;
+    }
+    return null;
+  }
+
+  // מחליף את oldText בטקסט חדש, כשoldText ידוע כ**סוף** השדה (לא ההתחלה —
+  // 2026-07-28, תוקן מ-replaceLeadingText: כשcallers רק בדקו "השדה כולו
+  // מתחיל ב-/", הזרקת פקודה מהירה שנייה אחרי הראשונה נכשלה, כי אחרי הזרקה
+  // ראשונה השדה כבר לא מתחיל ב-"/" — הוא מתחיל בתוכן שהוזרק. content.js
+  // עבר לזהות "/" רק בסיומת שאחרי סמן ה-INJ-END האחרון (אם יש), אז הטקסט
+  // שצריך להחליף הוא תמיד הזנב של השדה, לא ההתחלה שלו).
+  // כמו removeMarkedSpan: לא קורא/בונה מחדש את כל השדה — מאתר את הנקודה
+  // (אורך השדה מינוס oldText.length) תווים מההתחלה (TreeWalker על
+  // textContent), מוחק מזה ועד הסוף האמיתי של השדה, ומכניס את הטקסט החדש
+  // דרך insertRangeText הקיים — אותה עלות O(טקסט חדש), לא O(כל השדה).
+  function replaceTrailingText(oldText, newText) {
+    const el = findInput();
+    if (!el) return { ok: false, error: "לא נמצא שדה קלט" };
+
+    if (!el.isContentEditable) {
+      const current = getCurrentValue(el);
+      if (!current.endsWith(oldText)) return { ok: false, error: "not-found" };
+      setNativeValue(el, current.slice(0, current.length - oldText.length) + newText);
+      return { ok: true };
+    }
+
+    const fullLen = (el.textContent || "").length;
+    const pos = findOffsetPosition(el, fullLen - oldText.length);
+    if (!pos) return { ok: false, error: "not-found" };
+    el.focus();
+    const range = document.createRange();
+    range.setStart(pos.node, pos.offset);
+    if (el.lastChild) range.setEndAfter(el.lastChild);
+    else range.setEnd(pos.node, pos.offset);
+    range.deleteContents();
+    range.collapse(true);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    insertRangeText(range, sel, newText);
+    el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, inputType: "insertText", data: newText }));
+    return { ok: true };
+  }
+
   function injectIntoInput(text, mode) {
     const el = findInput();
     if (!el) return { ok: false, error: "לא נמצא שדה קלט" };
+
+    if (el.isContentEditable) {
+      // ריקנות נבדקת דרך textContent (לא innerText) — אינה תלוית-פריסה.
+      const empty = !el.textContent;
+      if (mode === "replace" || empty) replaceContentEditable(el, text);
+      else if (mode === "prepend") insertAtEdge(el, text, true);
+      else insertAtEdge(el, "\n\n" + text, false);
+      return { ok: true };
+    }
+
     const current = getCurrentValue(el);
     let next;
     if (mode === "replace" || !current) next = text;
     else if (mode === "prepend") next = text + current;
     else next = current + "\n\n" + text;
-    setInputValue(el, next);
-    el.focus();
+    setNativeValue(el, next);
     return { ok: true };
   }
 
-  return { findInput, injectIntoInput };
+  return { findInput, injectIntoInput, getCurrentValue: getCurrentInputValue, removeMarkedSpan, replaceTrailingText };
 })();

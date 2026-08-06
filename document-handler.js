@@ -15,7 +15,10 @@
 //                                         maxFileSizeKb, onProgress(done, total) })
 //   getDefaultScanSettings()           — the built-in scan rules, for first-load seeding + "reset to defaults"
 //   buildStructureMarkdown(included, rootName) — render a folder tree as markdown
-//   syncCodeProjectDocuments(project, included, rootName) — upsert scanned files into project.documents
+//   syncCodeProjectDocuments(project, included, rootName) — upsert scanned files into project.documents;
+//                                      also re-verifies manually-added files, returns { removedManualFiles }
+//   addManualCodeFiles(projectId, fileHandles) — hand-pick individual files for a code project, on top
+//                                      of the folder scan; returns { added }
 //   removeCodeContent(docId)           — delete a code file's stored content (e.g. on bookmark removal)
 
 (() => {
@@ -277,10 +280,10 @@
   // and it is Hebrew-aware (Hebrew runs ~2 chars/token vs ~3.5 for
   // English/code — a flat 3.5 divisor undercounted Hebrew by ~40%).
   // ============================================================
-  function estimateTokensForContent(content) {
+  function estimateTokensForContent(content, opts) {
     if (typeof content !== "string") return 0;
     const shared = window.__ccbRawConfig?.estimateTextTokens;
-    return shared ? shared(content) : Math.ceil(content.length / CHARS_PT);
+    return shared ? shared(content, opts) : Math.ceil(content.length / CHARS_PT);
   }
 
   function estimateTokensForFile(file) {
@@ -334,7 +337,14 @@
     // Markup & Code
     if (/\.(html?|xml|svg|yaml|yml|toml|ini|conf|cfg)$/i.test(name) || type === "application/xml" || type === "text/xml" || type === "image/svg+xml") {
       return file.text()
-        .then(text => Math.ceil(estimateTokensForContent(text) / 1.2))
+        .then(text => {
+          // הנחת ה-1.2 מתקנת הטיה של ספירת תווים בלבד: תגיות markup צפופות
+          // בתווים אך מתפרקות למעט טוקנים. לטוקנייזר האמיתי אין את ההטיה
+          // הזו, ולכן ההנחה חלה רק כשנפלנו חזרה להיוריסטיקה.
+          const exact = window.__ccbTokenizer?.countTokens(text);
+          if (typeof exact === "number") return exact;
+          return Math.ceil(estimateTokensForContent(text) / 1.2);
+        })
         .catch(() => Math.ceil(size / CHARS_PT));
     }
 
@@ -876,7 +886,11 @@
           relativePath: relPath,
           content,
           size: file.size,
-          tokens: estimateTokensForContent(content),
+          // fast: זו הקריאה היחידה שרצה פעם לכל קובץ בפרויקט. טוקנייזר
+          // אמיתי כאן הוסיף ~240x לשלב האומדן (נמדד: +3.6 שניות על 8.6M
+          // תווים, ~20 שניות על פרויקט 50MB) תמורת 1.8% דיוק בסכום —
+          // והמספר הזה מוצג רק כאומדן גודל בעץ ובפס התקציב.
+          tokens: estimateTokensForContent(content, { fast: true }),
         });
         counts.included++;
       } catch (e) {
@@ -954,9 +968,12 @@
 
   // Upserts the structure doc + one doc per scanned file into project.documents,
   // preserving `enabled` on files that already existed, and dropping documents
-  // for files that disappeared from disk since the last scan.
+  // for files that disappeared from disk since the last scan. Also re-verifies
+  // every manually-added file (see addManualCodeFiles) against its own
+  // persisted handle, independent of the folder walk. Returns
+  // { removedManualFiles: string[] } so the caller can notify the user.
   async function syncCodeProjectDocuments(project, included, rootName, onProgress = null) {
-    if (!_deps) return;
+    if (!_deps) return { removedManualFiles: [] };
     const startedAt = Date.now();
     if (!project.documents) project.documents = [];
 
@@ -982,8 +999,13 @@
       project.documents.unshift(structureDoc);
     }
 
+    // Manually-added files (isManuallyAdded, see addManualCodeFiles) are
+    // excluded from path-based matching here — they may live outside the
+    // bookmarked folder entirely, so they never appear in `included` and
+    // must not be treated as "missing from disk" by this scan-based sync.
+    // They're re-verified separately, below.
     const existingByPath = new Map(
-      project.documents.filter((d) => d.type === "code").map((d) => [d.name, d]),
+      project.documents.filter((d) => d.type === "code" && !d.isManuallyAdded).map((d) => [d.name, d]),
     );
 
     // File text is written to its own storage key, never inline on the doc —
@@ -1020,11 +1042,38 @@
 
     const includedPaths = new Set(included.map((f) => f.relativePath));
     const removedDocs = project.documents.filter(
-      (d) => d.type === "code" && !includedPaths.has(d.name),
+      (d) => d.type === "code" && !d.isManuallyAdded && !includedPaths.has(d.name),
     );
     project.documents = project.documents.filter(
-      (d) => d.id === structureId || d.type !== "code" || includedPaths.has(d.name),
+      (d) => d.id === structureId || d.type !== "code" || d.isManuallyAdded || includedPaths.has(d.name),
     );
+
+    // Manually-added files: independent of the folder scan above, each is
+    // re-verified via its own persisted FileSystemFileHandle (fs-handles.js).
+    // Still readable → refresh content silently, same as any scanned file
+    // picking up a normal edit (per the user's explicit choice — a content
+    // change alone is not grounds for removal). No longer readable (deleted,
+    // moved, or permission revoked — getFile() throws) → drop the doc and
+    // report its name so the caller can tell the user why it disappeared.
+    const removedManualFiles = [];
+    const manualDocs = project.documents.filter((d) => d.type === "code" && d.isManuallyAdded);
+    for (const doc of manualDocs) {
+      try {
+        const handle = doc.fileHandleId ? await window.__ccbFsHandles.get(doc.fileHandleId) : null;
+        if (!handle) throw new Error("handle missing");
+        const file = await handle.getFile();
+        const content = await file.text();
+        doc.estimatedTokens = estimateTokensForContent(content, { fast: true });
+        doc.size = file.size;
+        doc.preview = content.slice(0, 200).replace(/\n/g, " ");
+        pendingContent[codeContentKey(doc.id)] = content;
+      } catch (e) {
+        removedManualFiles.push(doc.name);
+        project.documents = project.documents.filter((d) => d.id !== doc.id);
+        codeContentRemoveMany([doc.id]).catch(() => {});
+        if (doc.fileHandleId) window.__ccbFsHandles.remove(doc.fileHandleId).catch(() => {});
+      }
+    }
 
     const writeStartedAt = Date.now();
     await codeContentPutMany(pendingContent, onProgress);
@@ -1042,10 +1091,83 @@
     console.log("[ccb-timing] syncCodeProjectDocuments", {
       filesWritten: Object.keys(pendingContent).length,
       filesRemoved: removedDocs.length,
+      manualFilesRemoved: removedManualFiles.length,
       writeMs,
       saveMs,
       totalMs: Date.now() - startedAt,
     });
+
+    return { removedManualFiles };
+  }
+
+  // Lets the user hand-pick individual files for a code project, on top of
+  // the folder scan — files outside the bookmarked folder, or filtered out
+  // by extension/ignore rules, that the scanner would never find on its own.
+  // Each file's handle is persisted (fs-handles.js) so syncCodeProjectDocuments
+  // can re-verify/refresh it on every future rescan. Must be called from a
+  // real user gesture — showOpenFilePicker() requires one; the caller
+  // (history-view.js#addManualCodeFiles) already guarantees that.
+  async function addManualCodeFiles(projectId, fileHandles) {
+    if (!_deps || !fileHandles?.length) return { added: 0 };
+    await _deps.loadBlocks();
+    const blocks = _deps.getBlocks();
+    const project = blocks[projectId];
+    if (!project || project.kind !== "project" || !project.isCodeProject) return { added: 0 };
+    if (!project.documents) project.documents = [];
+
+    const existingNames = new Set(
+      project.documents.filter((d) => d.type === "code").map((d) => d.name),
+    );
+    const pendingContent = {};
+    let added = 0;
+
+    for (const handle of fileHandles) {
+      try {
+        const file = await handle.getFile();
+        const content = await file.text();
+
+        // Scanned files are keyed by relative path; a manually-picked file
+        // is just keyed by its own filename, so a name collision (rare, but
+        // possible) gets a numeric suffix instead of silently clobbering an
+        // existing doc.
+        let name = file.name;
+        if (existingNames.has(name)) {
+          let i = 2;
+          while (existingNames.has(`${name} (${i})`)) i++;
+          name = `${name} (${i})`;
+        }
+        existingNames.add(name);
+
+        const docId = `doc_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+        const fileHandleId = `fh_manual_${docId}`;
+        await window.__ccbFsHandles.put(fileHandleId, handle);
+
+        project.documents.push({
+          id: docId,
+          type: "code",
+          name,
+          estimatedTokens: estimateTokensForContent(content),
+          size: file.size,
+          preview: content.slice(0, 200).replace(/\n/g, " "),
+          added: Date.now(),
+          enabled: true,
+          hasBlob: false,
+          isManuallyAdded: true,
+          fileHandleId,
+        });
+        pendingContent[codeContentKey(docId)] = content;
+        added++;
+      } catch (e) {
+        console.error("[document-handler] Failed to add manual code file", e);
+      }
+    }
+
+    if (added) {
+      await codeContentPutMany(pendingContent);
+      project.updated = Date.now();
+      await _deps.saveBlocks();
+    }
+    return { added };
   }
 
   // ============================================================
@@ -1071,6 +1193,7 @@
     getDefaultScanSettings,
     buildStructureMarkdown,
     syncCodeProjectDocuments,
+    addManualCodeFiles,
     removeCodeContent: codeContentRemove,
   };
 })();

@@ -66,9 +66,17 @@ window.__ccbCSS = (() => {
     }
     .panel.open { transform: translateX(0); }
 
-    /* ── Header ── */
+    /* ── Header ──
+       No title text anymore (2026-07-28, at the user's request — the
+       "משלי" wordmark was removed) — this row is just the close/settings
+       icon buttons now, so padding/margin are trimmed to the buttons'
+       own 28px height instead of leaving room a title used to need.
+       Same day, second request: the tabs moved INTO this row too, flanked
+       by the two buttons on either side, instead of sitting in a separate
+       row below — .sidebar-title-row is now the header's only row, so its
+       old margin-bottom (spacing before that second row) is gone. */
     .sidebar-header {
-      padding: 12px 18px;
+      padding: 8px 18px;
       background: var(--bg-app);
       border-bottom: 1px solid var(--border-subtle);
       flex-shrink: 0;
@@ -80,23 +88,7 @@ window.__ccbCSS = (() => {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 8px;
-      margin-bottom: 12px;
-    }
-    .title-wrap {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      text-align: center;
-    }
-    .sidebar-title {
-      font-family: var(--font-en);
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-      color: var(--text-strong);
-      display: block;
+      gap: 10px;
     }
     #settingsBtn {
       width: 28px;
@@ -141,28 +133,6 @@ window.__ccbCSS = (() => {
     #closeBtn:hover {
       background: rgba(0,0,0,.04);
       color: var(--text-strong);
-    }
-
-    /* ── Tabs ── */
-    .tabs {
-      position: relative;
-      display: flex;
-      border-top: 1px solid var(--border-subtle);
-      border-bottom: 1px solid var(--border-subtle);
-    }
-    .tab {
-      flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;
-      padding: 10px 8px; font-size: 12px; font-weight: 500; cursor: pointer;
-      color: var(--text-ghost); user-select: none;
-      transition: color var(--t-fast);
-    }
-    .tab.active { color: var(--text-strong); font-weight: 600; }
-    .tab:hover:not(.active) { color: var(--text-body); }
-    .tab-indicator {
-      position: absolute; bottom: -1px;
-      height: 2px;
-      background: var(--text-strong); border-radius: 2px;
-      transition: left var(--t-medium), width var(--t-medium);
     }
 
     .ctx-meter {
@@ -341,20 +311,11 @@ window.__ccbCSS = (() => {
       min-height: 12px;
     }
 
-    /* ── History: project filter row (shown when a project is active) ── */
-    .history-project-filter-row {
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-      padding: 6px 18px; flex-shrink: 0;
-      font-size: 11px; color: var(--text-ghost);
-    }
-    .hi-showall-toggle {
-      display: flex; align-items: center; gap: 4px;
-      cursor: pointer; white-space: nowrap;
-      font-size: 11px; color: var(--text-mute);
-    }
-    .hi-showall-toggle input { cursor: pointer; }
-
-    /* ── Tab panes ── */
+    /* ── Panes ──
+       .tab-pane/.tab-scroll kept their names after the History tab was
+       retired (2026-08-04): #pane-context is the only pane now, but the
+       .panel.editing rule further down still uses the class to hide it
+       behind the edit form. */
     .tab-pane { display: none; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
     .tab-pane.active { display: flex; }
     .tab-scroll {
@@ -365,22 +326,13 @@ window.__ccbCSS = (() => {
       overflow: visible;
       flex: none;
     }
-    #pane-history #historyList {
-      overflow: visible;
-      flex: none;
-    }
 
     /* ── Search row ── */
     .context-toolbar {
       display: flex; gap: 8px; padding: 14px 18px 10px; align-items: center;
     }
-    #historyToolbar {
-      flex-direction: column;
-      gap: 8px;
-      align-items: stretch;
-    }
     .search-wrap { flex: 1; position: relative; }
-    #search, #searchHistory, .code-tree-search-input, .scan-settings-search-input {
+    #search, .code-tree-search-input, .scan-settings-search-input {
       width: 100%; height: 36px;
       padding: 0 32px 0 10px;
       border: 1px solid var(--border-input); border-radius: var(--r-input);
@@ -389,8 +341,8 @@ window.__ccbCSS = (() => {
       transition: border-color var(--t-fast);
       -webkit-appearance: none; appearance: none;
     }
-    #search:focus, #searchHistory:focus, .code-tree-search-input:focus, .scan-settings-search-input:focus { border-color: var(--text-faint); }
-    #search::placeholder, #searchHistory::placeholder, .code-tree-search-input::placeholder, .scan-settings-search-input::placeholder { color: var(--text-ghost); }
+    #search:focus, .code-tree-search-input:focus, .scan-settings-search-input:focus { border-color: var(--text-faint); }
+    #search::placeholder, .code-tree-search-input::placeholder, .scan-settings-search-input::placeholder { color: var(--text-ghost); }
     .section-header {
       display: flex;
       align-items: center;
@@ -455,13 +407,6 @@ window.__ccbCSS = (() => {
       flex-shrink: 0;
     }
     #addProjectBtn:hover, #addCodeProjectBtn:hover, #projectEditBtn:hover, #addBtn:hover { background: var(--bg-tag); }
-    #historySection {
-      flex: 0;
-      min-height: 0;
-    }
-    #historySection.collapsed #historyList {
-      display: none;
-    }
     #blocksSection.collapsed #blocksSectionBody {
       display: none;
     }
@@ -543,23 +488,6 @@ window.__ccbCSS = (() => {
       display: flex; align-items: center; justify-content: center;
     }
     .doc-refresh-btn:hover { background: var(--bg-tag); color: var(--text-strong); }
-    .hi-search-toggle {
-      display: flex; gap: 4px;
-      background: var(--bg-clear); border-radius: var(--r-input);
-      padding: 3px;
-    }
-    .hi-toggle-btn {
-      flex: 1; height: 28px; border: none; border-radius: 7px;
-      font-size: 12px; font-family: var(--font-he); cursor: pointer;
-      background: transparent; color: var(--text-mute);
-      transition: background var(--t-fast), color var(--t-fast);
-      display: flex; align-items: center; justify-content: center;
-      padding: 0 8px; white-space: nowrap; line-height: 1;
-    }
-    .hi-toggle-btn.active {
-      background: var(--bg-card); color: var(--text-strong);
-      box-shadow: 0 1px 3px rgba(0,0,0,.08);
-    }
     .search-icon {
       position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
       color: var(--text-ghost); pointer-events: none;
@@ -567,18 +495,23 @@ window.__ccbCSS = (() => {
     }
 
     /* ── Block list ── */
-    #list, #historyList {
+    #list {
       min-height: 0;
       padding: 4px 18px 14px;
       display: flex; flex-direction: column; gap: 8px;
-    }
-    #list {
       flex: 1;
     }
-    #historyList {
-      overflow: visible;
-      flex: none;
+
+    /* ── Context hints (no project / project selected) ── */
+    .context-hint {
+      padding: 6px 10px; margin-bottom: 8px;
+      background: var(--bg-tag);
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      font-size: 11px;
+      color: var(--text-faint);
     }
+    .hint-text { margin: 0; }
 
     /* ── Block card ── */
     /* Checkbox and title share one line (the checkbox is a direct flex child
@@ -617,27 +550,23 @@ window.__ccbCSS = (() => {
     }
     .cb-check { display: none; }
     .cb-wrap input:checked + .cb-box .cb-check { display: block; }
+    .cb-wrap input:disabled { cursor: not-allowed; }
+    .cb-wrap input:disabled + .cb-box { opacity: .4; }
 
     /* Card body */
     .block-main { flex: 1; min-width: 0; }
     /* flex-start (not space-between): the project tag sits right beside the
-       title, not stretched to the row's far edge — .block-head only ever
-       holds these two items now that the tag-count badge is gone. */
+       title, not stretched to the row's far edge. .block-head is always the
+       sole line of a row now (the tags feature that used to add a second
+       row below was retired 2026-07-28), so every row is exactly one
+       title-row tall. */
     .block-head {
       display: flex; align-items: baseline; justify-content: flex-start;
-      gap: 8px; margin-bottom: 8px;
+      gap: 8px;
     }
-    /* No tags row below → no trailing gap. */
-    .block-head:last-child { margin-bottom: 0; }
     .block-title {
-      font-size: 14px; font-weight: 600; color: var(--text-strong);
+      font-size: 13px; font-weight: 600; color: var(--text-strong);
       letter-spacing: -0.005em; word-break: break-word;
-    }
-    .block-tags { display: flex; flex-wrap: wrap; gap: 4px; }
-    .tag {
-      font-size: 11px; padding: 3px 8px;
-      background: var(--bg-tag); color: var(--text-mute);
-      border-radius: var(--r-tag); font-weight: 500;
     }
 
     .block-preview {
@@ -645,116 +574,12 @@ window.__ccbCSS = (() => {
       margin-top: 6px; word-break: break-word;
     }
 
-    .date-group-label {
-      font-size: 11px; font-weight: 600; color: var(--text-ghost);
-      text-transform: uppercase; letter-spacing: 0.04em;
-      padding: 8px 2px 4px; margin-top: 4px;
-    }
-    .date-group-label:first-child { margin-top: 0; }
-
-    /* ── History list items ── */
-    #historyList { gap: 2px; }
-    .hi-item {
-      display: flex; align-items: center;
-      padding: 8px 10px; border-radius: var(--r-input);
-      cursor: pointer; position: relative;
-      transition: background var(--t-fast);
-      gap: 8px;
-    }
-    .hi-item:hover { background: var(--bg-tag); }
-    .hi-head {
-      display: flex; align-items: center; gap: 8px;
-      width: 100%;
-      min-width: 0;
-    }
-    .hi-item.pinned .hi-title::before {
-      content: '📌 '; font-size: 11px;
-    }
-    /* Active conversation indicator — the conversation currently bound to
-       state.currentConversationId (where auto-save is writing to). */
-    .hi-item.active {
-      background: rgba(44, 122, 123, 0.08);
-    }
-    .hi-item.active:hover { background: rgba(44, 122, 123, 0.14); }
-    .hi-item.active .hi-title {
-      font-weight: 600;
-      color: #1f5557;
-    }
-    .hi-active-dot {
-      flex-shrink: 0;
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      background: #2c7a7b;
-    }
-    /* Viewing indicator — the conversation whose preview panel is open. */
-    .hi-item.viewing {
-      background: rgba(90, 74, 66, 0.08);
-    }
-    .hi-item.viewing:hover { background: rgba(90, 74, 66, 0.14); }
-    .hi-item.viewing.active {
-      background: rgba(44, 122, 123, 0.10);
-    }
-    .hi-viewing-dot {
-      flex-shrink: 0;
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      background: #3d2f2b;
-    }
-    .hi-title {
-      flex: 1; font-size: 13px; color: var(--text-strong);
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .hi-item.search-content {
-      align-items: stretch;
-      flex-direction: column;
-      gap: 4px;
-    }
-    .hi-item.search-content .hi-title {
-      white-space: nowrap;
-    }
-    .hi-snippet-row {
-      display: flex; align-items: flex-start; gap: 6px;
-      min-width: 0;
-    }
-    .hi-match-role {
-      font-size: 10px; color: var(--text-ghost);
-      margin-left: 4px; flex-shrink: 0; margin-top: 1px;
-    }
-    .hi-snippet {
-      flex: 1;
-      font-size: 11px; color: var(--text-ghost); line-height: 1.4;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      min-width: 0;
-    }
-    .hi-snippet mark {
-      background: #fef08a; color: var(--text-strong);
-      border-radius: 2px; padding: 0 1px;
-    }
-    .hi-project-tag {
-      font-size: 10px;
-      padding: 1px 6px;
-      border-radius: var(--r-tag);
-      background: var(--bg-tag);
-      color: var(--text-mute);
-      white-space: nowrap;
-      flex-shrink: 0;
-      min-width: 0;
-      max-width: 42%;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .hi-menu-btn {
-      width: 26px; height: 26px; flex-shrink: 0;
-      border: none; background: none; border-radius: 6px;
-      cursor: pointer; color: var(--text-faint);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 16px; line-height: 1;
-      opacity: 0; transition: opacity var(--t-fast), background var(--t-fast);
-    }
-    .hi-item:hover .hi-menu-btn { opacity: 1; }
-    .hi-menu-btn:hover { background: var(--bg-clear); color: var(--text-strong); }
-
-    /* ── Dropdown menu ── */
+    /* ── Dropdown menu ──
+       #hiDropdown is the shared floating-menu host: the project bar's
+       rename/delete menu (history-view.js#openProjectDropdown), the code
+       tree's per-file deps menu (code-tree.js), and the context meter's
+       files dropdown all render into it. The "hi" prefix is a leftover
+       from the History rows it was first built for (retired 2026-08-04). */
     #hiDropdown {
       position: fixed;
       background: var(--bg-card);
@@ -765,6 +590,8 @@ window.__ccbCSS = (() => {
       min-width: 160px;
       z-index: 20;
       display: none;
+      overflow-y: auto;
+      max-height: 100vh;
     }
     #hiDropdown.open { display: block; }
     #hiDropdown.ctx-files-dropdown {
@@ -818,12 +645,6 @@ window.__ccbCSS = (() => {
     .ctx-expanded .row { display:flex; justify-content: space-between; align-items: center; padding: 3px 0; }
     .ctx-expanded .row .label { color: var(--text-mute); }
     .ctx-expanded .row .value { font-variant-numeric: tabular-nums; color: var(--text-strong); font-weight: 500; }
-
-    .empty {
-      padding: 40px 10px; text-align: center;
-      color: var(--text-ghost); font-size: 13px; line-height: 1.6;
-      white-space: pre-line;
-    }
 
     /* Ensure project-related names respect RTL and truncate instead of expanding */
     .project-accordion-toggle {
@@ -896,9 +717,15 @@ window.__ccbCSS = (() => {
       display: flex; align-items: center; gap: 8px;
     }
     .gm-select { margin-top: 1px; }
-    .gm-title { font-weight: 600; font-size: 14px; flex: 1; color: var(--text-strong); white-space: nowrap; }
+    /* overflow/ellipsis: the badge (now inline beside the title, not on its
+       own row below — 2026-07-28) needs guaranteed room at the row's end
+       even when the title is long. */
+    .gm-title {
+      font-weight: 600; font-size: 13px; flex: 1; color: var(--text-strong);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
     .auto-badge {
-      display: inline-block; margin-top: 6px;
+      display: inline-block; flex-shrink: 0;
       font-size: 11px; padding: 2px 7px;
       background: var(--bg-tag); color: var(--text-mute);
       border-radius: var(--r-tag); font-weight: 500; white-space: nowrap;
@@ -978,6 +805,20 @@ window.__ccbCSS = (() => {
     }
     #injectDocsBtn:hover:not(:disabled) { background: var(--bg-hover); }
     #injectDocsBtn:disabled { background: var(--bg-clear); color: var(--text-ghost); border-color: var(--border-subtle); cursor: not-allowed; }
+    /* Not a flex:1 peer like the two above — it only ever shows up after a
+       manual injection happened, so it doesn't compete with them for width
+       when hidden (the common case). min-width (not a fixed width) so the
+       stack-depth count-pill (2+ pending undos) can grow the button instead
+       of overflowing it. */
+    #undoInjectBtn {
+      flex: 0 0 auto; min-width: 38px; height: 38px; padding: 0 8px;
+      border: 1.5px solid var(--border-strong);
+      background: var(--bg-card); color: var(--text-body);
+      border-radius: var(--r-input);
+      cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;
+      transition: background var(--t-fast);
+    }
+    #undoInjectBtn:hover { background: var(--bg-hover); }
 
     .count-pill {
       font-size: 11px; padding: 1px 7px;
@@ -1032,8 +873,13 @@ window.__ccbCSS = (() => {
       transition: background var(--t-fast);
     }
 
-    /* ── Conversation Preview Panel ── */
-    #conversationView {
+    /* ── Full-pane takeover views — the file preview (#filePreviewView), the
+       per-file dependency manager (#depManagerView), its candidate picker
+       (#depPickerView), and the onboarding guide (#onboardingView). Same
+       takeover layout, different body. The cv- class prefix throughout is
+       a leftover from the conversation preview this pattern started as
+       (retired 2026-08-04). ── */
+    #filePreviewView, #depManagerView, #depPickerView, #onboardingView {
       position: fixed;
       top: 0;
       left: ${w}px;
@@ -1049,7 +895,70 @@ window.__ccbCSS = (() => {
       flex-direction: column;
       pointer-events: auto;
     }
-    #conversationView.cv-open { display: flex; }
+    #filePreviewView.cv-open, #depManagerView.cv-open, #depPickerView.cv-open, #onboardingView.cv-open { display: flex; }
+    /* Dependency manager body — Hebrew section labels stay RTL (inherited),
+       file paths within rows are forced LTR (source paths, not UI text). */
+    .dm-body-wrap { direction: rtl; }
+    .dm-section-label {
+      font-size: 11px; color: var(--text-ghost); margin: 14px 0 6px; font-weight: 600;
+    }
+    .dm-dep-list { display: flex; flex-direction: column; gap: 4px; }
+    .dm-dep-row {
+      display: flex; align-items: center; justify-content: flex-start;
+      gap: 8px; padding: 6px 8px; border-radius: 6px; background: var(--bg-tag);
+      direction: ltr; text-align: left; font-size: 12px;
+    }
+    .dm-dep-row.dm-dep-readonly { color: var(--text-mute); }
+    .dm-dep-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dm-dep-checkbox { flex-shrink: 0; cursor: pointer; }
+    /* An automatically-detected edge the user turned off: stays in the list
+       (never deleted outright) so it can be switched back on later, rather
+       than making the user retype it in the add-picker below. */
+    .dm-dep-row.dm-dep-excluded { opacity: 0.55; }
+    .dm-dep-row.dm-dep-excluded .dm-dep-name { text-decoration: line-through; }
+    /* Marks a row as scanned-in (vs. manually added) — the same distinction
+       that decides whether unchecking it keeps the row around (automatic)
+       or deletes it outright (manual), made visible rather than only
+       behavioral. Hebrew text inside the row's LTR direction, so isolated
+       explicitly per the bidi convention used elsewhere in this file. */
+    .dm-dep-tag {
+      flex-shrink: 0; margin-inline-start: auto; font-size: 10px; padding: 1px 6px;
+      background: var(--bg-card); border: 1px solid var(--border-light);
+      border-radius: var(--r-tag); color: var(--text-faint); font-weight: 500;
+      direction: rtl; unicode-bidi: isolate; white-space: nowrap;
+    }
+    /* Indirect (transitive-only) dependencies — read-only, since editing an
+       edge that actually belongs to a DIFFERENT file's outgoing list doesn't
+       make sense from here (same reasoning as the dependents section). The
+       reason text ("עקיף · דרך X") is isolated bidi like .dm-dep-tag, and
+       pushed to the row's far end via auto margin so name and reason don't
+       crowd each other on a long path. */
+    .dm-dep-row.dm-dep-indirect { font-style: italic; }
+    .dm-dep-reason {
+      flex-shrink: 0; margin-inline-start: auto; font-size: 10px; color: var(--text-ghost);
+      direction: rtl; unicode-bidi: isolate; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      max-width: 45%;
+    }
+    .dm-add-wrap { margin-top: 8px; position: relative; }
+    /* File-map picker for adding a dependency — same row language as the
+       inline code tree (.code-tree-row/-icon/-label/collapse-btn), but its
+       own collapse state that defaults every folder CLOSED (see
+       _dmExpandedPaths in code-tree.js), unlike the main tree's default-open. */
+    .dm-add-tree {
+      margin-top: 6px; max-height: 240px; overflow-y: auto;
+      border: 1px solid var(--border-light); border-radius: 6px; padding: 6px;
+    }
+    .dm-tree-file-row { cursor: pointer; }
+    .dm-tree-file-row:hover { background: var(--bg-tag); }
+    /* File preview body — read-only file content, monospace, LTR regardless
+       of the panel's own RTL (source code direction, not UI language). */
+    .fp-body-wrap { flex: 1; min-height: 0; overflow: auto; padding: 14px 18px; }
+    .fp-body {
+      margin: 0; direction: ltr; text-align: left;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px; line-height: 1.55; color: var(--text-body);
+      white-space: pre; tab-size: 2;
+    }
     .cv-shell {
       display: flex;
       flex-direction: column;
@@ -1057,6 +966,118 @@ window.__ccbCSS = (() => {
       min-height: 0;
       overflow: hidden;
     }
+
+    /* ── Onboarding guide (#onboardingView) — static reference content, all
+       sections collapsed by default. Reuses .section-header/.section-label
+       and .collapse-btn/.collapsed (same chevron rotation as #blocksSection)
+       instead of new per-row CSS. ── */
+    .ob-dismiss-row {
+      padding: 8px 18px;
+      border-bottom: 1px solid var(--border-subtle);
+      flex-shrink: 0;
+    }
+    .ob-dismiss-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-faint);
+      cursor: pointer;
+    }
+    .ob-body-wrap { padding: 0; }
+    .ob-header-subtitle {
+      margin-top: 2px;
+      color: var(--text-ghost);
+      font-size: 11px;
+      font-weight: 400;
+    }
+    .ob-welcome {
+      margin: 14px 14px 10px;
+      padding: 16px;
+      border: 1px solid var(--border-input);
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--bg-card), var(--bg-tag));
+    }
+    .ob-welcome-kicker {
+      color: var(--text-faint);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .ob-welcome h2 {
+      margin: 4px 0 6px;
+      color: var(--text-strong);
+      font-size: 16px;
+      line-height: 1.3;
+    }
+    .ob-welcome > p {
+      margin: 0;
+      color: var(--text-body);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .ob-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      padding: 0;
+      margin: 14px 0 0;
+      list-style: none;
+    }
+    .ob-steps li { display: flex; align-items: flex-start; gap: 9px; }
+    .ob-step-number {
+      display: inline-flex;
+      flex: 0 0 20px;
+      width: 20px;
+      height: 20px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background: var(--text-strong);
+      color: var(--bg-card);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .ob-steps b { color: var(--text-strong); font-size: 12px; }
+    .ob-steps small { display: block; margin-top: 1px; color: var(--text-body); font-size: 11.5px; line-height: 1.45; }
+    .ob-concepts {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+      padding: 0 14px 14px;
+    }
+    .ob-concepts > div {
+      min-width: 0;
+      padding: 9px 8px;
+      border: 1px solid var(--border-subtle);
+      border-radius: 9px;
+      background: var(--bg-card);
+    }
+    .ob-concepts b { display: block; color: var(--text-strong); font-size: 11px; }
+    .ob-concepts span { display: block; margin-top: 3px; color: var(--text-faint); font-size: 10.5px; line-height: 1.4; }
+    .ob-section-label {
+      padding: 0 18px 8px;
+      color: var(--text-ghost);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .04em;
+    }
+    .ob-section { border-bottom: 1px solid var(--border-subtle); }
+    .ob-section:last-child { border-bottom: none; }
+    .ob-section-header { cursor: pointer; transition: background var(--t-fast); }
+    .ob-section-header:hover { background: var(--bg-tag); }
+    .ob-section-icon { display: flex; align-items: center; color: var(--text-faint); }
+    .ob-section-body {
+      padding: 2px 18px 14px 42px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .ob-section.collapsed .ob-section-body { display: none; }
+    .ob-item { font-size: 12.5px; line-height: 1.5; color: var(--text-body); }
+    .ob-item b { color: var(--text-strong); font-weight: 600; }
 
     /* Header */
     .cv-header {
@@ -1067,7 +1088,7 @@ window.__ccbCSS = (() => {
       border-bottom: 1px solid var(--border-subtle);
       flex-shrink: 0;
     }
-    #cvBack {
+    #fpBack, #dmBack, #dpBack, #obClose {
       width: 30px;
       height: 30px;
       border: none;
@@ -1080,229 +1101,49 @@ window.__ccbCSS = (() => {
       justify-content: center;
       flex-shrink: 0;
     }
-    #cvBack:hover { background: rgba(0,0,0,.04); color: var(--text-strong); }
-    #cvBack svg { transform: rotate(180deg); }
+    #fpBack:hover, #dmBack:hover, #dpBack:hover, #obClose:hover { background: rgba(0,0,0,.04); color: var(--text-strong); }
+    /* #dmBack was missing from the rule above entirely, so it rendered with
+       the browser's default button chrome (bordered square) — reported as
+       "ugly". Also moves it to the opposite side of the header from
+       #fpBack: row-reverse puts the first DOM child (the button) at
+       the RTL end (left) instead of the RTL start (right), swapping places
+       with .cv-title-wrap. */
+    #depManagerView .cv-header { flex-direction: row-reverse; }
     .cv-title-wrap { flex: 1; min-width: 0; }
-    #cvTitle {
-      font-size: 15px;
-      font-weight: 700;
-      color: var(--text-strong);
-      white-space: nowrap;
-      overflow: hidden;
+    /* File preview header: the bare filename is the emphasized, centered
+       focal point on top, with its full path (including the filename
+       itself) as a small dim line below it. Both are LTR — file paths/names
+       read left-to-right regardless of the panel's own RTL, same reasoning
+       as .fp-body below. */
+    .fp-title-wrap { text-align: center; }
+    .fp-title {
+      font-size: 15px; font-weight: 700; color: var(--text-strong);
+      direction: ltr; white-space: nowrap; overflow: hidden;
       text-overflow: ellipsis;
-      direction: rtl;
     }
-    .cv-meta {
-      font-size: 11px;
-      color: var(--text-ghost);
-      margin-top: 2px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      direction: rtl;
+    .fp-path {
+      font-size: 11px; color: var(--text-ghost); direction: ltr;
+      margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
+    .fp-meta {
+      font-size: 11px; color: var(--text-ghost); direction: ltr;
+      margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    /* Each metric ("N תווים", "N tokens") is its own isolated flex group so
+       its direction can't leak into/out of the rest of the line. Direction
+       is set per group to match its actual language — rtl for the Hebrew
+       "תווים" label, ltr for the English "tokens" label — rather than
+       forcing ltr on both (an earlier attempt that didn't hold up). */
+    .fp-meta-item {
+      display: inline-flex; align-items: baseline; gap: 3px;
+      unicode-bidi: isolate;
+    }
+    .fp-meta-item.fp-meta-rtl { direction: rtl; }
+    .fp-meta-item.fp-meta-ltr { direction: ltr; }
 
-    /* Search */
-    .cv-search-wrap {
-      position: relative;
-      padding: 8px 18px;
-      border-bottom: 1px solid var(--border-subtle);
-      flex-shrink: 0;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    #cvSearch {
-      flex: 1;
-      height: 32px;
-      padding: 0 30px 0 8px;
-      border: 1px solid var(--border-input);
-      border-radius: var(--r-input);
-      font-size: 13px;
-      font-family: var(--font-he);
-      background: var(--bg-card);
-      outline: none;
-      color: var(--text-strong);
-      transition: border-color var(--t-fast);
-      -webkit-appearance: none;
-      appearance: none;
-    }
-    #cvSearch:focus { border-color: var(--text-faint); }
-    #cvSearch::placeholder { color: var(--text-ghost); }
-    .cv-search-icon {
-      position: absolute;
-      right: 26px;
-      top: 50%;
-      transform: translateY(-50%);
-      color: var(--text-ghost);
-      pointer-events: none;
-      display: flex;
-      align-items: center;
-    }
-    .cv-search-count {
-      font-size: 11px;
-      color: var(--text-ghost);
-      white-space: nowrap;
-      font-variant-numeric: tabular-nums;
-      min-width: 32px;
-      text-align: center;
-    }
-    .cv-nav-btn {
-      width: 24px;
-      height: 24px;
-      border: 1px solid var(--border-input);
-      background: var(--bg-card);
-      border-radius: 6px;
-      cursor: pointer;
-      color: var(--text-faint);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-    .cv-nav-btn:not(:disabled):hover { color: var(--text-strong); background: var(--bg-tag); }
-    .cv-nav-btn:disabled { opacity: 0.35; cursor: default; }
-    .cv-nav-btn svg { width: 11px; height: 11px; }
-    /* prev = points right (→), next = points left (←) */
-    #cvNavPrev svg { transform: rotate(180deg); }
-
-    /* Messages */
-    .cv-messages {
-      flex: 1;
-      min-height: 0;
-      overflow-y: auto;
-      overflow-x: hidden;
-      padding: 14px 18px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .cv-msg {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-      max-width: 88%;
-      position: relative;
-      transition: opacity var(--t-fast);
-      cursor: pointer;
-    }
-    .cv-msg.cv-msg-user { align-self: flex-end; align-items: flex-end; }
-    .cv-msg.cv-msg-ai { align-self: flex-start; align-items: flex-start; }
-    .cv-msg.cv-dim { opacity: 0.2; }
-    .cv-msg.cv-deselected { opacity: 0.35; }
-    /* Brief highlight when navigating to a specific message from a
-       content-search result in the History list. */
-    .cv-msg.cv-msg-flash > .cv-msg-bubble {
-      animation: cv-msg-flash-anim 1.2s ease-out;
-    }
-    @keyframes cv-msg-flash-anim {
-      0%   { box-shadow: 0 0 0 3px rgba(44, 122, 123, 0.55); }
-      100% { box-shadow: 0 0 0 3px rgba(44, 122, 123, 0); }
-    }
-    .cv-msg-role {
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: var(--text-ghost);
-      padding: 0 6px;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-    }
-    .cv-msg-user .cv-msg-role { flex-direction: row-reverse; }
-    .cv-msg-check {
-      width: 13px;
-      height: 13px;
-      border-radius: 3px;
-      border: 1.5px solid var(--border-input);
-      background: transparent;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      transition: background var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast);
-    }
-    .cv-msg:hover .cv-msg-check {
-      border-color: var(--text-faint);
-      box-shadow: 0 0 0 2px var(--border-subtle);
-    }
-    .cv-msg.cv-selected .cv-msg-check {
-      background: var(--text-strong);
-      border-color: var(--text-strong);
-      box-shadow: none;
-    }
-    .cv-msg-check-icon {
-      display: none;
-      width: 9px;
-      height: 9px;
-    }
-    .cv-msg.cv-selected .cv-msg-check-icon {
-      display: block;
-      color: var(--bg-app);
-    }
-    .cv-msg-bubble {
-      background: var(--bg-card);
-      border: 1px solid var(--border-subtle);
-      border-radius: 12px;
-      padding: 9px 13px;
-      font-size: 13px;
-      line-height: 1.55;
-      color: var(--text-body);
-      word-break: break-word;
-      white-space: pre-wrap;
-      transition: border-color var(--t-fast);
-    }
-    .cv-msg-user .cv-msg-bubble {
-      background: var(--text-strong);
-      color: var(--bg-app);
-      border-color: var(--text-strong);
-      border-radius: 12px 12px 12px 4px;
-    }
-    .cv-msg-ai .cv-msg-bubble { border-radius: 12px 12px 4px 12px; }
-    .cv-msg.cv-selected .cv-msg-bubble { border-color: var(--text-faint); }
-
-    /* Search highlights */
-    .cv-msg-bubble mark {
-      background: #fef08a;
-      color: var(--text-strong);
-      border-radius: 2px;
-      padding: 0 1px;
-    }
-    .cv-msg-user .cv-msg-bubble mark { background: #fbbf24; color: #1c1917; }
-    .cv-msg-bubble mark.cv-match-active { background: #f97316; color: #fff; }
-
-    /* Selection bar */
-    .cv-sel-bar {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 7px 18px;
-      border-top: 1px solid var(--border-subtle);
-      background: var(--bg-app);
-      flex-shrink: 0;
-    }
-    .cv-sel-btn {
-      height: 26px;
-      padding: 0 10px;
-      border: 1px solid var(--border-input);
-      background: var(--bg-card);
-      border-radius: var(--r-input);
-      font-size: 12px;
-      font-family: var(--font-he);
-      cursor: pointer;
-      color: var(--text-body);
-      transition: background var(--t-fast);
-    }
-    .cv-sel-btn:hover { background: var(--bg-tag); }
-    .cv-sel-count {
-      margin-right: auto;
-      font-size: 11px;
-      color: var(--text-ghost);
-      font-variant-numeric: tabular-nums;
-    }
-
-    /* Footer */
+    /* Sticky footer + primary action button for a full-pane takeover view.
+       Named for the conversation view they started in (retired 2026-08-04);
+       the surviving user is #depPickerView's save button (#dpSaveBtn). */
     .cv-footer {
       padding: 10px 18px 14px;
       border-top: 1px solid var(--border-subtle);
@@ -1335,6 +1176,7 @@ window.__ccbCSS = (() => {
       color: var(--text-ghost);
       cursor: not-allowed;
     }
+
     .dialog-confirm:hover { background: #2a2622; }
     .dialog-confirm.danger { background: #c53030; }
     .dialog-confirm.danger:hover { background: #9b2c2c; }
@@ -1357,29 +1199,41 @@ window.__ccbCSS = (() => {
       transition: opacity .15s;
     }
     .settings-overlay.show { opacity: 1; pointer-events: auto; }
+    /* Spans the panel's full width (2026-07-28, at the user's request — was
+       a narrow 270px popover anchored under #settingsBtn) via left/right
+       instead of a fixed width, so ui-modals.js#openSettings only needs to
+       compute the top offset anymore; horizontal position is fixed by CSS. */
     .settings-box {
       position: absolute;
+      left: 12px; right: 12px;
       background: var(--bg-card);
       border: 1px solid var(--border-strong);
       border-radius: 18px;
       box-shadow: 0 8px 24px rgba(0,0,0,.12), 0 2px 8px rgba(0,0,0,.08);
       padding: 14px;
-      width: 270px;
       transform: translateY(6px);
       transition: transform .15s;
+      /* max-height is set inline per-open (ui-modals.js#openSettings) to the
+         space actually available below the box's computed top, since .panel
+         is a fixed 100vh/overflow:hidden — without this, a tall settings
+         list silently clips instead of scrolling. */
+      overflow-y: auto;
     }
     .settings-overlay.show .settings-box { transform: translateY(0); }
     .settings-head {
       display: flex; align-items: center; justify-content: space-between;
       gap: 10px; margin-bottom: 12px;
     }
+    /* Font sizes and padding tightened 2026-07-28 (at the user's request,
+       alongside the box widening above) so these bordered "card" rows read
+       as compact and organized rather than the box's biggest elements. */
     .setting-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      margin-bottom: 10px;
-      padding: 10px 12px;
+      margin-bottom: 8px;
+      padding: 8px 10px;
       border: 1px solid var(--border-subtle);
       border-radius: 14px;
       background: var(--bg-app);
@@ -1391,13 +1245,13 @@ window.__ccbCSS = (() => {
       min-width: 0;
     }
     .setting-row-title {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
       color: var(--text-strong);
       line-height: 1.2;
     }
     .setting-row-sub {
-      font-size: 11px;
+      font-size: 10px;
       color: var(--text-ghost);
       line-height: 1.2;
     }
@@ -1443,7 +1297,13 @@ window.__ccbCSS = (() => {
       color: var(--text-faint); border-radius: 6px;
     }
     .settings-close:hover { background: rgba(0,0,0,.04); color: var(--text-strong); }
-    .settings-list { display: flex; flex-direction: column; gap: 4px; }
+    /* margin-bottom (2026-07-28): the reordered settings box now has TWO
+       .settings-list groups with .setting-row cards sandwiched between them
+       (scan/prompts buttons, then the 4 setting-rows, then guide/backup
+       buttons) — each .setting-row supplies its own trailing margin, but a
+       .settings-list needs one too now that it's no longer only ever the
+       box's last child. */
+    .settings-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
     .settings-item {
       width: 100%;
       display: flex; align-items: center; gap: 12px;
@@ -1716,19 +1576,25 @@ window.__ccbCSS = (() => {
 
     /* Document management */
     .project-documents-list { padding: 8px 18px 14px; }
-    .doc-item {
-      display: flex; align-items: center; gap: 8px; padding: 8px;
-      background: var(--bg-app); border-radius: 4px; margin-bottom: 6px;
-      border: 1px solid var(--border-light);
+    /* Regular-project documents use the same compact row system as code
+       files; only folders and dependency controls are absent. */
+    .regular-document-row { min-width: 0; }
+    .regular-document-info { display: block; }
+    .regular-document-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .regular-document-meta {
+      display: block; margin-top: 2px; color: var(--text-ghost);
+      font-size: 10px; font-weight: 400; direction: ltr; text-align: right;
     }
-    .doc-item-checkbox { width: 16px; height: 16px; cursor: pointer; }
-    .doc-item-icon { width: 20px; height: 20px; color: var(--text-faint); flex-shrink: 0; }
-    .doc-item-info { flex: 1; min-width: 0; }
-    .doc-item-name { font-size: 12px; font-weight: 500; color: var(--text-body); word-break: break-word; }
-    .doc-item-meta { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
-    .doc-item-preview { font-size: 11px; color: var(--text-faint); margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--border-light); max-height: 40px; overflow: hidden; }
-    .doc-item-delete { width: 20px; height: 20px; color: #c53030; cursor: pointer; opacity: 0.6; transition: opacity var(--t-fast); flex-shrink: 0; }
-    .doc-item-delete:hover { opacity: 1; }
+    .regular-document-snippet { display: none; }
+    .regular-document-delete {
+      width: 20px; height: 20px; flex-shrink: 0; border: none; background: none;
+      color: #c53030; cursor: pointer; border-radius: 4px; display: flex;
+      align-items: center; justify-content: center; opacity: .55;
+      transition: opacity var(--t-fast), background var(--t-fast);
+    }
+    .regular-document-delete svg { width: 14px; height: 14px; }
+    .regular-document-row:hover .regular-document-delete { opacity: 1; }
+    .regular-document-delete:hover { background: #fff1f1; }
 
     .doc-dialog { max-width: 500px; }
     .doc-tabs {
@@ -1799,6 +1665,22 @@ window.__ccbCSS = (() => {
     }
     .ignore-pattern-remove:hover { opacity: 1; }
 
+    /* Storage-usage dialog (#storageInfoOverlay, D3) — total + per-prefix
+       byte breakdown, plus the manual orphan-sweep trigger. */
+    .storage-info-body { margin-bottom: 12px; }
+    .storage-info-loading, .storage-info-unavailable {
+      font-size: 12px; color: var(--text-faint); padding: 8px 2px;
+    }
+    .storage-info-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 6px 8px; background: var(--bg-app); border-radius: 4px; margin-bottom: 6px;
+      border: 1px solid var(--border-light); font-size: 12px;
+    }
+    .storage-info-row.storage-info-total { font-weight: 600; color: var(--text-strong); }
+    .storage-info-row-label { color: var(--text-body); }
+    .storage-info-row-value { color: var(--text-faint); direction: ltr; }
+    .storage-info-sweep-result { font-size: 11px; color: var(--text-faint); margin-top: 6px; }
+
     /* Global scan-settings dialog (#scanSettingsOverlay) — the editable
        versions of document-handler.js's built-in scan rules, applying to every
        code project. Reuses the .ignore-patterns-* chip-list styling above for
@@ -1826,6 +1708,12 @@ window.__ccbCSS = (() => {
     /* Code project file tree — rendered inline inside the open project's
        documents section (#projectDocumentsList), owned by code-tree.js. */
     .code-tree-actions { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+    /* .dp-actions reuses .code-tree-actions/.code-tree-link-btn verbatim for
+       the custom deps picker's "בחר הכל"/"נקה הכל" pair, but sits directly
+       inside .cv-shell (a full-pane view) rather than the inline tree's own
+       padded mount container, so it needs its own horizontal padding to
+       match the header/search bars above/below it. */
+    .dp-actions { padding: 10px 18px 0; margin-bottom: 0; }
     .code-tree-search-wrap { margin-bottom: 10px; }
     .code-tree-body {
       border: 1px solid var(--border-light); border-radius: 6px; padding: 6px;
@@ -1836,6 +1724,9 @@ window.__ccbCSS = (() => {
       border-radius: 4px; cursor: pointer;
     }
     .code-tree-row:hover { background: var(--bg-tag); }
+    /* Pinned above the file tree, not part of the path hierarchy — a thin
+       separator marks it as a distinct entry rather than "the first file". */
+    .code-tree-structure-row { border-bottom: 1px solid var(--border-subtle); margin-bottom: 4px; padding-bottom: 6px; }
     .code-tree-row .collapse-btn { width: 14px; height: 14px; }
     .code-tree-row .collapse-btn svg { width: 10px; height: 10px; }
     .code-tree-spacer { width: 14px; flex-shrink: 0; }
@@ -1843,16 +1734,38 @@ window.__ccbCSS = (() => {
     .code-tree-icon { color: var(--text-faint); flex-shrink: 0; display: flex; }
     .code-tree-icon svg { width: 13px; height: 13px; }
     .code-tree-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-body); }
-    .code-tree-deps-btn {
-      width: 18px; height: 18px; flex-shrink: 0; border: none; background: none;
+    /* Groups the preview + deps buttons on a file row together, tighter than
+       the row's own 6px gap, and pulled flush past BOTH the row's own 4px
+       inline padding AND the containing .code-tree-body's 6px padding (-10px
+       total — canceling only the row's padding left a visible 6px strip of
+       unused space before the tree's border, reported as still too much) —
+       reclaims that width for the label. Distinct name from .code-tree-actions
+       (the "בחר הכל"/"נקה הכל" toolbar above the tree) so the two rules don't
+       collide. */
+    .code-tree-file-actions {
+      display: flex; align-items: center; gap: 3px; flex-shrink: 0;
+      margin-inline-end: -10px;
+    }
+    .code-tree-deps-btn, .code-tree-preview-btn {
+      width: 20px; height: 20px; flex-shrink: 0; border: none; background: none;
       color: var(--text-faint); cursor: pointer; border-radius: 4px;
       display: flex; align-items: center; justify-content: center;
       opacity: 0.55; transition: opacity var(--t-fast), background var(--t-fast), color var(--t-fast);
     }
-    .code-tree-row:hover .code-tree-deps-btn { opacity: 1; }
-    .code-tree-deps-btn:hover { background: var(--bg-clear); color: var(--text-strong); }
+    .code-tree-deps-btn svg, .code-tree-preview-btn svg { width: 14px; height: 14px; }
+    .code-tree-row:hover .code-tree-deps-btn, .code-tree-row:hover .code-tree-preview-btn { opacity: 1; }
+    .code-tree-deps-btn:hover, .code-tree-preview-btn:hover { background: var(--bg-clear); color: var(--text-strong); }
     .code-tree-children { display: flex; flex-direction: column; }
     .code-tree-children.collapsed { display: none; }
+    /* Manually-added files (addManualCodeFiles) — a flat list below the
+       scanned tree, separated by a small uppercase label, same visual
+       language as .code-tree-structure-row's separator above the tree. */
+    .code-tree-manual-label {
+      margin: 8px 0 4px; padding-top: 6px;
+      border-top: 1px solid var(--border-subtle);
+      color: var(--text-ghost); font-size: 10px; font-weight: 700; letter-spacing: .03em;
+    }
+    .code-tree-remove-btn:hover { background: #fff1f1; color: #c53030; }
     .code-tree-link-btn {
       background: none; border: none; padding: 0; cursor: pointer;
       color: var(--text-faint); font-size: 11px; font-family: var(--font-he);
@@ -1860,6 +1773,11 @@ window.__ccbCSS = (() => {
     }
     .code-tree-link-btn:hover { color: var(--text-strong); }
     .code-tree-token-count { color: var(--text-ghost); }
+    .code-tree-budget {
+      display: flex; align-items: center; gap: 8px;
+      direction: ltr; padding: 0 4px 6px;
+    }
+    .code-tree-budget .ctx-bar-track { cursor: default; }
 
     /* ── Context tab: project's own text-block list (inside project view) ── */
     .ctx-proj-empty {
@@ -1875,6 +1793,38 @@ window.__ccbCSS = (() => {
       margin-right: 4px; vertical-align: middle;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       max-width: 80px;
+    }
+
+    /* ── Quick-command menu (Phase 4.2) ──
+       position:fixed and a sibling of .panel (not nested inside it) — same
+       reasoning as #filePreviewView/#depManagerView: fixed
+       descendants stay pinned to the viewport regardless of ancestor layout
+       as long as no ancestor establishes its own containing block, and this
+       menu is positioned via the CHAT PAGE's own input rect (getBoundingClientRect
+       in chat-features.js), which can be anywhere on screen — not relative to
+       our sidebar at all. */
+    #quickCmdMenu {
+      position: fixed; z-index: 2147483000; pointer-events: auto;
+      max-height: 240px; overflow-y: auto;
+      background: var(--bg-card); border: 1px solid var(--border-strong);
+      border-radius: var(--r-input); box-shadow: 0 8px 24px rgba(0,0,0,.18);
+      font-family: var(--font-he); font-size: 13px;
+    }
+    .quick-cmd-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 7px 10px; cursor: pointer;
+    }
+    .quick-cmd-item.active, .quick-cmd-item:hover { background: var(--bg-hover); }
+    .quick-cmd-trigger {
+      direction: ltr; font-weight: 600; color: var(--text-strong);
+      white-space: nowrap;
+    }
+    .quick-cmd-title {
+      color: var(--text-mute); overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .quick-cmd-empty {
+      padding: 10px; color: var(--text-ghost); font-style: italic; font-size: 12px;
     }
   `;
 })();

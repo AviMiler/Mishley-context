@@ -1,12 +1,11 @@
-// chat-features.js — General Memory, conversation capture/save, manual injection.
+// chat-features.js — General Memory, auto-inject, manual injection, quick commands.
 // Exposes: window.__ccbChat
 //
 // Public API (after init):
 //   getGM() / renderGeneralMemory()
 //   tryAutoInject()
 //   injectSelected()
-//   saveChat()
-//   startMsgObserver() / stopMsgObserver()
+//   closeQuickCommandMenu()
 
 (() => {
   if (window.__ccbChatInstalled) return;
@@ -34,17 +33,33 @@
   function renderGeneralMemory() {
     const card = $el("gmCard");
     if (!card) return;
+    // General Memory only shows in "no project" mode
+    const hasProject = !!_deps.state.currentProjectId;
+    if (hasProject) {
+      card.innerHTML = "";
+      card.style.display = "none";
+      return;
+    }
+    card.style.display = "";
     const GM_ID = _deps.config.GM_ID;
     const gm = getGM();
     const on = !!gm.autoLoad;
     const content = (gm.content || "").trim();
+    const everyMode = _deps.getAutoInjectMode?.("gm") === "every";
+    // Manual injection ("טען פרומפטים") is redundant once every-mode is
+    // already prepending GM to every send — and combined with it, would
+    // duplicate GM's content in the next message (the trade-off accepted
+    // when the every-mode send guard was fixed, see DECISIONS.md). Drop any
+    // stale selection made before the mode switched to "every", so it can't
+    // linger and get included next time injectSelected() runs.
+    if (everyMode) _deps.state.selected.delete(GM_ID);
     const selectedForInject = _deps.state.selected.has(GM_ID);
 
     card.innerHTML = "";
     const wrap = document.createElement("div");
     wrap.className = "gm-card";
     wrap.addEventListener("click", () =>
-      _deps.openEdit(GM_ID, { title: "זיכרון כללי", content, tags: "" }),
+      _deps.openEdit(GM_ID, { title: "זיכרון כללי", content }),
     );
 
     const header = document.createElement("div");
@@ -53,9 +68,14 @@
     const selectLabel = document.createElement("label");
     selectLabel.className = "cb-wrap gm-select";
     selectLabel.addEventListener("click", (e) => e.stopPropagation());
+    if (everyMode) {
+      selectLabel.title =
+        "במצב 'נטען בכל הודעה' אין צורך בטעינה ידנית — התוכן מוזרק אוטומטית לכל הודעה";
+    }
     const selectInput = document.createElement("input");
     selectInput.type = "checkbox";
     selectInput.checked = selectedForInject;
+    selectInput.disabled = everyMode;
     selectInput.setAttribute("aria-label", "הוסף זיכרון כללי להזרקה");
     selectInput.addEventListener("change", () => {
       if (selectInput.checked) _deps.state.selected.add(GM_ID);
@@ -101,7 +121,6 @@
     // split into separate settings 2026-07-22.
     const badge = document.createElement("span");
     badge.className = "auto-badge auto-badge-live";
-    const everyMode = _deps.getAutoInjectMode?.("gm") === "every";
     badge.textContent = everyMode ? "נטען בכל הודעה" : "נטען בתחילת שיחה";
     badge.title = "לחץ למעבר בין טעינה בתחילת שיחה לטעינה בכל הודעה";
     badge.addEventListener("click", async (e) => {
@@ -111,12 +130,14 @@
     });
     if (!on) badge.style.display = "none";
 
+    // Badge sits inline in the header, beside the title — not on a row of
+    // its own below (2026-07-28) — so the card is always exactly one
+    // title-row tall regardless of autoLoad state.
     header.appendChild(selectLabel);
     header.appendChild(toggleLabel);
     header.appendChild(title);
+    header.appendChild(badge);
     wrap.appendChild(header);
-
-    if (on) wrap.appendChild(badge);
 
     card.appendChild(wrap);
   }
@@ -181,7 +202,25 @@
   // _interceptSend below for why this is mutate-and-let-through, not
   // block-and-replay.
   // ============================================================
-  const CTX_END_MARKER = "[[CCB:CTX-END]]";
+  // Undo/quick-command per-injection markers (content.js#injectionMarkers) —
+  // [[CCB:INJ:<id>]]\n...\n[[CCB:INJ-END:<id>]]\n around each tracked
+  // injection's text. Unlike [[CCB:CTX]]/[[CCB:INJECTED]], these were never
+  // stripped before a real send went through: a user who injects (prompts,
+  // files, or a quick command) and then sends without clicking undo first
+  // sent the literal marker tokens to the AI. Strips the marker tokens only —
+  // leaves the actual injected text (what sits between them) untouched.
+  const INJ_START_RE = /\[\[CCB:INJ:[^\]]+\]\]\n?/g;
+  const INJ_END_RE = /\n?\[\[CCB:INJ-END:[^\]]+\]\]\n?/g;
+  function _stripInjectionMarkers(text) {
+    // INJ_END_RE optionally consumes a newline on BOTH sides of the end
+    // marker (one separating it from the injected text before it, one
+    // separating it from whatever follows — the user's own typed message,
+    // or the next chained injection's start marker). Replacing the whole
+    // match with "" would delete both, gluing the injected block's last
+    // word directly onto the following text with no separator at all.
+    // Replacing with "\n" keeps exactly one separator in that spot instead.
+    return text.replace(INJ_START_RE, "").replace(INJ_END_RE, "\n");
+  }
 
   function _isGmEveryMode() {
     return _deps.getAutoInjectMode?.("gm") === "every";
@@ -189,9 +228,10 @@
   function _isProjectEveryMode() {
     return _deps.getAutoInjectMode?.("project") === "every";
   }
-  // Cheap gate for the interceptor: is there ANY source that needs
-  // per-message handling right now? Checked first, before the more expensive
-  // send-target detection, since this runs on every click/keydown page-wide.
+  // Is there ANY source that needs per-message handling right now? Checked
+  // in _interceptSend AFTER send-target detection and the stray-marker
+  // strip (both of which must run on every real send regardless of
+  // per-message mode) — this only gates the every-mode prefix itself.
   function _hasEveryModeSource() {
     return _isGmEveryMode() || _isProjectEveryMode();
   }
@@ -213,11 +253,6 @@
     const f = _deps.framing;
     return f.everyPre + parts.join("\n\n") + f.everyPost;
   }
-
-  // True while one of OUR OWN programmatic send clicks (e.g. saveChat's
-  // summary-prompt send) is in flight, so the capture listener doesn't wrap
-  // it with per-message context.
-  let _sendBypass = false;
 
   // Is this click target part of the send control? Resolved from the TARGET
   // upward — never via document.querySelector — because the page may hold
@@ -249,8 +284,6 @@
   }
 
   function _interceptSend(e) {
-    if (_sendBypass || !_hasEveryModeSource()) return;
-
     const input = _deps.inject.findInput();
     if (!input) return;
 
@@ -281,11 +314,39 @@
     }
     if (!isSend) return;
 
-    const current = input.isContentEditable ? input.innerText || "" : input.value || "";
+    let current = input.isContentEditable ? input.innerText || "" : input.value || "";
     if (!current.trim()) return; // nothing to send — let the site ignore it
-    // Already carries an injection (a manual "טען פרומפטים"/conversation load,
-    // or a previous prepend whose send didn't go through) — don't wrap twice.
-    if (current.includes("[[CCB:CTX]]") || current.includes("[[CCB:INJECTED]]")) return;
+
+    // Strip stray undo/quick-command markers before a real send goes
+    // through. Independent of per-message "every mode" below — these can be
+    // left in the box by ANY tracked injection (manual prompts, files, a
+    // quick command), not just the every-mode prefix, whenever the user
+    // sends without clicking undo first. Without this the literal marker
+    // tokens went out to the AI verbatim.
+    if (current.includes("[[CCB:INJ:")) {
+      const cleaned = _stripInjectionMarkers(current);
+      if (cleaned !== current) {
+        _deps.inject.injectIntoInput(cleaned, "replace");
+        _deps.clearInjectionStack?.();
+        current = cleaned;
+      }
+    }
+
+    if (!_hasEveryModeSource()) return;
+
+    // Only bail on OUR OWN every-mode marker (a previous prepend whose send
+    // didn't go through) — [[CCB:CTX]] is unique to buildPerMessagePrefix's
+    // own framing (FRAMING_EVERY_PRE), so this can't false-positive on it.
+    // Deliberately NOT checking [[CCB:INJECTED]] here (2026-07-30 fix): that
+    // marker is shared by every other framing pair (GM/manual-prompt/
+    // project/docs — see config.js), so a manually-loaded-but-
+    // unsent injection (e.g. "טען קבצים") used to sit in the box and silently
+    // block every-mode's own prefix from ever being added on the next real
+    // send — the reported bug. Accepted trade-off, confirmed with the user:
+    // if GM (or project instructions) is manually loaded ALONE via "טען
+    // פרומפטים" while that same source is in every-mode, its content can now
+    // appear twice in the next send (existing undo button covers it).
+    if (current.includes("[[CCB:CTX]]")) return;
 
     const prefix = buildPerMessagePrefix();
     if (!prefix) return;
@@ -455,6 +516,29 @@
   // ============================================================
   // Manual injection of selected context blocks
   // ============================================================
+  // Shared by injectSelected (the full ticked-checkbox selection) and the
+  // Phase 4.2 quick-command picker (always exactly one block) — same framing
+  // rule either way: GM alone uses FRAMING_GM, anything else (including a
+  // mix, or a single non-GM block) uses FRAMING_MANUAL.
+  function buildFramedBlockText(blocks) {
+    const GM_ID = _deps.config.GM_ID;
+    const f = _deps.framing;
+    const isGmOnly = blocks.length === 1 && blocks[0]?.id === GM_ID;
+    const blocksBody = blocks
+      .map((b) => {
+        const title = b.title || (b.id === GM_ID ? "זיכרון כללי" : "");
+        // A kind:"project" block reaches here when its instructions card is
+        // ticked — instructions (b.content) ONLY, never its enabled documents.
+        // Documents keep their own explicit footer button ("טען קבצים"),
+        // since a code project's files run to tens of thousands of tokens.
+        return "## " + title + "\n" + (b.content || "");
+      })
+      .join("\n\n");
+    return isGmOnly
+      ? f.gmPre + blocksBody + f.gmPost
+      : f.manualPre + blocksBody + "\n\n---\n\n" + f.manualPost;
+  }
+
   function injectSelected() {
     const state = _deps.state;
     if (state.selected.size === 0) {
@@ -469,22 +553,8 @@
       .map((id) => (id === GM_ID ? state.blocks[id] || getGM() : state.blocks[id]))
       .filter(Boolean);
 
-    const isGmOnly = ordered.length === 1 && ordered[0]?.id === GM_ID;
-    const f = _deps.framing;
-    const blocksBody = ordered
-      .map((b) => {
-        const title = b.title || (b.id === GM_ID ? "זיכרון כללי" : "");
-        // A kind:"project" block reaches here when its instructions card is
-        // ticked — instructions (b.content) ONLY, never its enabled documents.
-        // Documents keep their own explicit footer button ("טען קבצים"),
-        // since a code project's files run to tens of thousands of tokens.
-        return "## " + title + "\n" + (b.content || "");
-      })
-      .join("\n\n");
-    const text = isGmOnly
-      ? f.gmPre + blocksBody + f.gmPost
-      : f.manualPre + blocksBody + "\n\n---\n\n" + f.manualPost;
-    const r = _deps.inject.injectIntoInput(text, "prepend");
+    const text = buildFramedBlockText(ordered);
+    const r = _deps.injectTracked(text, "prepend");
     if (r.ok) {
       // Deliberately not auto-sending — same convention as
       // injectProjectDocuments()/cvLoadBtn: the user reviews/edits/sends
@@ -496,316 +566,210 @@
   }
 
   // ============================================================
-  // Conversation capture + save chat
+  // Quick commands (Phase 4.2) — "/" + a saved prompt's own trigger, typed
+  // in the chat's own input, like invoking a skill in Claude Code: "/" opens
+  // a menu of every prompt that has a trigger set, typing narrows it,
+  // Enter/click injects that one prompt and replaces the typed "/query" with
+  // it. Once a space appears after the command word, the interaction is over
+  // (either something was already selected, or the user is just writing a
+  // message that happens to start with "/").
+  //
+  // Trigger detection (2026-07-28 fix): originally required the box's ENTIRE
+  // content to start with "/", which meant a SECOND quick command could
+  // never be typed right after a first one — the box no longer started with
+  // "/" once it held injected content. Now checks only the SUFFIX after the
+  // last completed injection's own end-marker (`_qcRelevantSuffix`) — the
+  // part of the box the user could actually still be freely typing into —
+  // falling back to the whole box when there's no marker yet (a fresh box,
+  // the original/common case).
   // ============================================================
-  function findScrollableAncestor() {
-    const MSG_SELECTORS = _deps.config.MSG_SELECTORS;
-    const isScrollable = (el) => {
-      const cs = getComputedStyle(el);
-      return (
-        (cs.overflowY === "auto" || cs.overflowY === "scroll") &&
-        el.scrollHeight - el.clientHeight > 50
-      );
-    };
-    let el = document.querySelector(MSG_SELECTORS.messageList);
-    while (el && el !== document.body) {
-      if (isScrollable(el)) return el;
-      el = el.parentElement;
-    }
-    for (const cand of document.querySelectorAll(
-      "main, [class*='scroll'], [class*='conversation']",
-    )) {
-      if (isScrollable(cand)) return cand;
-    }
-    return null;
+  let _qcMenuOpen = false;
+  let _qcMatches = [];
+  let _qcSelectedIndex = 0;
+  let _qcQuery = "";
+
+  function _qcCandidates() {
+    const candidates = Object.values(_deps.state.blocks).filter((b) => b && b.trigger);
+    // Include general blocks + current project blocks; exclude other projects
+    const currentProjectId = _deps.state.currentProjectId;
+    return candidates.filter((b) => !b.projectId || b.projectId === currentProjectId);
   }
 
-  // AI auto-responses that the framing prompts request after each injection.
-  // We strip them from capture so they don't accumulate inside saved blocks
-  // across multiple continuations.
-  const INJECTION_AUTORESPONSES = new Set([
-    "Context loaded.",
-    "Context loaded",
-    "Transcript loaded.",
-    "Transcript loaded",
-    "Project guidelines loaded.",
-    "Project guidelines loaded",
-    "Files loaded.",
-    "Files loaded",
-  ]);
-
-  function captureConversation() {
-    const MSG_SELECTORS = _deps.config.MSG_SELECTORS;
-    const container = document.querySelector(MSG_SELECTORS.messageList);
-    if (!container) return [];
-    const nodes = container.querySelectorAll(MSG_SELECTORS.message);
-    const messages = [];
-    for (const n of nodes) {
-      const text = MSG_SELECTORS.messageText(n) || "";
-      let trimmed = text.trim();
-      if (!trimmed) continue;
-      // Per-message injection prefix: unlike [[CCB:INJECTED]] (a standalone
-      // injection message, dropped whole), the CTX block is glued in front of
-      // the user's REAL message — strip the prefix, keep the rest.
-      const ctxEnd = trimmed.indexOf(CTX_END_MARKER);
-      if (ctxEnd !== -1) {
-        trimmed = trimmed.slice(ctxEnd + CTX_END_MARKER.length).trim();
-        if (!trimmed) continue;
-      }
-      if (trimmed.includes("[[CCB:INJECTED]]")) continue;
-      let role = "user";
-      if (MSG_SELECTORS.aiMessageMatch && MSG_SELECTORS.aiMessageMatch(n)) {
-        role = "ai";
-      } else if (MSG_SELECTORS.userMessageMatch && MSG_SELECTORS.userMessageMatch(n)) {
-        role = "user";
-      }
-      // Skip the AI's canned response to an injection ("Context loaded." etc.).
-      // captureConversation already filters the injection itself by marker,
-      // but the AI's reply is just a normal short message — without this
-      // filter it would slip into the saved block and re-inject on every
-      // future continuation, growing endlessly.
-      if (role === "ai" && INJECTION_AUTORESPONSES.has(trimmed)) continue;
-      messages.push({ role, text: trimmed });
-    }
-    return messages;
+  function _qcRelevantSuffix(raw) {
+    const re = /\[\[CCB:INJ-END:[^\]]+\]\]/g;
+    let lastEnd = 0;
+    let m;
+    while ((m = re.exec(raw))) lastEnd = m.index + m[0].length;
+    return raw.slice(lastEnd);
   }
 
-  async function scrollAndCaptureAll() {
-    const MSG_SELECTORS = _deps.config.MSG_SELECTORS;
-    const scroller = findScrollableAncestor();
-    if (!scroller) return;
-    return new Promise((resolve) => {
-      let lastCount = 0;
-      let stable = 0;
-      const check = setInterval(() => {
-        scroller.scrollTo({ top: 0 });
-        scroller.scrollTop = 0;
-        const count = document.querySelectorAll(MSG_SELECTORS.message).length;
-        if (count === lastCount) {
-          if (++stable >= 3) {
-            clearInterval(check);
-            resolve();
-          }
-        } else {
-          lastCount = count;
-          stable = 0;
-        }
-      }, 300);
-      setTimeout(() => {
-        clearInterval(check);
-        resolve();
-      }, 8000);
+  function _qcMatchesFor(query) {
+    const q = query.toLowerCase();
+    return _qcCandidates()
+      .filter((b) => b.trigger.slice(1).toLowerCase().startsWith(q))
+      .sort((a, b) => a.trigger.localeCompare(b.trigger));
+  }
+
+  function _qcRawBoxText(el) {
+    // textContent/.value only — never innerText, which forces a layout
+    // reflow and would run on every keystroke here (same discipline as the
+    // rest of this file's contenteditable handling).
+    return el.isContentEditable ? el.textContent || "" : el.value || "";
+  }
+
+  function _closeQuickCommandMenu() {
+    _qcMenuOpen = false;
+    _qcMatches = [];
+    _qcSelectedIndex = 0;
+    const menu = $el("quickCmdMenu");
+    if (menu) menu.style.display = "none";
+  }
+
+  function _renderQuickCommandMenu() {
+    const menu = $el("quickCmdMenu");
+    if (!menu) return;
+    menu.innerHTML = "";
+    if (!_qcMatches.length) {
+      const empty = document.createElement("div");
+      empty.className = "quick-cmd-empty";
+      empty.textContent = "אין קיצורים תואמים";
+      menu.appendChild(empty);
+      return;
+    }
+    _qcMatches.forEach((b, i) => {
+      const row = document.createElement("div");
+      row.className = "quick-cmd-item" + (i === _qcSelectedIndex ? " active" : "");
+      row.setAttribute("role", "option");
+      const trig = document.createElement("span");
+      trig.className = "quick-cmd-trigger";
+      trig.textContent = b.trigger;
+      const title = document.createElement("span");
+      title.className = "quick-cmd-title";
+      title.textContent = b.title || "";
+      row.appendChild(trig);
+      row.appendChild(title);
+      // mousedown (not click) — fires before the chat input blurs, so a
+      // mouse pick doesn't need the input refocused afterward.
+      row.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        _selectQuickCommand(i);
+      });
+      menu.appendChild(row);
     });
   }
 
-  // Persist current conversation: update bound block, or create a new one
-  // bound to this page-load. Returns true if anything was written.
-  async function persistConversation(messages) {
-    if (!messages || !messages.length) return false;
-    // captureConversation filters the injection USER-QUERY itself (by the
-    // [[CCB:INJECTED]] marker) but cannot detect the AI's auto-response to
-    // it ("Context loaded.", "Transcript loaded.") since that's just a
-    // normal AI message. Trim any leading AI messages — a real exchange
-    // always starts with a user turn. If no user turn exists, this is
-    // injection-only noise; skip the save entirely.
-    const firstUserIdx = messages.findIndex((m) => m && m.role === "user");
-    if (firstUserIdx === -1) return false;
-    messages = firstUserIdx > 0 ? messages.slice(firstUserIdx) : messages;
-    await _deps.loadBlocks();
-    const state = _deps.state;
-
-    if (
-      state.currentConversationId &&
-      state.blocks[state.currentConversationId]
-    ) {
-      const block = state.blocks[state.currentConversationId];
-      const prev = Array.isArray(block.messages) ? block.messages : [];
-      if (
-        prev.length === messages.length &&
-        prev[prev.length - 1]?.text === messages[messages.length - 1]?.text
-      ) {
-        return false; // no change
-      }
-      block.messages = messages;
-      block.messageCount = messages.length;
-      block.updated = Date.now();
-      await _deps.saveBlocks();
-      return true;
+  function _positionQuickCommandMenu(el, menu) {
+    const rect = el.getBoundingClientRect();
+    const ASSUMED_MENU_HEIGHT = 240; // matches ui-styles.js's #quickCmdMenu max-height
+    const openUpward = rect.top > ASSUMED_MENU_HEIGHT + 12;
+    menu.style.left = Math.round(rect.left) + "px";
+    menu.style.width = Math.round(rect.width) + "px";
+    if (openUpward) {
+      menu.style.bottom = window.innerHeight - rect.top + 6 + "px";
+      menu.style.top = "";
+    } else {
+      menu.style.top = rect.bottom + 6 + "px";
+      menu.style.bottom = "";
     }
-
-    const now = new Date();
-    const autoTitle =
-      "שיחה — " +
-      now.toLocaleDateString("he-IL") +
-      " " +
-      now.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
-    const currentProject = _deps.historyView.getProjectById(state.currentProjectId);
-    const projectId = currentProject ? state.currentProjectId : null;
-    const id = "b_" + Date.now() + "_conv";
-    state.blocks[id] = {
-      id,
-      title: autoTitle,
-      messages,
-      kind: "conversation",
-      projectId,
-      updated: Date.now(),
-      messageCount: messages.length,
-      savedAt: Date.now(),
-    };
-    state.currentConversationId = id;
-    await _deps.saveBlocks();
-    return true;
   }
 
-  // Manual "save chat" — does a full scroll-to-top capture (to pick up
-  // lazy-loaded older messages) then persists.
-  async function saveChat() {
-    if (!canCapture()) {
-      const r = _deps.inject.injectIntoInput(_deps.framing.summaryPrompt, "replace");
-      if (r.ok) {
-        setTimeout(() => {
-          const btn = document.querySelector(_deps.config.SEND_BUTTON_SELECTOR);
-          // Bypass the per-message interceptor — the summary prompt is a
-          // standalone instruction, not a user message to wrap with context.
-          _sendBypass = true;
-          try {
-            if (btn) btn.click();
-            else _deps.setStatus("לא נמצא כפתור שליחה", true);
-          } finally {
-            _sendBypass = false;
-          }
-        }, 100);
-      } else {
-        _deps.setStatus(r.error || "נכשל", true);
-      }
+  function _openQuickCommandMenu(el, query, matches) {
+    // If no matches, close the menu instead of showing "no matches" message
+    if (!matches.length) {
+      _closeQuickCommandMenu();
       return;
     }
-    _deps.setStatus("גולל לתחילה…");
-    await scrollAndCaptureAll();
-    const messages = captureConversation();
-    if (!messages.length) {
-      _deps.setStatus("לא נמצאו הודעות — ודא MSG_SELECTORS", true);
+    _qcQuery = query;
+    _qcMatches = matches;
+    _qcSelectedIndex = 0;
+    _qcMenuOpen = true;
+    _renderQuickCommandMenu();
+    const menu = $el("quickCmdMenu");
+    if (!menu) return;
+    _positionQuickCommandMenu(el, menu);
+    menu.style.display = "block";
+  }
+
+  function _selectQuickCommand(idx) {
+    const block = _qcMatches[idx];
+    if (!block) return;
+    const typedText = "/" + _qcQuery; // the trailing "/query" text detected at the box's end
+    const text = buildFramedBlockText([block]);
+    const r = _deps.injectQuickCommand(typedText, text);
+    _closeQuickCommandMenu();
+    _deps.setStatus(r.ok ? `הוזרק: ${block.title} ✓` : r.error || "נכשל", !r.ok);
+  }
+
+  function _handleQuickCommandInput(e) {
+    // Cheapest possible check first — no quick commands configured yet is
+    // the common case, and this avoids paying for findInput()'s DOM query
+    // on every keystroke system-wide when there's nothing to show anyway.
+    if (!_qcCandidates().length) {
+      if (_qcMenuOpen) _closeQuickCommandMenu();
       return;
     }
-    const wrote = await persistConversation(messages);
-    _deps.setStatus(wrote ? "השיחה נשמרה ✓ (ניתן לשנות שם)" : "אין שינויים");
-    _deps.render();
-  }
-
-  // Force-flush: cancel any pending throttled save and run one now.
-  // Returns the captured messages (after [[CCB:INJECTED]] filtering) so the
-  // caller can decide whether anything real exists.
-  async function flushAutoSave() {
-    if (autoSaveTimer) {
-      clearTimeout(autoSaveTimer);
-      autoSaveTimer = null;
-    }
-    if (!canCapture()) return { messages: [], wrote: false };
-    const messages = captureConversation();
-    if (!messages.length) return { messages: [], wrote: false };
-    const wrote = await persistConversation(messages);
-    return { messages, wrote };
-  }
-
-  // Auto-save — light: no scroll, just capture what's currently in the DOM.
-  // Trailing throttle: first change schedules a save in AUTO_SAVE_INTERVAL_MS;
-  // additional changes during that window are coalesced (timer NOT reset).
-  // After the save fires, the next change schedules a fresh save. This way
-  // during long AI streams we persist every ~2.5s instead of waiting for the
-  // stream to fully stop.
-  let autoSaveTimer = null;
-  const AUTO_SAVE_INTERVAL_MS = 2500;
-  function scheduleAutoSave() {
-    if (!canCapture()) return;
-    if (autoSaveTimer) return;
-    autoSaveTimer = setTimeout(async () => {
-      autoSaveTimer = null;
-      try {
-        const messages = captureConversation();
-        if (!messages.length) return;
-        const wrote = await persistConversation(messages);
-        if (wrote) {
-          console.debug("[ccb] auto-saved", messages.length, "msgs");
-          _deps.render?.();
-        }
-      } catch (e) {
-        console.error("[ccb] auto-save failed:", e);
-      }
-    }, AUTO_SAVE_INTERVAL_MS);
-  }
-
-  // ============================================================
-  let msgObserver = null;
-
-  function canCapture() {
-    const sel = _deps.config.MSG_SELECTORS;
-    return !!(sel && sel.messageList && sel.message);
-  }
-
-  let msgObserverContainer = null;
-  let msgObserverRetryTimer = null;
-
-  function startMsgObserver() {
-    if (!canCapture()) return;
-    const sel = _deps.config.MSG_SELECTORS;
-    const container = document.querySelector(sel.messageList);
-
-    // If we already observe the same live container, nothing to do.
-    if (msgObserver && msgObserverContainer === container && container) return;
-
-    // Container changed (or appeared/disappeared) — tear down old observer first.
-    if (msgObserver) {
-      msgObserver.disconnect();
-      msgObserver = null;
-      msgObserverContainer = null;
-    }
-
-    if (!container) {
-      // Container not in DOM yet — retry. Gemini renders the chat shell async,
-      // so we keep polling until it appears.
-      if (msgObserverRetryTimer) return;
-      msgObserverRetryTimer = setTimeout(() => {
-        msgObserverRetryTimer = null;
-        startMsgObserver();
-      }, 500);
+    const el = _deps.inject.findInput();
+    if (!el || e.target !== el) {
+      if (_qcMenuOpen) _closeQuickCommandMenu();
       return;
     }
-
-    msgObserverContainer = container;
-    if (container.querySelector(sel.message)) scheduleAutoSave();
-
-    msgObserver = new MutationObserver((muts) => {
-      let sawChange = false;
-      for (const m of muts) {
-        if (m.type === "characterData") {
-          sawChange = true;
-          continue;
-        }
-        m.addedNodes.forEach((n) => {
-          if (n.nodeType !== 1) return;
-          if (n.matches?.(sel.message) || n.querySelectorAll?.(sel.message).length) {
-            sawChange = true;
-          }
-        });
-      }
-      if (sawChange) scheduleAutoSave();
-    });
-    msgObserver.observe(container, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-    console.debug("[ccb] msg observer attached to", sel.messageList);
+    const raw = _qcRawBoxText(el);
+    const relevant = _qcRelevantSuffix(raw);
+    if (!relevant.startsWith("/")) {
+      if (_qcMenuOpen) _closeQuickCommandMenu();
+      return;
+    }
+    const afterSlash = relevant.slice(1);
+    const spaceIdx = afterSlash.search(/\s/);
+    if (spaceIdx !== -1) {
+      // Past the command word — either already selected, or this is just a
+      // message that happens to start with "/".
+      if (_qcMenuOpen) _closeQuickCommandMenu();
+      return;
+    }
+    _openQuickCommandMenu(el, afterSlash, _qcMatchesFor(afterSlash));
   }
 
-  function stopMsgObserver() {
-    if (msgObserverRetryTimer) {
-      clearTimeout(msgObserverRetryTimer);
-      msgObserverRetryTimer = null;
+  function _handleQuickCommandKeydown(e) {
+    if (!_qcMenuOpen) return;
+    const el = _deps.inject.findInput();
+    if (!el || e.target !== el) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      _qcSelectedIndex = (_qcSelectedIndex + 1) % Math.max(_qcMatches.length, 1);
+      _renderQuickCommandMenu();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      _qcSelectedIndex =
+        (_qcSelectedIndex - 1 + Math.max(_qcMatches.length, 1)) % Math.max(_qcMatches.length, 1);
+      _renderQuickCommandMenu();
+    } else if ((e.key === "Enter" && !e.isComposing) || e.key === "Tab") {
+      // isComposing excluded the same way the existing auto-inject send
+      // detection does — an IME confirm keystroke isn't a real Enter press.
+      if (!_qcMatches.length) return; // let it behave normally (e.g. send) if nothing to pick
+      e.preventDefault();
+      // Also blocks the site's own send-on-Enter AND _interceptSend's own
+      // keydown handling for this same event — selecting a command must
+      // never also send the message.
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      _selectQuickCommand(_qcSelectedIndex);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      _closeQuickCommandMenu();
     }
-    msgObserver?.disconnect();
-    msgObserver = null;
-    msgObserverContainer = null;
+  }
+
+  let _qcWatcherInstalled = false;
+  function installQuickCommandWatcher() {
+    if (_qcWatcherInstalled) return;
+    _qcWatcherInstalled = true;
+    document.addEventListener("input", _handleQuickCommandInput, true);
+    // Capture phase, and registered before installSendInterceptor's own
+    // keydown listener (see init() below) — belt-and-suspenders with the
+    // stopImmediatePropagation() above so a command-selecting Enter can
+    // never also fall through to send interception.
+    window.addEventListener("keydown", _handleQuickCommandKeydown, true);
   }
 
   // ============================================================
@@ -823,21 +787,22 @@
      *   historyView: object,
      *   loadBlocks, saveBlocks, setStatus, render, updateInjectBtn,
      *   openEdit,
+     *   injectTracked: (text, mode) => { ok, error? }, // Phase 4.1 undo stack — drop-in for inject.injectIntoInput
+     *   injectQuickCommand: (typedText, text) => { ok, error? }, // Phase 4.2 — drop-in for inject.replaceTrailingText, also undo-tracked
+     *   clearInjectionStack: () => void, // wipes the undo stack when a real send strips stray markers
      *   getAutoInjectMode: (source: "gm" | "project") => "start" | "every",
      *   setAutoInjectMode: (source: "gm" | "project", mode) => Promise<string>,
      * }} deps
      */
     init(deps) {
       _deps = deps;
+      installQuickCommandWatcher();
       installSendInterceptor();
     },
     getGM,
     renderGeneralMemory,
     tryAutoInject,
     injectSelected,
-    saveChat,
-    flushAutoSave,
-    startMsgObserver,
-    stopMsgObserver,
+    closeQuickCommandMenu: _closeQuickCommandMenu,
   };
 })();
