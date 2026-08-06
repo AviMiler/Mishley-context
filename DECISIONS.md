@@ -1,5 +1,13 @@
 # Decisions
 
+## [2026-08-06] Parallel Sessions: internal site only — Gemini dropped entirely, not deferred
+
+**Decision:** The Parallel Sessions feature (`sessions.js`, an internal iframe-backed tab strip) ships for the internal chat site only. Gemini support was not built, deferred, or feature-flagged — it was dropped from the design outright before Build started.
+
+**Alternatives considered:** Building the feature generically (site-agnostic, reading `AUTO_OPEN_URLS` for whichever site is active) and letting it simply fail silently or show an error for any site that refuses iframe embedding, rather than hard-coding an internal-only assumption anywhere.
+
+**Why:** A direct `curl -I` against `gemini.google.com` returned `X-Frame-Options: DENY` — an unconditional header that blocks iframe embedding regardless of origin, including same-origin framing. This isn't a same-origin/CSP nuance that a different approach could work around; it's Google's own server refusing to be framed at all, for any reason, from anywhere. There is no fallback available (Gemini has no alternate embeddable surface), so "build it generically and let it fail on Gemini" would ship a FAB button and menu entry point that can never work on the site most users associate with this extension's original purpose — worse than not exposing it there at all. The internal site (`dev-mfe-mishley.ips.gov.il`) was confirmed by the user directly (the agent validating this at Stage 1 couldn't reach the VPN-gated domain itself to verify) as allowing iframe embedding, and is already the currently-active site (`ACTIVE_SITE = "internal"` in `config.js`), so this isn't a regression for current usage. **Anyone re-proposing Gemini support for this feature in the future must first re-check whether Google has changed this header** — it was not treated as a soft, revisit-later scope cut; it's a hard platform constraint discovered directly, the same category of finding as ARCHITECTURE.md's "Rejected: migrating to chrome.sidePanel" section above.
+
 ## [2026-08-04] Cross-tab sync (E1) self-write guard: monotonic generation counter, not a boolean flag or no guard at all
 
 **Decision:** The `chrome.storage.onChanged` listener that refreshes `state.blocks` from another tab's write applies an incoming snapshot only when `_writeGeneration === _lastSavedGeneration` — a monotonic counter (`_writeGeneration`, incremented on every `saveBlocks()` call) compared against the generation of the most recent write that's actually confirmed durable (`_lastSavedGeneration`, which only ever advances). If there's any local edit not yet confirmed durable — whether it's this tab's own pending write or one about to be overwritten by an external one — the listener defers instead of applying.

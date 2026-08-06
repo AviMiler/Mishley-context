@@ -49,6 +49,16 @@ window.__ccbCSS = (() => {
     .fab:hover { width: 28px; background: #2a2622; }
     .fab.hidden { left: -32px; pointer-events: none; }
 
+    /* Sessions FAB — a second, smaller trigger stacked below the main FAB,
+       opening the parallel-sessions overlay (#sessionsView). Shares the
+       .fab class (same base look + the pre-existing .hidden rule content.js
+       already toggles alongside the main FAB whenever the panel opens) with
+       only its vertical offset overridden. Hidden outright (not just via
+       .hidden) when this content-script instance is itself running inside
+       one of our own session iframes — see sessions.js#isInsideOwnIframe —
+       to prevent opening session management from within a session. */
+    .fab-sessions { top: calc(50% + 64px); }
+
     /* Message navigation (2026-08-06) — two floating arrows, fixed near the
        bottom-left of the viewport (page-fixed, like the FAB, not scoped to
        the panel), stepping through the host page's own chat messages.
@@ -1881,5 +1891,79 @@ window.__ccbCSS = (() => {
     .quick-cmd-empty {
       padding: 10px; color: var(--text-ghost); font-style: italic; font-size: 12px;
     }
+
+    /* ── Parallel sessions overlay (#sessionsView) ──
+       A full-viewport takeover (inset:0, NOT confined to the panel's own
+       380px like #filePreviewView/#depManagerView/etc.) that lets the user
+       switch between the chat that's actually loaded in the top-level page
+       (the "native" tab, no iframe of its own) and same-origin <iframe>
+       copies of the same site, each an independent chat session with its
+       own fully-mounted Mishley instance inside it (content_scripts run in
+       all_frames — see the manifest.json rule at the bottom of this file's
+       host CLAUDE.md). Sits above literally everything else this shadow
+       root renders, including #quickCmdMenu (2147483000) — when open it's
+       meant to dominate the screen. Selecting the native tab's pill hides
+       this whole overlay outright rather than showing any "native" content
+       inside it, since the native page's own DOM already sits underneath
+       and needs no representation here — see sessions.js#switchSession. */
+    #sessionsView {
+      position: fixed; inset: 0; z-index: 2147483001;
+      display: none; flex-direction: column;
+      background: var(--bg-app);
+      font-family: var(--font-he); font-size: 13px; direction: rtl;
+      color: var(--text-strong);
+      pointer-events: auto;
+    }
+    #sessionsView.sv-open { display: flex; }
+    .sessions-tabstrip {
+      display: flex; align-items: center; gap: 6px;
+      padding: 8px 10px; flex-shrink: 0;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-card);
+    }
+    .sessions-tabs {
+      display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0;
+      overflow-x: auto;
+    }
+    .sessions-tab {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 10px; border: 1px solid var(--border-input);
+      border-radius: var(--r-pill); background: var(--bg-tag);
+      color: var(--text-mute); font-family: var(--font-he); font-size: 12px;
+      cursor: pointer; white-space: nowrap; flex-shrink: 0;
+      transition: background var(--t-fast), color var(--t-fast);
+    }
+    .sessions-tab:hover { background: var(--bg-clear); }
+    .sessions-tab.active {
+      background: var(--text-strong); color: var(--bg-app);
+      border-color: var(--text-strong);
+    }
+    .sessions-tab-label {
+      max-width: 160px; overflow: hidden; text-overflow: ellipsis;
+    }
+    .sessions-tab-close {
+      display: flex; align-items: center; justify-content: center;
+      width: 14px; height: 14px; border-radius: 50%;
+      opacity: .7;
+    }
+    .sessions-tab-close:hover { opacity: 1; }
+    .sessions-tab-close svg { width: 9px; height: 9px; }
+    .sessions-add-btn, .sessions-close-btn {
+      flex-shrink: 0; width: 30px; height: 30px; border: none;
+      background: var(--bg-tag); color: var(--text-mute); border-radius: 8px;
+      display: flex; align-items: center; justify-content: center; cursor: pointer;
+    }
+    .sessions-add-btn:hover, .sessions-close-btn:hover { background: var(--bg-clear); color: var(--text-strong); }
+    .sessions-frame-container { position: relative; flex: 1; min-height: 0; }
+    .sessions-iframe {
+      position: absolute; inset: 0; width: 100%; height: 100%; border: 0;
+    }
+    .sessions-empty-hint {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 8px; color: var(--text-ghost); text-align: center; padding: 24px;
+    }
+    .sessions-empty-hint > div:first-child { color: var(--text-faint); }
+    .sessions-empty-sub { max-width: 320px; font-size: 12px; color: var(--text-ghost); }
   `;
 })();

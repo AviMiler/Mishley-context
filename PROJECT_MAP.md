@@ -1,5 +1,5 @@
 # Project Map
-_Last updated: 2026-08-06_
+_Last updated: 2026-08-06 (added sessions.js — Parallel Sessions, internal site only)_
 
 ## File Tree
 ```
@@ -33,6 +33,7 @@ _Last updated: 2026-08-06_
 ├── history-view.js                # Projects only (2026-08-04) — see its file description below
 ├── chat-features.js
 ├── msg-nav.js                     # floating prev/next widget over the host page's own chat messages
+├── sessions.js                    # Parallel Sessions (internal site only) — iframe-backed tab strip
 ├── content.js
 ├── background.js                  # MV3 service worker — tree-sitter WASM parser host for dep-graph.js
 ├── wasm/                          # vendored tree-sitter runtime + grammars (see DEPENDENCIES.md)
@@ -73,6 +74,7 @@ _Last updated: 2026-08-06_
 | `history-view.js` | Unified project list (regular + code projects) + project detail view, project documents UI, code-project bookmark/rescan/picker actions, and the shared floating-menu host (`#hiDropdown`). Projects-only since 2026-08-04 (the History tab / conversation-history feature it also used to hold was retired) — kept its filename regardless, to avoid churning the manifest load order and every cross-module reference for a cosmetic mismatch (see DECISIONS.md). Exports `window.__ccbHistoryView`. |
 | `chat-features.js` | General Memory card + auto-inject, manual multi-block injection, quick commands. Exports `window.__ccbChat`. |
 | `msg-nav.js` | Floating prev/next widget, independent of the sidebar panel, that scrolls+highlights through the host page's own chat messages (all roles, unfiltered) using `config.js`'s existing `MSG_SELECTORS`. No storage, no shared `state` fields, and (2026-08-06) no persistent index-based cursor — position is derived from the live viewport, with a brief same-click settle-window memory (`_lastTarget`, ~700ms) so rapid repeated clicks don't misread a still-animating scroll; see ARCHITECTURE.md. Exports `window.__ccbMsgNav`. |
+| `sessions.js` | Parallel Sessions (2026-08-06, internal site only — Gemini dropped, `X-Frame-Options: DENY`). An internal tab strip (`#sessionsView`) letting the user run several independent chat conversations on the same site in one browser tab: tab #1 ("native") is the top-level page itself, untouched; every other tab is a same-origin `<iframe>` that auto-mounts its own independent Mishley instance (`all_frames:true`, no extra wiring). Owns only the tab strip — create/close/rename/switch, storage (`ccb_sessions`, titles only). Joins the existing `.cv-shell` full-pane mutual-exclusion group; deliberately does not close on panel-close. Exports `window.__ccbSessions`. See CLAUDE.md Features overview, DECISIONS.md. |
 | `content.js` | Orchestrator: shared `state`, Shadow DOM mount, `initModules` wiring, central event switchboard, edit form, general/project-blocks list render, `ctx-project`→`project` migration, storage migration, backup export/import, init/routing. |
 | `icon.png` / `icon.svg` | Extension icon assets. |
 | `FILE_EXTENSIONS_REFERENCE.txt` | Reference notes on file extensions/MIME types used when tuning `ctx-meter.js`/`document-handler.js` token estimation. |

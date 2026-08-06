@@ -66,6 +66,7 @@ Point 4 as originally written here ("one conversation per page load stops workin
 | `history-view.js`     | Projects (list + detail view) + document UI + code-project UI + shared floating-menu host → `window.__ccbHistoryView`. Projects-only since 2026-08-04 — see "Removed: conversation-history feature" below.    | 1445   |
 | `chat-features.js`    | GM + manual injection + quick commands → `window.__ccbChat`                                            | 808    |
 | `msg-nav.js`          | Floating prev/next widget over the host page's own chat messages (scroll+highlight), independent of the panel → `window.__ccbMsgNav`. Reuses `config.js`'s `MSG_SELECTORS`                | ~117    |
+| `sessions.js`         | Parallel Sessions (internal site only, 2026-08-06) — internal tab strip over same-origin `<iframe>`s of the active site, each auto-mounting its own independent Mishley instance (`all_frames:true`) → `window.__ccbSessions`. Gemini dropped (`X-Frame-Options: DENY`); see CLAUDE.md Features overview + DECISIONS.md | 277    |
 | `content.js`          | Orchestrator: state, mount, wireEvents, edit form, context list, backup, init                                 | 1821   |
 | `background.js`       | MV3 service worker hosting the tree-sitter WASM parsers (NOT a content script — see its own section)          | ~250    |
 | `wasm/`               | Vendored tree-sitter runtime + grammar binaries (see DEPENDENCIES.md)                                         | 4 files |
@@ -74,7 +75,7 @@ Point 4 as originally written here ("one conversation per page load stops workin
 | `popup.html`          | Toolbar popup — sends `togglePanel` to the active tab                                                         | —       |
 | `popup.js`            | Popup script (calls chrome.tabs.sendMessage and closes)                                                       | ~15     |
 
-**Manifest load order:** `tokenizer.js` → `config.js` → `prompts.js` → `storage.js` → `inject.js` → `push.js` → `ui-styles.js` → `ui-template.js` → `ctx-meter.js` → `ui-modals.js` → `fs-handles.js` → `document-handler.js` → `dep-graph.js` → `code-tree.js` → `history-view.js` → `chat-features.js` → `msg-nav.js` → `content.js`
+**Manifest load order:** `tokenizer.js` → `config.js` → `prompts.js` → `storage.js` → `inject.js` → `push.js` → `ui-styles.js` → `ui-template.js` → `ctx-meter.js` → `ui-modals.js` → `fs-handles.js` → `document-handler.js` → `dep-graph.js` → `code-tree.js` → `history-view.js` → `chat-features.js` → `msg-nav.js` → `sessions.js` → `content.js`
 
 ## Global API surface (`window.__ccb*`)
 
@@ -98,6 +99,7 @@ Point 4 as originally written here ("one conversation per page load stops workin
 | `__ccbChat`        | `chat-features.js`    | `init`, `getGM`, `renderGeneralMemory`, `tryAutoInject`, `injectSelected`, `closeQuickCommandMenu`                                                                                                                                                                                                                                                                                                                                                                      |
 
 | `__ccbMsgNav`      | `msg-nav.js`          | `init(deps)`, `goPrev()`, `goNext()`, `reset()`                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `__ccbSessions`    | `sessions.js`         | `init(deps)`, `openSessionsView()`, `closeSessionsView()`, `addSession()`, `closeSession(id)`, `renameSession(id)`, `switchSession(id)`, `isInsideOwnIframe()`. Internal site only — see CLAUDE.md Features overview                                                                                                                                                                                                                                                             |
 
 ## Module wiring
 
@@ -244,6 +246,7 @@ const ACTIVE_SITE = "gemini"; // ← change to "internal" for the internal chat
 | `chrome.storage.local.ccb_storageVersion`        | storage.js / content.js | `number`, currently `3`. Guards the one-time `content.js#migrateStorage` split of the (formerly single, ~138MB for one real user) `blocks` map into the per-item keys below, plus (since v3) the permanent purge of conversation-history data — see "Storage shape"'s "Storage layout v3" paragraph for the full rationale. Importing any older backup rewinds this to `1` so the migration re-runs. |
 | `chrome.storage.local["depGraph_<projectId>"]`   | storage.js | one code project's scanned import graph (Storage layout v3) — `storage.js#loadDepGraph`/`saveDepGraph`/`removeDepGraph`, written only on scan |
 | `chrome.storage.local.ccb_lastOrphanGC`          | content.js | `number` (timestamp, D4, 2026-08-04) — throttles `maybeRunAutomaticOrphanGc()`'s sweep to once per 24h. Written even when the sweep itself fails, so a failure can't retry-storm on every load. See "Storage shape"'s "Orphan cleanup + cross-tab sync" paragraph. |
+| `chrome.storage.local.ccb_sessions`              | sessions.js | `Array<{ id, title, createdAt }>` (2026-08-06, internal site only) — the Parallel Sessions tab list, via the generic `storage.js#get`/`set` (no dedicated loader). Titles only, no URL/conversation state. Written by `sessions.js#saveSessions()`. |
 
 `chrome.storage.local["conv_<id>"]` (one conversation's `messages[]`) was retired 2026-08-04 along with the conversation-history feature — `storage.js#purgeConversationData` deletes these keys permanently rather than reading/writing them.
 

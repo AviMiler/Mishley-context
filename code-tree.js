@@ -861,6 +861,7 @@
       closeDepsManager();
       closeDepPicker();
       window.__ccbModals?.closeOnboarding?.();
+      window.__ccbSessions?.closeSessionsView?.();
       const view = shadow.getElementById("filePreviewView");
       view?.classList.add("cv-open");
       view?.setAttribute("aria-hidden", "false");
@@ -1640,6 +1641,7 @@
     closeFilePreview();
     closeDepPicker();
     window.__ccbModals?.closeOnboarding?.();
+    window.__ccbSessions?.closeSessionsView?.();
     const shadow = _deps.getShadow?.();
     if (!shadow) return;
     const view = shadow.getElementById("depManagerView");
@@ -1849,6 +1851,7 @@
     closeFilePreview();
     closeDepsManager();
     window.__ccbModals?.closeOnboarding?.();
+    window.__ccbSessions?.closeSessionsView?.();
     const shadow = _deps.getShadow?.();
     if (!shadow) return;
     wireDepPickerOnce();

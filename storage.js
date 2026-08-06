@@ -7,6 +7,7 @@
 //   depGraph_<id>      — one code project's scanned import graph (A2)
 //   codeContent_<id>   — one code file's text     (pre-existing, document-handler.js)
 //   docBlob_<id>       — one uploaded doc's blob  (pre-existing, document-handler.js)
+//   ccb_sessions       — parallel-session tab list (sessions.js), via the generic get/set below
 //
 // WHY this split exists: chrome.storage.local.set({ blocks }) re-serializes
 // and rewrites the ENTIRE map on every call, and there are ~30 saveBlocks()
@@ -221,5 +222,6 @@ window.__ccbStorage = (() => {
     setBatched,
     remove,
     get,
+    set,
   };
 })();

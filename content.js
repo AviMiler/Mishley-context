@@ -13,6 +13,7 @@
 //   history-view.js  → window.__ccbHistoryView
 //   chat-features.js → window.__ccbChat
 //   msg-nav.js       → window.__ccbMsgNav
+//   sessions.js      → window.__ccbSessions
 
 (async () => {
   if (window.__ccbInstalled) return;
@@ -580,6 +581,15 @@
 
     $el("fab").style.pointerEvents = "auto";
     $el("panel").style.pointerEvents = "auto";
+    if (window.__ccbSessions.isInsideOwnIframe()) {
+      // Session management only makes sense from the top-level page — a
+      // session iframe already has its own fully independent Mishley
+      // instance mounted inside it, and opening the FAB there would let
+      // sessions nest inside sessions pointlessly.
+      $el("sessionsBtn").style.display = "none";
+    } else {
+      $el("sessionsBtn").style.pointerEvents = "auto";
+    }
 
     wireEvents();
   }
@@ -607,6 +617,13 @@
     });
 
     window.__ccbMsgNav.init({ getShadow, MSG_SELECTORS });
+
+    window.__ccbSessions.init({
+      getShadow,
+      AUTO_OPEN_URLS: CONFIG_PUBLIC.AUTO_OPEN_URLS,
+      IC,
+      setStatus,
+    });
 
     modals.init({
       getShadow,
@@ -732,6 +749,9 @@
     $el("fab").addEventListener("click", togglePanel);
     $el("msgNavPrev").addEventListener("click", () => window.__ccbMsgNav.goPrev());
     $el("msgNavNext").addEventListener("click", () => window.__ccbMsgNav.goNext());
+    $el("sessionsBtn")?.addEventListener("click", () => window.__ccbSessions.openSessionsView());
+    $el("sessionsAddBtn")?.addEventListener("click", () => window.__ccbSessions.addSession());
+    $el("sessionsCloseBtn")?.addEventListener("click", () => window.__ccbSessions.closeSessionsView());
     $el("settingsBtn").addEventListener("click", (e) => {
       e.stopPropagation();
       modals.closeSettings();
@@ -749,6 +769,7 @@
         window.__ccbCodeTree?.closeFilePreview?.();
         window.__ccbCodeTree?.closeDepsManager?.();
         window.__ccbCodeTree?.closeDepPicker?.();
+        window.__ccbSessions?.closeSessionsView?.();
       }
     });
     $el("scanSettingsOverlay")?.addEventListener("click", (e) => {
@@ -980,6 +1001,7 @@
       await loadBlocks();
       $el("panel").classList.add("open");
       $el("fab").classList.add("hidden");
+      $el("sessionsBtn")?.classList.add("hidden");
       pushPage(true);
       render();
       updateInjectBtn();
@@ -997,6 +1019,7 @@
       window.__ccbHistoryView.closeProjectSelectDropdown();
       $el("panel").classList.remove("open");
       $el("fab").classList.remove("hidden");
+      $el("sessionsBtn")?.classList.remove("hidden");
       pushPage(false);
       closeEdit();
     }
