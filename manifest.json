@@ -21,8 +21,9 @@
   "content_scripts": [
     {
       "matches": ["*://*/*"],
-      "js": ["tokenizer.js", "config.js", "prompts.js", "storage.js", "inject.js", "push.js", "ui-styles.js", "ui-template.js", "ctx-meter.js", "ui-modals.js", "fs-handles.js", "document-handler.js", "dep-graph.js", "code-tree.js", "history-view.js", "chat-features.js", "content.js"],
-      "run_at": "document_idle"
+      "js": ["tokenizer.js", "config.js", "prompts.js", "storage.js", "inject.js", "push.js", "ui-styles.js", "ui-template.js", "ctx-meter.js", "ui-modals.js", "fs-handles.js", "document-handler.js", "dep-graph.js", "code-tree.js", "history-view.js", "chat-features.js", "msg-nav.js", "content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ],
   "commands": {

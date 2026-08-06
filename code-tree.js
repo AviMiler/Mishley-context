@@ -32,6 +32,10 @@
   let _query = "";
   let _collapsedPaths = new Set();
   let _searchCollapsedPaths = new Set(); // tracks per-folder collapse state during search, separate from normal browse mode
+  // Collapse state for the pinned favorites section (2026-08-05) — same
+  // per-project reset point as _collapsedPaths (see renderInline), default
+  // expanded (false) on first view of a project.
+  let _favoritesCollapsed = false;
 
   // "התאמה אישית" (custom) dependency-load picker state — see the full
   // comment block further down (right before dpComputeCandidates) for what
@@ -102,6 +106,159 @@
     return paths;
   }
 
+  // Same folder-path enumeration as allFolderPaths, but a folder is only
+  // seeded into the "starts collapsed" set when NONE of its descendant files
+  // (at any depth) are enabled — a folder already holding a selected file
+  // starts expanded instead, so the user's existing selection is visible on
+  // first view without manually expanding it (2026-08-05). "Has an enabled
+  // descendant" is checked the same way collectDocs()'s tri-state checkbox
+  // already treats "this folder has selected files" — recursively, over
+  // every file under the path — just via a plain prefix match over the flat
+  // doc-name list instead of walking a built tree, since that's all
+  // allFolderPaths needs too.
+  function initiallyCollapsedFolderPaths(docs) {
+    const allPaths = allFolderPaths(docs);
+    const collapsed = new Set();
+    for (const path of allPaths) {
+      const prefix = path + "/";
+      const hasEnabled = docs.some(
+        (d) => d.enabled && d.name.startsWith(prefix),
+      );
+      if (!hasEnabled) collapsed.add(path);
+    }
+    return collapsed;
+  }
+
+  // Builds one file row's DOM — shared by the scanned-tree file branch
+  // (renderNode), the flat manually-added list (renderManualFilesSection),
+  // and the pinned favorites section (renderFavoritesSection, 2026-08-05) —
+  // so a file's row (checkbox/star/preview/deps/remove) stays identical
+  // wherever it's rendered instead of drifting across separate copies.
+  // `doc.isManuallyAdded` alone decides the remove button and the deps-menu
+  // tooltip's manual-only note — not which section is doing the rendering,
+  // since a favorited manually-added file still needs both when shown here.
+  function buildFileRow(doc, { displayName = doc.name, displayTitle = doc.name } = {}) {
+    const isManual = !!doc.isManuallyAdded;
+    const row = document.createElement("div");
+    row.className = "code-tree-row" + (isManual ? " code-tree-manual-row" : "");
+
+    const spacer = document.createElement("span");
+    spacer.className = "code-tree-spacer";
+    row.appendChild(spacer);
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "code-tree-checkbox";
+    checkbox.checked = !!doc.enabled;
+    checkbox.addEventListener("change", () => {
+      _deps.docHandler.toggleDocument(_project.id, doc.id, checkbox.checked);
+      // A full top-level render (not just updateTokenCount()) — same pattern
+      // as the regular-project flat document list's own checkbox — so the
+      // footer inject button's enabled state (content.js#syncInjectDocsBtn)
+      // picks up single-file toggles too, not just bulk changes.
+      _deps.render();
+    });
+    row.appendChild(checkbox);
+
+    const icon = document.createElement("span");
+    icon.className = "code-tree-icon";
+    icon.innerHTML = IC().file;
+    row.appendChild(icon);
+
+    const label = document.createElement("span");
+    label.className = "code-tree-label";
+    label.textContent = displayName;
+    row.appendChild(label);
+    row.title = displayTitle;
+
+    const favBtn = document.createElement("button");
+    favBtn.type = "button";
+    favBtn.className =
+      "code-tree-favorite-btn" + (doc.favorite ? " active" : "");
+    favBtn.innerHTML = IC().star;
+    favBtn.title = doc.favorite ? "הסר ממועדפים" : "הוסף למועדפים";
+    favBtn.setAttribute("aria-label", favBtn.title);
+    favBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const nowFavorite = !doc.favorite;
+      _deps.docHandler.toggleFavorite(_project.id, doc.id, nowFavorite);
+      // Force the favorites section open on ADD (2026-08-05 fix) — otherwise
+      // a section the user had collapsed earlier (while it held other
+      // favorites, or was toggled shut out of curiosity) stays collapsed
+      // when a new file is starred, so the user never actually sees what
+      // they just added. Only forces open on add, never on remove — removing
+      // a favorite shouldn't fight a deliberate collapse.
+      if (nowFavorite) _favoritesCollapsed = false;
+      _deps.render();
+    });
+
+    const previewBtn = document.createElement("button");
+    previewBtn.type = "button";
+    previewBtn.className = "code-tree-preview-btn";
+    previewBtn.innerHTML = IC().eye;
+    previewBtn.title = "תצוגה מקדימה";
+    previewBtn.setAttribute("aria-label", "תצוגה מקדימה");
+    previewBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void openPreview(doc);
+    });
+
+    const depsBtn = document.createElement("button");
+    depsBtn.type = "button";
+    depsBtn.className = "code-tree-deps-btn";
+    depsBtn.innerHTML = IC().link;
+    depsBtn.title = isManual
+      ? "אפשרויות תלויות (ציון ידני בלבד — קובץ שנוסף ידנית אינו נסרק אוטומטית)"
+      : "אפשרויות תלויות (ניתוח סטטי, best-effort)";
+    depsBtn.setAttribute("aria-label", "אפשרויות תלויות");
+    depsBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openDepsMenu(doc, depsBtn);
+    });
+
+    // כפתורי הפעולה מקובצים יחד (לא כל אחד ישירות בשורה), כדי שיוכלו
+    // להידחק זה לזה יותר מריווח ה-gap הרגיל של השורה, ולפנות רוחב נוסף
+    // לטקסט השם — ראה .code-tree-file-actions ב-ui-styles.js. שם מחלקה שונה
+    // בכוונה מ-.code-tree-actions הקיים (שורת "בחר הכל"/"נקה הכל" מעל העץ)
+    // כדי לא להתנגש איתו.
+    const fileActions = document.createElement("span");
+    fileActions.className = "code-tree-file-actions";
+    fileActions.appendChild(favBtn);
+    fileActions.appendChild(previewBtn);
+    fileActions.appendChild(depsBtn);
+
+    if (isManual) {
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "code-tree-preview-btn code-tree-remove-btn";
+      removeBtn.innerHTML = IC().trash;
+      removeBtn.title = "הסר קובץ";
+      removeBtn.setAttribute("aria-label", "הסר קובץ");
+      removeBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const ok = await _deps.modals.showConfirm({
+          title: "הסרת קובץ",
+          msg: `להסיר את "${doc.name}" מהפרויקט?`,
+        });
+        if (!ok) return;
+        await _deps.docHandler.removeDocument(_project.id, doc.id);
+        await _deps.docHandler.removeCodeContent(doc.id);
+        if (doc.fileHandleId)
+          window.__ccbFsHandles.remove(doc.fileHandleId).catch(() => {});
+        _deps.render();
+      });
+      fileActions.appendChild(removeBtn);
+    }
+    row.appendChild(fileActions);
+
+    row.addEventListener("click", (e) => {
+      if (e.target === checkbox || fileActions.contains(e.target)) return;
+      checkbox.checked = !checkbox.checked;
+      checkbox.dispatchEvent(new Event("change"));
+    });
+    return row;
+  }
+
   function renderNode(node, container, depth, forceExpand) {
     const names = Object.keys(node.children).sort((a, b) => {
       const aIsDir = !node.children[a].doc;
@@ -113,11 +270,11 @@
     for (const name of names) {
       const child = node.children[name];
       const isDir = !child.doc;
-      const row = document.createElement("div");
-      row.className = "code-tree-row";
-      row.style.marginInlineStart = `${depth * 14}px`;
 
       if (isDir) {
+        const row = document.createElement("div");
+        row.className = "code-tree-row";
+        row.style.marginInlineStart = `${depth * 14}px`;
         // During search (forceExpand=true), check _searchCollapsedPaths to see if the user
         // explicitly collapsed this folder despite the query; otherwise use _collapsedPaths.
         const activeSet = forceExpand ? _searchCollapsedPaths : _collapsedPaths;
@@ -176,86 +333,135 @@
         container.appendChild(childrenWrap);
         renderNode(child, childrenWrap, depth + 1, forceExpand);
       } else {
-        const spacer = document.createElement("span");
-        spacer.className = "code-tree-spacer";
-        row.appendChild(spacer);
-
-        const checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.className = "code-tree-checkbox";
-        checkbox.checked = !!child.doc.enabled;
-        checkbox.addEventListener("change", () => {
-          _deps.docHandler.toggleDocument(
-            _project.id,
-            child.doc.id,
-            checkbox.checked,
-          );
-          // A full top-level render (not just updateTokenCount()) — same
-          // pattern as the regular-project flat document list's own
-          // checkbox (history-view.js) — so the footer inject button's
-          // enabled state (content.js#syncInjectDocsBtn) picks up single-file
-          // toggles too, not just folder-level/select-all bulk changes.
-          _deps.render();
+        // Basename-only label (indentation already shows the hierarchy) —
+        // the full relative path still goes in the tooltip, and buildFileRow
+        // defaults both to the doc's full name for its OTHER callers
+        // (manual-files list, favorites section), which aren't nested in a
+        // folder tree and need the full path visible.
+        const fileRow = buildFileRow(child.doc, {
+          displayName: name,
+          displayTitle: child.path,
         });
-        row.appendChild(checkbox);
-
-        const icon = document.createElement("span");
-        icon.className = "code-tree-icon";
-        icon.innerHTML = IC().file;
-        row.appendChild(icon);
-
-        const label = document.createElement("span");
-        label.className = "code-tree-label";
-        label.textContent = name;
-        row.appendChild(label);
-        row.title = child.path;
-
-        const previewBtn = document.createElement("button");
-        previewBtn.type = "button";
-        previewBtn.className = "code-tree-preview-btn";
-        previewBtn.innerHTML = IC().eye;
-        previewBtn.title = "תצוגה מקדימה";
-        previewBtn.setAttribute("aria-label", "תצוגה מקדימה");
-        previewBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          void openPreview(child.doc);
-        });
-
-        const depsBtn = document.createElement("button");
-        depsBtn.type = "button";
-        depsBtn.className = "code-tree-deps-btn";
-        depsBtn.innerHTML = IC().link;
-        depsBtn.title = "אפשרויות תלויות (ניתוח סטטי, best-effort)";
-        depsBtn.setAttribute("aria-label", "אפשרויות תלויות");
-        depsBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          openDepsMenu(child.doc, depsBtn);
-        });
-
-        // שני כפתורי הפעולה מקובצים יחד (לא כל אחד ישירות בשורה), כדי
-        // שיוכלו להידחק זה לזה יותר מריווח ה-gap הרגיל של השורה, ולפנות
-        // רוחב נוסף לטקסט השם — ראה .code-tree-file-actions ב-ui-styles.js.
-        // שם מחלקה שונה בכוונה מ-.code-tree-actions הקיים (שורת "בחר
-        // הכל"/"נקה הכל" מעל העץ) כדי לא להתנגש איתו.
-        const fileActions = document.createElement("span");
-        fileActions.className = "code-tree-file-actions";
-        fileActions.appendChild(previewBtn);
-        fileActions.appendChild(depsBtn);
-        row.appendChild(fileActions);
-
-        row.addEventListener("click", (e) => {
-          if (
-            e.target === checkbox ||
-            e.target === depsBtn ||
-            e.target === previewBtn
-          )
-            return;
-          checkbox.checked = !checkbox.checked;
-          checkbox.dispatchEvent(new Event("change"));
-        });
-        container.appendChild(row);
+        fileRow.style.marginInlineStart = `${depth * 14}px`;
+        container.appendChild(fileRow);
       }
     }
+  }
+
+  // ============================================================
+  // Hover list of selected files (2026-08-06) — hovering the "X קבצים
+  // נבחרים" label shows which files are actually selected, reusing the
+  // shared #hiDropdown host and the exact row styling ctx-meter.js's own
+  // uploaded-files dropdown already uses (.ctx-files-dropdown/.ctx-file-item/
+  // .ctx-file-name/.ctx-file-tokens) — same concept (a dropdown listing
+  // files with their token counts), just a different data source.
+  //
+  // A short close-delay (not an immediate close on mouseleave) lets the
+  // mouse travel from the label into the dropdown itself without it
+  // vanishing first; the dropdown's own mouseenter/mouseleave (wired once,
+  // guarded by dd.dataset.menuType so it doesn't interfere with this
+  // module's OTHER #hiDropdown consumer, the per-file deps menu) cancels or
+  // re-arms that same timer.
+  // ============================================================
+  let _selectedFilesCloseTimer = null;
+  let _selectedFilesDropdownWired = false;
+
+  function scheduleSelectedFilesClose() {
+    if (_selectedFilesCloseTimer !== null) clearTimeout(_selectedFilesCloseTimer);
+    _selectedFilesCloseTimer = setTimeout(() => {
+      _deps.historyView.closeHiDropdown();
+      _selectedFilesCloseTimer = null;
+    }, 150);
+  }
+
+  function cancelSelectedFilesClose() {
+    if (_selectedFilesCloseTimer !== null) {
+      clearTimeout(_selectedFilesCloseTimer);
+      _selectedFilesCloseTimer = null;
+    }
+  }
+
+  function wireSelectedFilesHoverBridge(dd) {
+    if (_selectedFilesDropdownWired) return;
+    _selectedFilesDropdownWired = true;
+    dd.addEventListener("mouseenter", () => {
+      if (dd.dataset.menuType === "selectedFiles") cancelSelectedFilesClose();
+    });
+    dd.addEventListener("mouseleave", () => {
+      if (dd.dataset.menuType === "selectedFiles") scheduleSelectedFilesClose();
+    });
+  }
+
+  function openSelectedFilesHover() {
+    if (!_project) return;
+    // Same set updateTokenCount() itself counts — the structure doc is
+    // deliberately excluded there, so the list shown here must match.
+    const enabled = (_project.documents || []).filter(
+      (d) => d.enabled && d.type === "code",
+    );
+    if (!enabled.length) return;
+    const dd = _deps.getShadow?.()?.getElementById("hiDropdown");
+    if (!dd) return;
+    // Tear down this module's OWN other #hiDropdown consumer (the per-file
+    // deps menu) first — closeDepsMenu() removes its outside-click listener
+    // AND calls the generic historyView.closeHiDropdown() — so a currently-
+    // open deps menu doesn't get silently overwritten with a dangling
+    // listener left behind.
+    closeDepsMenu();
+    cancelSelectedFilesClose();
+    wireSelectedFilesHoverBridge(dd);
+    dd.innerHTML = "";
+    dd.classList.add("ctx-files-dropdown");
+    dd.dataset.menuType = "selectedFiles";
+    const sorted = [...enabled].sort((a, b) => a.name.localeCompare(b.name));
+    for (const doc of sorted) {
+      const item = document.createElement("div");
+      item.className = "hd-item ctx-file-item";
+      item.style.cursor = "default"; // read-only list, not a clickable action
+      const name = document.createElement("span");
+      name.className = "ctx-file-name";
+      name.textContent = doc.name;
+      name.title = doc.name;
+      const tokens = document.createElement("span");
+      tokens.className = "ctx-file-tokens";
+      tokens.textContent = (doc.estimatedTokens || 0).toLocaleString("he-IL");
+      item.append(name, tokens);
+      dd.appendChild(item);
+    }
+    // Shown BEFORE measuring/positioning — offsetWidth/offsetHeight read 0
+    // on a display:none element, which this still is until "open" is added.
+    dd.classList.add("open");
+    positionSelectedFilesDropdown(dd);
+  }
+
+  // A passive hover tooltip should stay visually INSIDE the panel, not spill
+  // onto the host page — unlike historyView.positionHiDropdown()'s deliberate
+  // side-popout style (anchorRect.right + 6), which is right for a clicked
+  // action menu (the per-file deps menu) but read as broken here: reported
+  // by the user as "the whole popup overflows." Positions directly below the
+  // label instead, clamped to the panel's own rect on every side so it can
+  // never extend past it.
+  function positionSelectedFilesDropdown(dd) {
+    const rect = _tokenEl.getBoundingClientRect();
+    const panelRect = _deps
+      .getShadow?.()
+      ?.getElementById("panel")
+      ?.getBoundingClientRect?.();
+    let top = rect.bottom + 6;
+    let left = rect.left;
+    if (panelRect) {
+      const margin = 12;
+      const minLeft = panelRect.left + margin;
+      const maxLeft = Math.max(minLeft, panelRect.right - margin - dd.offsetWidth);
+      left = Math.min(Math.max(left, minLeft), maxLeft);
+      const maxTop = Math.max(
+        panelRect.top + margin,
+        panelRect.bottom - margin - dd.offsetHeight,
+      );
+      top = Math.min(top, maxTop);
+    }
+    dd.style.top = top + "px";
+    dd.style.left = left + "px";
   }
 
   function updateTokenCount() {
@@ -370,6 +576,69 @@
     return row;
   }
 
+  // Pinned "favorites" section (2026-08-05) — the user's own choice of
+  // frequently-needed files, independent of the folder tree's path
+  // hierarchy. Sits below the structure row and above the scanned tree, per
+  // the user's explicit placement choice. Spans BOTH scanned and manually-
+  // added files (doc.favorite is a plain boolean set from either section's
+  // star button, via the shared buildFileRow) and deliberately does NOT
+  // remove a favorited file from its normal tree/manual-list spot — this is
+  // a duplicate view, not a move, per the user's explicit choice. Collapsible
+  // like a folder (own _favoritesCollapsed flag, same collapse-btn/
+  // .code-tree-children pattern a folder row uses) — hidden entirely when
+  // there are no favorites yet, same as renderManualFilesSection's own
+  // "only render if non-empty" pattern. Not affected by the search query,
+  // matching renderStructureRow's precedent for a pinned, always-visible row.
+  function renderFavoritesSection(container) {
+    const favDocs = (_project.documents || []).filter(
+      (d) => d.type === "code" && d.favorite,
+    );
+    if (!favDocs.length) return;
+
+    // Wraps the header + list together so the separator (2026-08-05: moved
+    // from directly under the header to the bottom of the whole favorites
+    // block, per the user's explicit request) stays visible below the list
+    // even when collapsed — it lives on this outer wrapper, not on the
+    // header or on .code-tree-children (which is display:none when
+    // collapsed and would take the separator down with it).
+    const section = document.createElement("div");
+    section.className = "code-tree-favorites-section";
+
+    const header = document.createElement("div");
+    header.className = "code-tree-row code-tree-favorites-header";
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "collapse-btn" + (_favoritesCollapsed ? " collapsed" : "");
+    btn.innerHTML = IC().chevronRight;
+    header.appendChild(btn);
+
+    const icon = document.createElement("span");
+    icon.className = "code-tree-icon";
+    icon.innerHTML = IC().star;
+    header.appendChild(icon);
+
+    const label = document.createElement("span");
+    label.className = "code-tree-label";
+    label.textContent = `מועדפים (${favDocs.length})`;
+    header.appendChild(label);
+
+    header.addEventListener("click", () => {
+      _favoritesCollapsed = !_favoritesCollapsed;
+      render();
+    });
+    section.appendChild(header);
+
+    const wrap = document.createElement("div");
+    wrap.className =
+      "code-tree-children" + (_favoritesCollapsed ? " collapsed" : "");
+    const sorted = [...favDocs].sort((a, b) => a.name.localeCompare(b.name));
+    for (const doc of sorted) wrap.appendChild(buildFileRow(doc));
+    section.appendChild(wrap);
+
+    container.appendChild(section);
+  }
+
   // Re-renders only the tree body (folders/files) from the current _project +
   // _query, leaving the shell (search/actions) in place.
   function render() {
@@ -380,6 +649,8 @@
       (d) => d.type === "structure",
     );
     if (structureDoc) _bodyEl.appendChild(renderStructureRow(structureDoc));
+
+    renderFavoritesSection(_bodyEl);
 
     const allDocs = (_project.documents || []).filter((d) => d.type === "code");
     // Manually-added files (see addManualCodeFiles in document-handler.js)
@@ -433,98 +704,7 @@
     container.appendChild(label);
 
     const sorted = [...docs].sort((a, b) => a.name.localeCompare(b.name));
-    for (const doc of sorted) {
-      const row = document.createElement("div");
-      row.className = "code-tree-row code-tree-manual-row";
-
-      const spacer = document.createElement("span");
-      spacer.className = "code-tree-spacer";
-      row.appendChild(spacer);
-
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.className = "code-tree-checkbox";
-      checkbox.checked = !!doc.enabled;
-      checkbox.addEventListener("change", () => {
-        _deps.docHandler.toggleDocument(_project.id, doc.id, checkbox.checked);
-        _deps.render();
-      });
-      row.appendChild(checkbox);
-
-      const icon = document.createElement("span");
-      icon.className = "code-tree-icon";
-      icon.innerHTML = IC().file;
-      row.appendChild(icon);
-
-      const label2 = document.createElement("span");
-      label2.className = "code-tree-label";
-      label2.textContent = doc.name;
-      row.appendChild(label2);
-      row.title = doc.name;
-
-      const previewBtn = document.createElement("button");
-      previewBtn.type = "button";
-      previewBtn.className = "code-tree-preview-btn";
-      previewBtn.innerHTML = IC().eye;
-      previewBtn.title = "תצוגה מקדימה";
-      previewBtn.setAttribute("aria-label", "תצוגה מקדימה");
-      previewBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        void openPreview(doc);
-      });
-
-      const depsBtn = document.createElement("button");
-      depsBtn.type = "button";
-      depsBtn.className = "code-tree-deps-btn";
-      depsBtn.innerHTML = IC().link;
-      depsBtn.title =
-        "אפשרויות תלויות (ציון ידני בלבד — קובץ שנוסף ידנית אינו נסרק אוטומטית)";
-      depsBtn.setAttribute("aria-label", "אפשרויות תלויות");
-      depsBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openDepsMenu(doc, depsBtn);
-      });
-
-      const removeBtn = document.createElement("button");
-      removeBtn.type = "button";
-      removeBtn.className = "code-tree-preview-btn code-tree-remove-btn";
-      removeBtn.innerHTML = IC().trash;
-      removeBtn.title = "הסר קובץ";
-      removeBtn.setAttribute("aria-label", "הסר קובץ");
-      removeBtn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        const ok = await _deps.modals.showConfirm({
-          title: "הסרת קובץ",
-          msg: `להסיר את "${doc.name}" מהפרויקט?`,
-        });
-        if (!ok) return;
-        await _deps.docHandler.removeDocument(_project.id, doc.id);
-        await _deps.docHandler.removeCodeContent(doc.id);
-        if (doc.fileHandleId)
-          window.__ccbFsHandles.remove(doc.fileHandleId).catch(() => {});
-        _deps.render();
-      });
-
-      const fileActions = document.createElement("span");
-      fileActions.className = "code-tree-file-actions";
-      fileActions.appendChild(previewBtn);
-      fileActions.appendChild(depsBtn);
-      fileActions.appendChild(removeBtn);
-      row.appendChild(fileActions);
-
-      row.addEventListener("click", (e) => {
-        if (
-          e.target === checkbox ||
-          previewBtn.contains(e.target) ||
-          depsBtn.contains(e.target) ||
-          removeBtn.contains(e.target)
-        )
-          return;
-        checkbox.checked = !checkbox.checked;
-        checkbox.dispatchEvent(new Event("change"));
-      });
-      container.appendChild(row);
-    }
+    for (const doc of sorted) container.appendChild(buildFileRow(doc));
   }
 
   function setAllEnabled(enabled) {
@@ -573,6 +753,8 @@
     clearAll.addEventListener("click", () => setAllEnabled(false));
     _tokenEl = document.createElement("span");
     _tokenEl.className = "code-tree-token-count";
+    _tokenEl.addEventListener("mouseenter", openSelectedFilesHover);
+    _tokenEl.addEventListener("mouseleave", scheduleSelectedFilesClose);
     actions.appendChild(selectAll);
     actions.appendChild(clearAll);
     actions.appendChild(_tokenEl);
@@ -1698,16 +1880,19 @@
     // search text / collapsed folders survive a same-project re-render.
     if (!_project || _project.id !== project.id) {
       _query = "";
-      // Seeded with every folder path (not left empty) so the tree defaults
-      // to fully collapsed on first view — membership in this set means
-      // collapsed (see renderNode), so an empty set used to mean "nothing
-      // collapsed", i.e. everything expanded.
-      _collapsedPaths = allFolderPaths(
+      // Seeded per-folder (not left empty, and not "every folder" either —
+      // 2026-08-05) so a folder starts collapsed on first view UNLESS it
+      // already holds at least one enabled file, in which case it starts
+      // expanded — membership in this set means collapsed (see renderNode),
+      // so an empty set used to mean "nothing collapsed", i.e. everything
+      // expanded.
+      _collapsedPaths = initiallyCollapsedFolderPaths(
         (project.documents || []).filter(
           (d) => d.type === "code" && !d.isManuallyAdded,
         ),
       );
       _searchCollapsedPaths = new Set();
+      _favoritesCollapsed = false;
       // A2: the cached scanned graph belongs to the previous project.
       _rawGraph = null;
       _rawGraphProjectId = null;

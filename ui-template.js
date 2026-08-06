@@ -24,6 +24,9 @@ window.__ccbTpl = (() => {
     eye: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`,
     undo: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>`,
     help: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.5 9a2.5 2.5 0 0 1 4.6-1.4c.6.9.4 1.8-.3 2.5-.8.8-1.3 1.2-1.3 2.4"/><line x1="12" y1="17" x2="12" y2="17.01"/></svg>`,
+    star: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+    chevronUp: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>`,
+    chevronDown: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`,
   };
 
   const PANEL_HTML = `
@@ -696,6 +699,11 @@ window.__ccbTpl = (() => {
     </div>
 
     <div id="quickCmdMenu" role="listbox" aria-label="פקודות מהירות" style="display:none"></div>
+
+    <div id="msgNav" class="msg-nav">
+      <button type="button" class="msg-nav-btn" id="msgNavPrev" title="הודעה קודמת" aria-label="הודעה קודמת">${IC.chevronUp}</button>
+      <button type="button" class="msg-nav-btn" id="msgNavNext" title="הודעה הבאה" aria-label="הודעה הבאה">${IC.chevronDown}</button>
+    </div>
   `;
 
   return { IC, PANEL_HTML };

@@ -49,6 +49,33 @@ window.__ccbCSS = (() => {
     .fab:hover { width: 28px; background: #2a2622; }
     .fab.hidden { left: -32px; pointer-events: none; }
 
+    /* Message navigation (2026-08-06) — two floating arrows, fixed near the
+       bottom-left of the viewport (page-fixed, like the FAB, not scoped to
+       the panel), stepping through the host page's own chat messages.
+       Always visible per the user's explicit choice — including while the
+       panel is open, unlike the FAB (which hides then) — so it shifts right
+       to just past the panel's own edge instead. #msgNav is a sibling of
+       .panel further down this same template (after #quickCmdMenu), so a
+       plain CSS sibling combinator reacts to the pre-existing #panel.open
+       toggle with no extra JS wiring needed. */
+    .msg-nav {
+      position: fixed; bottom: 16px; left: 16px; z-index: 3;
+      display: flex; flex-direction: column; gap: 6px;
+      pointer-events: auto;
+      transition: left var(--t-fast);
+    }
+    #panel.open ~ .msg-nav { left: calc(${w}px + 16px); }
+    .msg-nav-btn {
+      width: 34px; height: 34px; border-radius: 50%; border: none;
+      background: var(--text-strong); color: var(--bg-app); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 2px 0 8px rgba(0,0,0,.18);
+      transition: opacity var(--t-fast), background var(--t-fast);
+    }
+    .msg-nav-btn:hover:not(:disabled) { background: #2a2622; }
+    .msg-nav-btn:disabled { opacity: 0.35; cursor: default; }
+    .msg-nav-btn svg { width: 14px; height: 14px; }
+
     /* Sidebar */
     .panel {
       position: fixed; top: 0; left: 0;
@@ -1743,7 +1770,11 @@ window.__ccbCSS = (() => {
        (the "בחר הכל"/"נקה הכל" toolbar above the tree) so the two rules don't
        collide. */
     .code-tree-file-actions {
-      display: flex; align-items: center; gap: 3px; flex-shrink: 0;
+      /* 2026-08-06: gap tightened 3px→0 — button hitboxes themselves stay at
+         their original size (20px/14px icon) per user feedback: shrinking
+         the buttons was the wrong fix, only the gap between them should
+         shrink. */
+      display: flex; align-items: center; gap: 0; flex-shrink: 0;
       margin-inline-end: -10px;
     }
     .code-tree-deps-btn, .code-tree-preview-btn {
@@ -1755,8 +1786,31 @@ window.__ccbCSS = (() => {
     .code-tree-deps-btn svg, .code-tree-preview-btn svg { width: 14px; height: 14px; }
     .code-tree-row:hover .code-tree-deps-btn, .code-tree-row:hover .code-tree-preview-btn { opacity: 1; }
     .code-tree-deps-btn:hover, .code-tree-preview-btn:hover { background: var(--bg-clear); color: var(--text-strong); }
+    /* Favorite-toggle star (2026-08-05) — same sizing/hover-reveal as the
+       preview/deps buttons it sits beside in .code-tree-file-actions, plus
+       an "active" (favorited) state that stays visible even without a hover
+       and fills the star gold instead of only outlining it. */
+    .code-tree-favorite-btn {
+      width: 20px; height: 20px; flex-shrink: 0; border: none; background: none;
+      color: var(--text-faint); cursor: pointer; border-radius: 4px;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0.55; transition: opacity var(--t-fast), background var(--t-fast), color var(--t-fast);
+    }
+    .code-tree-favorite-btn svg { width: 14px; height: 14px; }
+    .code-tree-row:hover .code-tree-favorite-btn { opacity: 1; }
+    .code-tree-favorite-btn:hover { background: var(--bg-clear); color: var(--text-strong); }
+    .code-tree-favorite-btn.active { opacity: 1; color: #d99a00; }
+    .code-tree-favorite-btn.active svg polygon { fill: currentColor; }
     .code-tree-children { display: flex; flex-direction: column; }
     .code-tree-children.collapsed { display: none; }
+    /* Pinned favorites section (2026-08-05) — below the structure row, above
+       the scanned tree, collapsible via the same .collapse-btn/
+       .code-tree-children pattern a folder row uses. The separator sits on
+       the OUTER section wrapper (below the whole header+list block, per the
+       user's explicit request), not on the header itself — same visual
+       language as .code-tree-structure-row's separator, just positioned at
+       the bottom of the section instead of directly under its header. */
+    .code-tree-favorites-section { border-bottom: 1px solid var(--border-subtle); margin-bottom: 4px; padding-bottom: 6px; }
     /* Manually-added files (addManualCodeFiles) — a flat list below the
        scanned tree, separated by a small uppercase label, same visual
        language as .code-tree-structure-row's separator above the tree. */
@@ -1772,7 +1826,8 @@ window.__ccbCSS = (() => {
       text-decoration: underline;
     }
     .code-tree-link-btn:hover { color: var(--text-strong); }
-    .code-tree-token-count { color: var(--text-ghost); }
+    .code-tree-token-count { color: var(--text-ghost); cursor: default; transition: color var(--t-fast); }
+    .code-tree-token-count:hover { color: var(--text-mute); }
     .code-tree-budget {
       display: flex; align-items: center; gap: 8px;
       direction: ltr; padding: 0 4px 6px;
