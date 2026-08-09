@@ -2,6 +2,12 @@
 
 ## Unreleased (pending commit)
 
+### 2026-08-09 — Style: session tabs widened 20% (150px → 180px)
+
+User request. `.sessions-tab`'s `width`/`flex-basis` changed from 150px to 180px in `ui-styles.js`; the adjacent `.sessions-tab-thinking` comment and CLAUDE.md's two mentions of the old fixed width (including the "~74px available label space" estimate, now ~104px) updated to match. No other rule references the old value — `.sessions-add-btn` has its own independent fixed 30px width.
+
+**Files:** `ui-styles.js`. See [CLAUDE.md](CLAUDE.md).
+
 ### 2026-08-09 — Feature: Parallel Sessions strip only mounts in Chrome "app mode"
 
 User request (confirmed directly): the strip should only show/mount when the page is running in Chrome's "app mode" (an installed/standalone window with no real browser tab bar). In a normal tabbed browser window, real Chrome tabs already cover "multiple conversations," so the internal strip is redundant there and should stay hidden.

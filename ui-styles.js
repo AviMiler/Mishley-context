@@ -1948,7 +1948,7 @@ window.__ccbCSS = (() => {
        ellipsize via .sessions-tab-label instead of growing the tab. */
     .sessions-tab {
       display: flex; align-items: center; gap: 4px;
-      width: 150px; flex: 0 0 150px; box-sizing: border-box;
+      width: 180px; flex: 0 0 180px; box-sizing: border-box;
       height: 30px; margin-top: 8px; padding: 0 10px;
       border: 1px solid var(--border-input); border-bottom: none;
       border-radius: 8px 8px 0 0; background: var(--bg-tag);
@@ -1979,7 +1979,7 @@ window.__ccbCSS = (() => {
        for the site's own .waiting-indicator element). Sits at the tab's
        leading edge, before the label, so it never collides with the
        trailing edit/refresh/close icon cluster. A soft pulse instead of a
-       spinner to stay visually light at this tab's compact 150px width. */
+       spinner to stay visually light at this tab's compact 180px width. */
     .sessions-tab-thinking {
       flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%;
       background: rgba(79,140,255,.85);
