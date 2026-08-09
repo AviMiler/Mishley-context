@@ -94,11 +94,13 @@ window.__ccbCSS = (() => {
     .panel.open { transform: translateX(0); }
     /* Pushed down by the sessions tab strip's height (40px, must match
        .sessions-tabstrip below and sessions.js's STRIP_HEIGHT) whenever it's
-       mounted — .panel lives in the same shadow root as the strip, so it
-       isn't reached by push.js#pushTop's host-page style injection and would
-       otherwise render its own header right underneath the strip. The class
-       is added once by sessions.js#init at the top level only (never inside
-       a session iframe, where no strip is shown). */
+       mounted — .panel lives in the same shadow root as the strip, and would
+       otherwise render its own header right underneath it. (The real host
+       page's own content is deliberately NOT pushed down for the strip —
+       see push.js's header comment — so this offset only ever applies to
+       this extension's own UI.) The class is added once by sessions.js#init
+       at the top level only (never inside a session iframe, where no strip
+       is shown). */
     :host(.ccb-strip-active) .panel { top: 40px; height: calc(100vh - 40px); }
 
     /* ── Header ──
@@ -1906,10 +1908,12 @@ window.__ccbCSS = (() => {
        feedback after trying the takeover live was that switching
        conversations shouldn't mean "leaving and re-entering" anything. Now
        #sessionsView is ALWAYS mounted (no open/closed state of its own) and
-       only as tall as its own tabstrip — push.js#pushTop shifts the site's
-       own content down by that height once, permanently, at sessions.js's
-       init, so the strip never overlaps real content. Only
-       .sessions-frame-container (the layer that shows the selected SESSION
+       only as tall as its own tabstrip. (The real host page's own content
+       used to be pushed down by that same height so the strip never
+       overlapped it — removed 2026-08-09 at the user's request, see
+       push.js's header comment; the strip now visually overlaps the top of
+       the real page instead.) Only .sessions-frame-container (the layer
+       that shows the selected SESSION
        iframe, not the native tab) is a full-viewport cover, and only while
        a non-native tab is active — see sessions.js#switchSession/render.
        Sits above literally everything else this shadow root renders,

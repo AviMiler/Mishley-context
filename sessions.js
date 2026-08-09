@@ -27,10 +27,12 @@
 // the underlying page — real user feedback after trying it live was that
 // switching conversations shouldn't mean "leaving and re-entering" anything.
 // The strip (#sessionsView → .sessions-tabstrip) is now ALWAYS visible, a
-// thin bar pinned to the top of the page (pushed down via push.js#pushTop so
-// it doesn't sit over the site's own content) — switching tabs is one click,
-// no open/close step. Only the SELECTED session's content still needs to
-// visually cover the page: .sessions-frame-container is a fixed, full-width
+// thin bar pinned to the top of the page (position:fixed, top:0 — the real
+// host page's own content is NOT pushed down for it, see push.js's header
+// comment, so the strip visually overlaps the top of the page) — switching
+// tabs is one click, no open/close step. Only the SELECTED session's content
+// still needs to visually cover the page: .sessions-frame-container is a
+// fixed, full-width
 // layer below the strip that's shown only while a non-native tab is active
 // (native tab = nothing to cover, the real page is what's underneath).
 //
@@ -290,9 +292,10 @@
     }
 
     // The frame-container only needs to cover the viewport while a non-native
-    // tab is selected — on the native tab, the real page underneath (pushed
-    // down by the strip's own height, see pushTop) is what's shown, so the
-    // container stays out of the way entirely (see .sfc-active in
+    // tab is selected — on the native tab, the real page underneath (visible
+    // below/behind the strip — see push.js's header comment for why it isn't
+    // pushed down) is what's shown, so the container stays out of the way
+    // entirely (see .sfc-active in
     // ui-styles.js — without it the container is position:fixed but
     // display:none, out of flow, so it can't block clicks to the page below
     // the strip even though #sessionsView itself is always mounted).
@@ -443,7 +446,7 @@
 
   window.__ccbSessions = {
     /**
-     * @param {{ getShadow: () => ShadowRoot, AUTO_OPEN_URLS: string[], IC: object, setStatus: (msg:string) => void, pushTop: (px:number) => void, enabled: boolean }} deps
+     * @param {{ getShadow: () => ShadowRoot, AUTO_OPEN_URLS: string[], IC: object, setStatus: (msg:string) => void, enabled: boolean }} deps
      */
     init(deps) {
       _deps = deps;
@@ -471,13 +474,15 @@
       }
       installThinkingListener();
       void loadSessions().then(() => {
-        _deps?.pushTop?.(STRIP_HEIGHT);
-        // Pushes the SITE's own content down — Mishley's own panel lives in
-        // this same shadow root, unaffected by that host-page style
-        // injection, and would otherwise render its header right under the
-        // strip. A host class lets ui-styles.js push .panel down too via
-        // :host(.ccb-strip-active), the same declarative pattern as every
-        // other conditional style in that file, instead of inline JS styles.
+        // Mishley's own panel lives in this same shadow root, unaffected by
+        // any host-page styling, and would otherwise render its header
+        // right under the strip. A host class lets ui-styles.js push .panel
+        // (and the 4 full-pane takeover views) down via
+        // :host(.ccb-strip-active) — the real host page's own content is
+        // deliberately NOT pushed down anymore (removed 2026-08-09 at the
+        // user's request — see push.js's header comment), so the strip now
+        // visually overlaps the top of the real page instead of sitting
+        // above it.
         $shadow()?.host?.classList.add("ccb-strip-active");
         render();
       });

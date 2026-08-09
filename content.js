@@ -616,7 +616,6 @@
       AUTO_OPEN_URLS: CONFIG_PUBLIC.AUTO_OPEN_URLS,
       IC,
       setStatus,
-      pushTop: window.__ccbPush.pushTop,
       enabled: SESSIONS_ENABLED !== false,
     });
 

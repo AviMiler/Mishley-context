@@ -2,6 +2,18 @@
 
 ## Unreleased (pending commit)
 
+### 2026-08-09 — Fix (deliberate regression): Parallel Sessions strip no longer pushes the real host page down
+
+User report: "the last fix for the overlapping tabs also pushed the chat window itself down — that's not needed, only the extension's own windows [should shift]." `push.js#pushTop` (which injected a permanent `<style>` shifting the site's real chat container down by the strip's 40px height) is removed entirely — `window.__ccbPush` now exports only `{ pushPage }`. Its only caller, `sessions.js#init()`'s `_deps?.pushTop?.(STRIP_HEIGHT)` call, is removed along with the `pushTop` dep `content.js` passed into `sessions.init()`. The separate, pre-existing `:host(.ccb-strip-active) .panel`/full-pane-view CSS offset — which shifts only the extension's own shadow-DOM UI, not the host page — is untouched and continues to work exactly as before.
+
+**Deliberate tradeoff, explicitly accepted by the user:** without `pushTop`, the strip now visually overlaps the top ~40px of the real host page's own chat content instead of sitting above it. The user was asked directly about this tradeoff and answered "no preference" — proceeding as requested, not a defect to fix later.
+
+**Stage 1 (`spec-doc-agent`):** case (c) — contradicted CLAUDE.md's Parallel Sessions "Layout:" paragraph, which documented `pushTop` as the intended permanent mechanism. Already resolved via the user's direct answer to the tradeoff question (no re-ask needed) → update the existing requirement. No spec.md exists — CLAUDE.md used as the de-facto spec.
+
+**Stage 3 (`verify-agent`), Go.** Confirmed zero remaining `pushTop` references anywhere except an explanatory comment left in `push.js`; confirmed `sessions.js`'s init callback still correctly adds `ccb-strip-active` + calls `render()` after the removed line; confirmed `content.js`'s deps object stays valid; confirmed both `:host(.ccb-strip-active)` CSS rules are structurally untouched (comment-only changes nearby). Confirmed the visual overlap is the intended, user-confirmed outcome, not a defect.
+
+**Files:** `push.js`, `content.js`, `sessions.js`, `ui-styles.js` (comments only). See [CLAUDE.md](CLAUDE.md), [AGENT_CONTEXT.md](AGENT_CONTEXT.md).
+
 ### 2026-08-09 — Fix + Feature: msg-nav.js real `scrollend` detection, and a per-tab "thinking" indicator on Parallel Sessions
 
 Two combined tasks, one Stage 1→4 pass.
