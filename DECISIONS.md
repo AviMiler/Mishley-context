@@ -1,5 +1,13 @@
 # Decisions
 
+## [2026-08-09] Parallel Sessions app-mode gate: `matchMedia` in-frame, not `chrome.windows.get` via background.js
+
+**Decision:** `sessions.js#isAppMode()` detects whether the page is running in Chrome "app mode" (standalone/installed window, no real tab bar) via `window.matchMedia("(display-mode: standalone)").matches`, evaluated synchronously in the content script's own frame.
+
+**Alternatives considered:** Querying `chrome.windows.get({populate:true}).type` (or similar) from `background.js`, with the content script asking via `chrome.runtime.sendMessage` — the extension already has a background service worker (`background.js`, hosting the tree-sitter WASM parsers) and an established message-passing pattern (`ccbTsParse`) that this could have reused.
+
+**Why:** `matchMedia` needs no new permission (`chrome.windows.get` requires the `"windows"` permission, not currently in `manifest.json`) and no cross-process round-trip — it's the standard CSS Working Draft/Web App Manifest media feature built for exactly this question ("is this page rendering without browser chrome") and Chrome content scripts have unmediated access to it in their own `window`. The tradeoff accepted: `matchMedia`'s behavior for a raw `chrome.exe --app=URL` command-line launch (vs. a formally "installed" PWA) is plausible but not verified without a real browser test — flagged explicitly in CLAUDE.md/CHANGELOG.md rather than asserted as certain. This was confirmed directly with the user at Stage 1 rather than assumed.
+
 ## [2026-08-09] Per-tab thinking indicator: postMessage from each frame, not a direct `iframe.contentDocument` read from the top frame
 
 **Decision:** Each session iframe's own content-script instance (`thinking-indicator.js`) detects its own "is the chat generating a response" state locally via a `MutationObserver` on its own DOM, then reports it up to the top-level frame's `sessions.js` via `postMessage({type:"ccbThinking", thinking}, window.location.origin)`. The top-level frame never reaches into `iframe.contentDocument` to read a session's DOM directly.

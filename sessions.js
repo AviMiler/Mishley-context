@@ -94,6 +94,29 @@
     }
   }
 
+  // App-mode gating (2026-08-09, user request): the strip should only ever
+  // show in a Chrome "app mode" window (installed/standalone, no native
+  // browser tab bar) — in a normal tabbed browser window, real Chrome tabs
+  // already cover "multiple conversations," so our own internal strip would
+  // just be redundant clutter. `display-mode: standalone` is the standard
+  // Web App Manifest media feature for exactly this, runs synchronously with
+  // no extra permission (unlike `chrome.windows.get`, which content scripts
+  // can't call directly without message-passing to background.js). Two
+  // caveats, unverifiable without a real browser: (1) whether a raw
+  // `chrome.exe --app=URL` launch (not a formally installed PWA) reliably
+  // reports `standalone` the same way an installed app window does; (2)
+  // whether `display-mode` even propagates into a same-origin session
+  // iframe the same way — moot in practice, since isInsideOwnIframe()
+  // already unconditionally hides the strip for any iframe context before
+  // this check would ever run for one (see init()'s ladder).
+  function isAppMode() {
+    try {
+      return window.matchMedia("(display-mode: standalone)").matches;
+    } catch {
+      return false;
+    }
+  }
+
   function genId() {
     return "s_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 7);
   }
@@ -498,6 +521,14 @@
         // nest sessions inside sessions pointlessly. Hide the markup
         // outright rather than just skipping render(), since the tabstrip
         // is otherwise unconditionally present in the template.
+        const view = $el("sessionsView");
+        if (view) view.style.display = "none";
+        return;
+      }
+      if (!isAppMode()) {
+        // Only the top-level frame reaches here (the iframe branch above
+        // already returned) — see isAppMode()'s own comment for why this
+        // check doesn't need to run for session iframes at all.
         const view = $el("sessionsView");
         if (view) view.style.display = "none";
         return;

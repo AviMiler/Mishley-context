@@ -2,6 +2,22 @@
 
 ## Unreleased (pending commit)
 
+### 2026-08-09 — Feature: Parallel Sessions strip only mounts in Chrome "app mode"
+
+User request (confirmed directly): the strip should only show/mount when the page is running in Chrome's "app mode" (an installed/standalone window with no real browser tab bar). In a normal tabbed browser window, real Chrome tabs already cover "multiple conversations," so the internal strip is redundant there and should stay hidden.
+
+**Detection:** new `sessions.js#isAppMode()` — `window.matchMedia("(display-mode: standalone)").matches` (try/catch → `false`). Chosen over `chrome.windows.get({...}).type` because a content script has no direct `chrome.windows` access (would need a message round-trip to `background.js` plus the `"windows"` permission), while `matchMedia` works synchronously in-frame with no extra permission.
+
+**Placement:** new ladder step in `init(deps)`, right after the `isInsideOwnIframe()` branch and before `installThinkingListener()`/`loadSessions()` — `if (!isAppMode()) { hide #sessionsView; return; }`, same hide-and-return pattern as the two branches above it. Deliberately placed here rather than earlier: a session iframe's own `sessions.js` instance is already unconditionally hidden by the `isInsideOwnIframe()` branch regardless of its own `matchMedia` result, so whether `display-mode` propagates into a same-origin iframe nested in a standalone window is a non-issue — the app-mode check only ever needs to run for, and only affects, the top-level frame. `installF5Guard()` staying installed unconditionally (before this check, for every frame) is harmless: in a non-app-mode tabbed window `_activeId` can never leave `NATIVE_ID` since `switchSession()` is only reachable from the now-gated `loadSessions().then()` callback.
+
+**Two caveats, flagged explicitly (not folded into the standard disclaimer):** (1) whether a raw `chrome.exe --app=URL` command-line launch (not necessarily a formally "installed" PWA) reliably reports `display-mode: standalone` is unverified without a real browser test. (2) whether `display-mode` propagates the same way into a same-origin iframe nested inside a standalone window is likewise unconfirmed — but doesn't matter here, per the placement reasoning above.
+
+**Stage 1 (`spec-doc-agent`):** case (b) — extends CLAUDE.md's Parallel Sessions section, doesn't contradict it. Already confirmed directly by the user in the same session, no re-ask needed → permanent requirement, spec updated below.
+
+**Stage 3 (`verify-agent`), Go.** Confirmed ladder order and ordering vs. existing branches. Confirmed `isAppMode()` is only ever reached by the top-level frame (traced: `isInsideOwnIframe()` always returns first for any iframe). Confirmed `installF5Guard()` staying installed before this check is harmless (traced `_activeId` unreachability argument above). Confirmed `$el("sessionsView")` resolves correctly (`_deps` set as `init()`'s first line). `node --check` passed. No deviation from the Stage 1 plan.
+
+**Files:** `sessions.js`. See [CLAUDE.md](CLAUDE.md), [AGENT_CONTEXT.md](AGENT_CONTEXT.md).
+
 ### 2026-08-09 — Feature: native tab hidden (CSS-only) whenever sessions exist, and auto-switch to the last-active tab on page load
 
 User request (confirmed via direct back-and-forth): "no need to show the native tab at all if there are several [session tabs]; when the site opens it should immediately switch to a secondary tab, and we hide the native tab with CSS" — plus a follow-up confirming that on reload it should restore whichever tab was last active, not always the first session.
