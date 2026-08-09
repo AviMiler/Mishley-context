@@ -389,10 +389,20 @@
 
   window.__ccbSessions = {
     /**
-     * @param {{ getShadow: () => ShadowRoot, AUTO_OPEN_URLS: string[], IC: object, setStatus: (msg:string) => void, pushTop: (px:number) => void }} deps
+     * @param {{ getShadow: () => ShadowRoot, AUTO_OPEN_URLS: string[], IC: object, setStatus: (msg:string) => void, pushTop: (px:number) => void, enabled: boolean }} deps
      */
     init(deps) {
       _deps = deps;
+      if (deps.enabled === false) {
+        // Feature-off switch (config.js#SESSIONS_ENABLED) — nothing mounts,
+        // not even the F5 guard, so the extension behaves as if this
+        // module didn't exist at all. Same "hide the always-present
+        // markup outright" approach as the isInsideOwnIframe branch below,
+        // since #sessionsView is unconditionally in the template.
+        const view = $el("sessionsView");
+        if (view) view.style.display = "none";
+        return;
+      }
       installF5Guard();
       if (isInsideOwnIframe()) {
         // The strip only makes sense at the top level — a session iframe

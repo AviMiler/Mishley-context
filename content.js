@@ -36,6 +36,7 @@
     CTX_WINDOW_DEFAULT,
     CHARS_PER_TOKEN,
     DOC_MAX_CHARS_DEFAULT,
+    SESSIONS_ENABLED,
   } = window.__ccbRawConfig;
 
   const CONFIG_PUBLIC = { AUTO_OPEN_URLS, SEND_BUTTON_SELECTOR, SIDEBAR_WIDTH };
@@ -615,6 +616,7 @@
       IC,
       setStatus,
       pushTop: window.__ccbPush.pushTop,
+      enabled: SESSIONS_ENABLED !== false,
     });
 
     modals.init({

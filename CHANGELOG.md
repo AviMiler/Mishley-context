@@ -2,6 +2,20 @@
 
 ## Unreleased (pending commit)
 
+### 2026-08-09 — Cosmetic: Parallel Sessions "+" (add-tab) button now matches the tab shape
+
+`.sessions-add-btn` (`ui-styles.js`) changed from a separate rounded-square icon button (border-radius on all corners, no border, centered in the 40px strip) to match `.sessions-tab`'s own shape formula: `align-self:flex-end`, `height:30px; margin-top:8px`, top-rounded-only border (`border-radius:8px 8px 0 0`, `border-bottom:none`) — flush with the tabs' bottom edge. No JS/markup change (`#sessionsAddBtn` in `ui-template.js` untouched). Verified by `verify-agent` (Go): the alignment arithmetic genuinely lines up (`.sessions-tabs` is 100% height of `.sessions-tabstrip`'s content box, and the add button — a sibling of `.sessions-tabs`, not nested in it — aligns to that same bottom via its own `align-self`).
+
+**Files:** `ui-styles.js`. See [CLAUDE.md](CLAUDE.md).
+
+### 2026-08-09 — Feature: config kill switch for the entire Parallel Sessions tab strip
+
+Added `SESSIONS_ENABLED` (`config.js`, declared right after `ACTIVE_SITE`, exported via `window.__ccbRawConfig`) — a single boolean that can disable the whole `sessions.js` tab strip (no FAB, nothing shown, F5 behaves normally) without touching the rest of the panel (blocks/projects/GM/etc. are untouched). `content.js` destructures `SESSIONS_ENABLED` and passes `enabled: SESSIONS_ENABLED !== false` into the existing `window.__ccbSessions.init({...})` call's deps (defensive: an accidentally-undefined config value defaults to enabled, not disabled — this is an opt-out switch, not opt-in). `sessions.js#init(deps)` checks `deps.enabled === false` as its very first line — before the existing `installF5Guard()` call and before the existing `isInsideOwnIframe()` branch — so disabling it also skips installing the F5 keydown interception, not just hiding `#sessionsView`. JSDoc on `init` updated to document the new `enabled: boolean` field.
+
+**Stage 3 (`verify-agent`), Go.** Confirmed the full 5-hop chain (config.js declaration → `window.__ccbRawConfig` → `content.js` destructure → `sessions.init()` deps → `sessions.js`'s own check) has no typos/mismatches; the disabled branch genuinely runs before `installF5Guard()`; the `enabled` dep is read in exactly one place (`sessions.js`'s own `init()`) so nothing outside the sessions feature is affected; the `!== false`/`=== false` strictness pairing correctly defaults to enabled on any non-false value; and since it's a static `config.js` constant, every frame (top-level + every session iframe, per `all_frames:true`) reads the identical value, so there's no cross-frame disagreement risk. Diff is minimal: `config.js` (+6/-0), `content.js` (+2/-0), `sessions.js` (+11/-1) — no unrelated changes.
+
+**Files:** `config.js`, `content.js`, `sessions.js`. See [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md).
+
 ### 2026-08-06 — Feature: F5 refreshes only the selected session tab, not the whole real page (new round, on top of the already-committed 4187acc)
 
 User asked whether F5 could refresh just the currently selected tab instead of reloading the whole real top-level page. Shipped: new `installF5Guard()` in `sessions.js`, called as the FIRST line inside `init(deps)` — before the existing `isInsideOwnIframe()` early-return — so it installs in EVERY frame this content script mounts into: the top-level page AND every session `<iframe>` (each already runs its own fully independent Mishley/sessions.js instance per the pre-existing `all_frames:true`). This is necessary because `keydown` doesn't bubble across an iframe boundary — a top-level-only listener could never see F5 pressed while focus is inside a session iframe.

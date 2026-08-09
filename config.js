@@ -48,6 +48,11 @@ const _INTERNAL_CHAT_SELECTORS = {
 // ⬇ CHANGE: בחר איזה site להפעיל — "gemini" או "internal"
 const ACTIVE_SITE = "gemini";
 
+// ⬇ CHANGE: false מבטל לגמרי את פס הטאבים המקבילים (sessions.js) — אין FAB
+// חלופי, שום דבר לא מוצג, וגם F5 מתנהג רגיל. שאר הפאנל (בלוקים/פרויקטים/
+// זיכרון כללי וכו') לא מושפע — זה מכבה רק את פיצ'ר ה-Parallel Sessions.
+const SESSIONS_ENABLED = true;
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 const _SITE_CONFIG = {
@@ -83,6 +88,7 @@ const _ACTIVE = _SITE_CONFIG[ACTIVE_SITE] || _SITE_CONFIG.gemini;
 
     // רוחב הסיידבר בפיקסלים
     SIDEBAR_WIDTH: 380,
+    SESSIONS_ENABLED,
     CTX_WINDOW_DEFAULT: 128000,
 
     // תקרת התווים למסמך בודד בהזרקת "טען קבצים" (history-view.js). חלה רק על

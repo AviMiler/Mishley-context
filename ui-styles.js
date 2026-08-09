@@ -1972,10 +1972,19 @@ window.__ccbCSS = (() => {
       border-radius: 4px; padding: 1px 4px; font-family: var(--font-he);
       font-size: 12px; background: var(--bg-app); color: var(--text-strong);
     }
+    /* Shaped like a small tab (same border/top-radius/height/margin-top as
+       .sessions-tab) so it reads as part of the tab row rather than a
+       separate icon button — align-self:flex-end since .sessions-tabstrip
+       itself is align-items:center, matching .sessions-tabs's own
+       align-items:flex-end so the "+" sits on the exact same baseline as
+       every tab instead of vertically centered in the 40px strip. */
     .sessions-add-btn {
-      flex-shrink: 0; width: 30px; height: 30px; border: none;
-      background: var(--bg-tag); color: var(--text-mute); border-radius: 8px;
+      flex-shrink: 0; align-self: flex-end;
+      width: 30px; height: 30px; margin-top: 8px; box-sizing: border-box;
+      border: 1px solid var(--border-input); border-bottom: none;
+      border-radius: 8px 8px 0 0; background: var(--bg-tag); color: var(--text-mute);
       display: flex; align-items: center; justify-content: center; cursor: pointer;
+      transition: background var(--t-fast), color var(--t-fast);
     }
     .sessions-add-btn:hover { background: var(--bg-clear); color: var(--text-strong); }
     /* Out of #sessionsView's flex flow (position:fixed of its own) so the
