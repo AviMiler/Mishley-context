@@ -2,6 +2,14 @@
 
 ## Unreleased (pending commit)
 
+### 2026-08-09 — Fix: full-pane takeover views no longer overdrawn by the Parallel Sessions tab strip
+
+User report: "הגדרות תלויות" (the dependency manager) and other full-viewport windows were being visually covered by the tab strip. Root cause: `#filePreviewView`/`#depManagerView`/`#depPickerView`/`#onboardingView` (`ui-styles.js`) are `position:fixed` siblings of `.panel` in the same shadow root, with a `top:0; z-index:5` base rule — unlike `.panel`, which already got a `:host(.ccb-strip-active)` top-offset rule when the strip shipped (2026-08-06), these four views never did, so the strip's `top:0; z-index:2147483001` bar rendered on top of their header/controls. Fix: added a companion `:host(.ccb-strip-active) #filePreviewView, #depManagerView, #depPickerView, #onboardingView { top: 40px; height: calc(100vh - 40px); }` rule, mirroring `.panel`'s existing rule exactly. `.dialog-overlay`-based dialogs (scan settings, add-document, storage-info, ignore-patterns) were confirmed already unaffected — nested inside `.panel`, they inherit its offset for free.
+
+**Stage 1 (`spec-doc-agent`):** no spec.md exists; used CLAUDE.md as the de-facto spec. Confirmed unambiguous — a straightforward extension of an already-documented pattern (`.panel`'s own `.ccb-strip-active` rule), not a new decision; no `AskUserQuestion` needed. **Stage 3 (`verify-agent`), Go:** confirmed the new rule is syntactically valid and correctly scoped, confirmed the non-strip-active case is unaffected (base rule still unconditionally `top:0; height:100vh`), grepped for other missed candidates (none found — `#quickCmdMenu` is dynamically positioned via `getBoundingClientRect()`, out of scope). No test suite exists for this pure-CSS layout concern; real-browser visual confirmation remains a standing, unautomatable caveat, same as other UI changes in this codebase.
+
+**Files:** `ui-styles.js`. See [CLAUDE.md](CLAUDE.md), [AGENT_CONTEXT.md](AGENT_CONTEXT.md).
+
 ### 2026-08-09 — Cosmetic: Parallel Sessions "+" (add-tab) button now matches the tab shape
 
 `.sessions-add-btn` (`ui-styles.js`) changed from a separate rounded-square icon button (border-radius on all corners, no border, centered in the 40px strip) to match `.sessions-tab`'s own shape formula: `align-self:flex-end`, `height:30px; margin-top:8px`, top-rounded-only border (`border-radius:8px 8px 0 0`, `border-bottom:none`) — flush with the tabs' bottom edge. No JS/markup change (`#sessionsAddBtn` in `ui-template.js` untouched). Verified by `verify-agent` (Go): the alignment arithmetic genuinely lines up (`.sessions-tabs` is 100% height of `.sessions-tabstrip`'s content box, and the add button — a sibling of `.sessions-tabs`, not nested in it — aligns to that same bottom via its own `align-self`).

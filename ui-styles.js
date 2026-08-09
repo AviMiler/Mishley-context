@@ -931,6 +931,16 @@ window.__ccbCSS = (() => {
       pointer-events: auto;
     }
     #filePreviewView.cv-open, #depManagerView.cv-open, #depPickerView.cv-open, #onboardingView.cv-open { display: flex; }
+    /* Same reasoning as .panel's own :host(.ccb-strip-active) rule above —
+       these four are fixed siblings in the same shadow root as the sessions
+       tab strip (z-index 2147483001) and aren't reached by push.js's
+       host-page-only offset, so without this their top edge renders under
+       the strip. */
+    :host(.ccb-strip-active) #filePreviewView, :host(.ccb-strip-active) #depManagerView,
+    :host(.ccb-strip-active) #depPickerView, :host(.ccb-strip-active) #onboardingView {
+      top: 40px;
+      height: calc(100vh - 40px);
+    }
     /* Dependency manager body — Hebrew section labels stay RTL (inherited),
        file paths within rows are forced LTR (source paths, not UI text). */
     .dm-body-wrap { direction: rtl; }
