@@ -1,5 +1,13 @@
 # Decisions
 
+## [2026-08-09] Per-tab thinking indicator: postMessage from each frame, not a direct `iframe.contentDocument` read from the top frame
+
+**Decision:** Each session iframe's own content-script instance (`thinking-indicator.js`) detects its own "is the chat generating a response" state locally via a `MutationObserver` on its own DOM, then reports it up to the top-level frame's `sessions.js` via `postMessage({type:"ccbThinking", thinking}, window.location.origin)`. The top-level frame never reaches into `iframe.contentDocument` to read a session's DOM directly.
+
+**Alternatives considered:** Having the top-level frame's `sessions.js` poll (or observe) each session iframe's `contentDocument` directly — legal since every session iframe is confirmed same-origin, and simpler in that it needs no messaging layer at all.
+
+**Why:** Direct `contentDocument` access would be the first place in this codebase where one frame's module reaches into another frame's DOM — every other module (including `sessions.js` itself, which only ever touches `iframe.src`/creation, never a session iframe's internal content) strictly owns only its own frame's state, a convention this codebase enforces consistently (see the module-boundary rules in the Rules section of CLAUDE.md). Since `manifest.json`'s `all_frames:true` already means every session iframe independently mounts its own fully capable Mishley instance — including its own `MSG_SELECTORS`-aware watching machinery (`msg-nav.js`/`ctx-meter.js` precedent) — that instance is already the natural, existing owner of "does this frame's own chat currently show `.waiting-indicator`." Reaching past it to read the DOM directly from the top frame would duplicate that ownership and set a precedent for bypassing frame boundaries elsewhere in the codebase going forward. The `postMessage` hop is the only new cross-frame plumbing this codebase has needed so far (confirmed via grep — no prior `postMessage` usage existed anywhere), but it's a small, one-shot addition (one listener, one emit call) versus a boundary-breaking pattern with no precedent to constrain its future reuse. User explicitly confirmed this direction when asked directly at Stage 1.
+
 ## [2026-08-06] Parallel Sessions: internal site only — Gemini dropped entirely, not deferred
 
 **Decision:** The Parallel Sessions feature (`sessions.js`, an internal iframe-backed tab strip) ships for the internal chat site only. Gemini support was not built, deferred, or feature-flagged — it was dropped from the design outright before Build started.

@@ -61,6 +61,16 @@
   let _activeId = NATIVE_ID;
   let _iframes = new Map(); // id -> <iframe>
   let _loaded = false;
+  // "Thinking" state per tab (2026-08-09) — whether that tab's own chat is
+  // currently generating a response, shown as a small dot on its pill. The
+  // native tab's own state lives directly on this module (its detector runs
+  // in this same top-level frame, no cross-frame hop needed); session tabs'
+  // state arrives via postMessage from each session iframe's own instance
+  // of thinking-indicator.js (installMessageListener below) since only the
+  // top-level frame renders the strip and a session iframe can't touch it
+  // directly — see CLAUDE.md's Parallel Sessions section.
+  let _nativeThinking = false;
+  let _thinking = new Map(); // session id -> boolean
 
   const $shadow = () => _deps?.getShadow?.();
   const $el = (id) => $shadow()?.getElementById(id);
@@ -145,12 +155,19 @@
   // a close-X that just switched tabs was reverted at the user's explicit
   // request in favor of no close button there at all. Rename and refresh
   // stay available on every tab, including native.
-  function buildTabPill(session, { canRename, canClose, canRefresh }) {
+  function buildTabPill(session, { canRename, canClose, canRefresh, thinking }) {
     const tab = document.createElement("div");
     tab.className = "sessions-tab" + (session.id === _activeId ? " active" : "");
     tab.dataset.id = session.id;
     tab.setAttribute("role", "tab");
     tab.tabIndex = 0;
+
+    if (thinking) {
+      const dot = document.createElement("span");
+      dot.className = "sessions-tab-thinking";
+      dot.setAttribute("aria-label", "השיחה חושבת");
+      tab.appendChild(dot);
+    }
 
     const label = document.createElement("span");
     label.className = "sessions-tab-label";
@@ -248,11 +265,18 @@
       tabsEl.appendChild(
         buildTabPill(
           { id: NATIVE_ID, title: _nativeTitle },
-          { canRename: true, canClose: false, canRefresh: false },
+          { canRename: true, canClose: false, canRefresh: false, thinking: _nativeThinking },
         ),
       );
       for (const s of _sessions) {
-        tabsEl.appendChild(buildTabPill(s, { canRename: true, canClose: true, canRefresh: true }));
+        tabsEl.appendChild(
+          buildTabPill(s, {
+            canRename: true,
+            canClose: true,
+            canRefresh: true,
+            thinking: _thinking.get(s.id) === true,
+          }),
+        );
       }
     }
 
@@ -351,9 +375,39 @@
       _iframes.delete(id);
     }
     _sessions = _sessions.filter((s) => s.id !== id);
+    _thinking.delete(id);
     await saveSessions();
     if (_activeId === id) switchSession(NATIVE_ID);
     else render();
+  }
+
+  // Called by the top-level frame's OWN thinking-indicator instance — no
+  // cross-frame hop needed, sender and renderer are the same frame here.
+  function setNativeThinking(thinking) {
+    _nativeThinking = thinking;
+    render();
+  }
+
+  // Only installed in the top-level frame (see init below) — every session
+  // iframe's own instance of this module never reaches this branch, since
+  // it isn't the one rendering the strip. Matches a postMessage'd session
+  // iframe's contentWindow (event.source) against _iframes to find which
+  // tab's dot to update; ignores anything not from a same-origin frame this
+  // module itself created, since a session iframe always loads the active
+  // site's own URL (see baseUrl()) — same origin as the top-level page.
+  function installThinkingListener() {
+    window.addEventListener("message", (event) => {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data;
+      if (!data || data.type !== "ccbThinking") return;
+      for (const [id, iframe] of _iframes) {
+        if (iframe.contentWindow === event.source) {
+          _thinking.set(id, !!data.thinking);
+          render();
+          return;
+        }
+      }
+    });
   }
 
   // F5 normally reloads the whole real browser tab, which — from inside a
@@ -415,6 +469,7 @@
         if (view) view.style.display = "none";
         return;
       }
+      installThinkingListener();
       void loadSessions().then(() => {
         _deps?.pushTop?.(STRIP_HEIGHT);
         // Pushes the SITE's own content down — Mishley's own panel lives in
@@ -432,5 +487,6 @@
     switchSession,
     showNativeTab,
     isInsideOwnIframe,
+    setNativeThinking,
   };
 })();

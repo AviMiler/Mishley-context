@@ -1966,6 +1966,21 @@ window.__ccbCSS = (() => {
     .sessions-tab-label {
       flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
+    /* "Thinking" dot (2026-08-09) — the tab's own chat is currently
+       generating a response (detected via thinking-indicator.js watching
+       for the site's own .waiting-indicator element). Sits at the tab's
+       leading edge, before the label, so it never collides with the
+       trailing edit/refresh/close icon cluster. A soft pulse instead of a
+       spinner to stay visually light at this tab's compact 150px width. */
+    .sessions-tab-thinking {
+      flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%;
+      background: rgba(79,140,255,.85);
+      animation: ccb-thinking-pulse 1.1s ease-in-out infinite;
+    }
+    @keyframes ccb-thinking-pulse {
+      0%, 100% { opacity: .35; transform: scale(.8); }
+      50% { opacity: 1; transform: scale(1); }
+    }
     .sessions-tab-edit, .sessions-tab-refresh, .sessions-tab-close {
       display: flex; align-items: center; justify-content: center;
       flex-shrink: 0; width: 14px; height: 14px; border-radius: 50%;

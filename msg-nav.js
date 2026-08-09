@@ -38,15 +38,32 @@
 // the overlap check, so rapid next/next/next (the normal way to page through
 // several messages) landed on the wrong message unpredictably. Fixed with a
 // short-lived memory of our OWN last scroll target (_lastTarget): while a
-// recent click's animation could still be in flight (SETTLE_MS, restarted on
-// every click), goPrev/goNext step from that remembered target instead of
-// re-reading the DOM. Once the user pauses longer than that window — either
-// because the animation genuinely finished or because they've since done
-// something else entirely (manually scrolled, waited through a new message)
-// — the memory expires and the next click goes back to deriving fresh from
-// the live viewport. This keeps every scenario the rework was built for
-// (fresh load, mid-conversation, manual scroll) fully intact, since those
-// only ever matter once the user has actually stopped clicking.
+// recent click's animation could still be in flight, goPrev/goNext step from
+// that remembered target instead of re-reading the DOM. Once the animation
+// has genuinely settled — or the user has since done something else entirely
+// (manually scrolled, waited through a new message) — the memory expires and
+// the next click goes back to deriving fresh from the live viewport. This
+// keeps every scenario the rework was built for (fresh load, mid-conversation,
+// manual scroll) fully intact, since those only ever matter once the user has
+// actually stopped clicking.
+//
+// 2026-08-09 (settle detection — fixed-timer guess replaced with the real
+// event) — the memory above originally expired on a hardcoded SETTLE_MS
+// timer, guessing how long scrollIntoView's animation takes. The user
+// reported this read as "a bit stuttery" on the internal chat site: a real
+// scroll that took longer than the guess left a stale _lastTarget in effect
+// past its own animation's end, and one that finished sooner left the memory
+// (harmlessly, but needlessly) held past when it could have expired. Now
+// listens for the real `scrollend` event (Chrome 114+ — this is a Chrome-only
+// MV3 extension, so no fallback-browser concern) attached at `window` with
+// `{capture:true}` so it's caught regardless of which element actually
+// scrolls (the page itself, or an inner `overflow`-scrolling container —
+// `scrollend` isn't guaranteed to bubble the same way across every host site,
+// capture from the root sidesteps that). A short backstop timer remains as a
+// safety net only, for the rare scroll `scrollIntoView` triggers that never
+// fires its own `scrollend` (e.g. the target was already exactly in view, so
+// there's nothing to animate) — it's no longer the primary signal, so it can
+// run longer than the old guess without cost.
 //
 // Public API:
 //   init(deps) — { getShadow, MSG_SELECTORS }
@@ -69,22 +86,41 @@
   let _highlightedEl = null;
   let _highlightTimer = null;
 
-  // Rough upper bound for scrollIntoView({behavior:"smooth"}) to settle —
-  // while a click's own scroll could still be animating, goPrev/goNext trust
-  // this remembered target instead of re-reading a possibly mid-flight
-  // viewport. Restarted on every click; expires back to null once the user
-  // actually pauses.
-  const SETTLE_MS = 700;
+  // Backstop only — the real settle signal is the `scrollend` listener below.
+  // This just covers a scroll that never fires its own `scrollend` (e.g. the
+  // target was already in view, so scrollIntoView had nothing to animate).
+  // Longer than the old fixed-guess timer on purpose, since it's no longer
+  // load-bearing for the common case.
+  const SETTLE_BACKSTOP_MS = 1100;
   let _lastTarget = null;
   let _settleTimer = null;
 
+  function clearSettleTimer() {
+    if (_settleTimer !== null) {
+      clearTimeout(_settleTimer);
+      _settleTimer = null;
+    }
+  }
+
   function armSettleTimer() {
-    if (_settleTimer !== null) clearTimeout(_settleTimer);
+    clearSettleTimer();
     _settleTimer = setTimeout(() => {
       _lastTarget = null;
       _settleTimer = null;
-    }, SETTLE_MS);
+    }, SETTLE_BACKSTOP_MS);
   }
+
+  // Caught via capture on `window` so it fires regardless of which element
+  // actually did the scrolling (the page itself, or an inner scrollable
+  // container) — capturing from the root sidesteps needing to know that.
+  window.addEventListener(
+    "scrollend",
+    () => {
+      clearSettleTimer();
+      _lastTarget = null;
+    },
+    { capture: true },
+  );
 
   const $shadow = () => _deps?.getShadow?.();
   const $el = (id) => $shadow()?.getElementById(id);
@@ -208,10 +244,7 @@
     }
     if (_highlightedEl) clearHighlight(_highlightedEl);
     _highlightedEl = null;
-    if (_settleTimer !== null) {
-      clearTimeout(_settleTimer);
-      _settleTimer = null;
-    }
+    clearSettleTimer();
     _lastTarget = null;
     // Make sure neither button is left showing a disabled state carried
     // over from the previous conversation.

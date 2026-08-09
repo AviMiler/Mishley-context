@@ -13,6 +13,7 @@
 //   history-view.js  → window.__ccbHistoryView
 //   chat-features.js → window.__ccbChat
 //   msg-nav.js       → window.__ccbMsgNav
+//   thinking-indicator.js → window.__ccbThinking
 //   sessions.js      → window.__ccbSessions
 
 (async () => {
@@ -619,6 +620,30 @@
       enabled: SESSIONS_ENABLED !== false,
     });
 
+    // "Thinking" detection runs in every frame (top-level + every Parallel
+    // Sessions iframe, per all_frames:true) — only sessions.js knows how to
+    // RENDER the result (the tab strip only exists in the top-level frame),
+    // so this frame-role branch is what tells thinking-indicator.js's local
+    // detection where to send its result: straight to sessions.js's own
+    // native-tab state when this IS the top-level frame, or up to the
+    // top-level frame via postMessage when this frame is a session iframe.
+    window.__ccbThinking.init({
+      MSG_SELECTORS,
+      onChange: (thinking) => {
+        if (window.top === window.self) {
+          window.__ccbSessions.setNativeThinking(thinking);
+        } else {
+          try {
+            window.top.postMessage({ type: "ccbThinking", thinking }, window.location.origin);
+          } catch {
+            // Cross-origin top somehow reachable from here shouldn't happen
+            // (sessions.js only ever creates same-origin session iframes) —
+            // swallow rather than throw from an observer callback.
+          }
+        }
+      },
+    });
+
     modals.init({
       getShadow,
       setStatus,
@@ -1046,6 +1071,7 @@
     const t3 = Date.now();
     window.__ccbCtxMeter.watchConversation();
     window.__ccbCtxMeter.update();
+    window.__ccbThinking.watch();
     const ctxMeterMs = Date.now() - t3;
     console.log("[ccb-timing] render", {
       totalBlocks: Object.keys(state.blocks || {}).length,
@@ -2100,6 +2126,7 @@
     mountUI();
     window.__ccbCtxMeter.watchFileInputs();
     window.__ccbCtxMeter.watchConversation();
+    window.__ccbThinking.watch();
     await loadBlocks();
     // Must resolve before the first tryAutoInject — "every" mode suppresses
     // the conversation-start injection, and an unloaded mode would default to
