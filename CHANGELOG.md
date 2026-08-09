@@ -2,6 +2,20 @@
 
 ## Unreleased (pending commit)
 
+### 2026-08-06 — Feature: F5 refreshes only the selected session tab, not the whole real page (new round, on top of the already-committed 4187acc)
+
+User asked whether F5 could refresh just the currently selected tab instead of reloading the whole real top-level page. Shipped: new `installF5Guard()` in `sessions.js`, called as the FIRST line inside `init(deps)` — before the existing `isInsideOwnIframe()` early-return — so it installs in EVERY frame this content script mounts into: the top-level page AND every session `<iframe>` (each already runs its own fully independent Mishley/sessions.js instance per the pre-existing `all_frames:true`). This is necessary because `keydown` doesn't bubble across an iframe boundary — a top-level-only listener could never see F5 pressed while focus is inside a session iframe.
+
+**Behavior:** inside a session iframe (`isInsideOwnIframe()` true), `e.preventDefault()` + `window.location.reload()` on itself — self-reload, sound because only the active session's iframe is ever un-hidden per `render()`'s `display:none` toggling, so only it can ever hold focus. In the top-level frame, only intercepts when `_activeId !== NATIVE_ID` (a session tab is selected per that frame's own bookkeeping), then `e.preventDefault()` + `refreshTab(_activeId)` (the existing `iframe.src = iframe.src` reload). On the native tab it does nothing — F5 refreshes the real page normally, matching native's existing lack of its own refresh button.
+
+**Two caveats, flagged prominently (carried into CLAUDE.md too, not just this changelog entry):**
+1. Whether `e.preventDefault()` on a window-level `keydown` listener actually blocks Chrome's native F5 reload for a content script is genuinely **unverifiable without a live browser test** — no existing precedent in this codebase relies on this. Plausible (F5 isn't one of the browser-reserved combos like Ctrl+N/T/W that JS categorically can't block) but not certain across focus states/Chrome versions.
+2. `isInsideOwnIframe()` is a generic `window.top !== window.self` check, not scoped specifically to Mishley-created session iframes — but `installF5Guard()` only ever runs through `sessions.init()`, reachable only via `mountUI()`'s `isActiveSitePage()` URL gate, so in practice it's bounded to same-origin frames matching the target site's URL. This is the **same pre-existing, already-accepted edge case** as the third-party-wrapper-iframe scenario already noted in this feature's "Known-and-deliberately-deferred"/"pending real-browser verification" items — not a new concern introduced by this round.
+
+**Stage 3 (`verify-agent`), Go.** Not yet browser-verified — same standing caveat as the rest of this feature, with caveat (1) above needing explicit confirmation before this can be trusted.
+
+**Files:** `sessions.js` only. See [AGENT_CONTEXT.md](AGENT_CONTEXT.md), [CLAUDE.md](CLAUDE.md).
+
 ### 2026-08-06 — Fix: removed the refresh button from the native tab — supersedes refresh's own addition in the round directly below
 
 User: "תבטל את הרענון לסשן הראשי" (cancel the refresh button for the main/native tab). `sessions.js` only: `render()`'s native `buildTabPill` call flipped `canRefresh: true` → `canRefresh: false` (session tabs unchanged, still `canRefresh: true`). `refreshTab(id)` simplified — the `if (id === NATIVE_ID) { window.location.reload(); return; }` branch is removed entirely (`verify-agent` confirmed genuinely gone, not dead code), leaving only the session-iframe-reload logic (`iframe.src = iframe.src`). Native's rename (`canRename: true`) and lack of close-X (`canClose: false`) are untouched.

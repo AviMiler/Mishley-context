@@ -356,12 +356,44 @@
     else render();
   }
 
+  // F5 normally reloads the whole real browser tab, which — from inside a
+  // session — is the wrong target: the user is looking at one session's
+  // iframe, not the native page. Installed in EVERY frame (top-level AND
+  // every session iframe, since each one runs its own fully independent
+  // Mishley instance per all_frames:true) so the guard can act on whichever
+  // frame the keydown actually reaches — keydown does NOT bubble across an
+  // iframe boundary, so the top-level frame's own listener never sees an F5
+  // pressed while focus is inside a session iframe; each frame has to
+  // handle it locally.
+  function installF5Guard() {
+    window.addEventListener("keydown", (e) => {
+      if (e.key !== "F5") return;
+      if (isInsideOwnIframe()) {
+        // This frame IS a session's own content (only the active session's
+        // iframe is ever un-hidden, so only it can ever hold focus) — F5
+        // here should refresh just this iframe, not the real tab.
+        e.preventDefault();
+        window.location.reload();
+        return;
+      }
+      // Top-level frame: only intercept when a session tab is active (focus
+      // is on the top document itself, e.g. the tab strip, not inside an
+      // iframe) — reload that session instead of the real page. On the
+      // native tab, do nothing and let F5 refresh the real page normally,
+      // matching the native tab's existing lack of its own refresh button.
+      if (_activeId === NATIVE_ID) return;
+      e.preventDefault();
+      refreshTab(_activeId);
+    });
+  }
+
   window.__ccbSessions = {
     /**
      * @param {{ getShadow: () => ShadowRoot, AUTO_OPEN_URLS: string[], IC: object, setStatus: (msg:string) => void, pushTop: (px:number) => void }} deps
      */
     init(deps) {
       _deps = deps;
+      installF5Guard();
       if (isInsideOwnIframe()) {
         // The strip only makes sense at the top level — a session iframe
         // already has its own fully independent Mishley instance mounted
