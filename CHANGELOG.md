@@ -2,6 +2,22 @@
 
 ## Unreleased (pending commit)
 
+### 2026-08-09 — Feature: native tab hidden (CSS-only) whenever sessions exist, and auto-switch to the last-active tab on page load
+
+User request (confirmed via direct back-and-forth): "no need to show the native tab at all if there are several [session tabs]; when the site opens it should immediately switch to a secondary tab, and we hide the native tab with CSS" — plus a follow-up confirming that on reload it should restore whichever tab was last active, not always the first session.
+
+**Native pill hiding:** `buildTabPill()` gained a `hidden` option (`sessions-tab-hidden` CSS class, `display:none` in `ui-styles.js`); `render()` passes `hidden: _sessions.length > 0` for the native tab's pill only. CSS-only, not an omitted DOM node, per the user's literal wording. Confirmed this does not gate `switchSession(NATIVE_ID)`/`showNativeTab()` — the existing mutual-exclusion call sites in `code-tree.js` and `ui-modals.js` are unaffected; the hide is purely visual. `hidden` is recomputed fresh on every `render()`, so the native pill reappears automatically once the last session closes.
+
+**Auto-switch on load:** new storage key `ccb_sessions_last_active` (string tab id), written on every `switchSession(id)` call (including to native — a stray recorded `"__native__"` is harmless, it never matches a `_sessions` entry so always falls to the fallback), read in `loadSessions()`'s existing batched `get()`. `init()`'s post-load callback now calls `switchSession(remembered || fallback)` instead of a bare `render()` whenever `_sessions.length > 0`.
+
+**Fallback default — flagged explicitly as the building agent's own judgment call, not user-specified:** when no remembered id exists or it no longer matches a current session, falls back to the last entry in `_sessions` (most recently created). This was surfaced to the user via the coordinator's summary message rather than blocked on a separate question; the user has not objected, but it remains an assumption pending explicit confirmation.
+
+**Stage 1 (`spec-doc-agent`):** no spec.md exists — CLAUDE.md (Parallel Sessions section) used as the de-facto spec, updated below. Core behavior already confirmed directly by the user; the only unresolved sub-decision (fallback default) was a judgment call since `AskUserQuestion` wasn't blocking here.
+
+**Stage 3 (`verify-agent`), Go.** Confirmed `switchSession(NATIVE_ID)`/`showNativeTab()` stay fully callable regardless of the pill's hidden state. Confirmed the stray-`"__native__"`-write edge case is inert. Confirmed `_sessions` array order genuinely reflects creation order (only `push`/`filter` mutate it, never reordered). Confirmed no keyboard-trap/focus issue on the hidden pill (`display:none` removes it from tab order; nothing calls `.focus()` on it). Confirmed `closeSession()` correctly un-hides native when the last session closes (recomputed fresh every render). Confirmed the fallback default is reasonable but explicitly not user-specified.
+
+**Files:** `sessions.js`, `ui-styles.js`. See [CLAUDE.md](CLAUDE.md), [AGENT_CONTEXT.md](AGENT_CONTEXT.md).
+
 ### 2026-08-09 — Fix (deliberate regression): Parallel Sessions strip no longer pushes the real host page down
 
 User report: "the last fix for the overlapping tabs also pushed the chat window itself down — that's not needed, only the extension's own windows [should shift]." `push.js#pushTop` (which injected a permanent `<style>` shifting the site's real chat container down by the strip's 40px height) is removed entirely — `window.__ccbPush` now exports only `{ pushPage }`. Its only caller, `sessions.js#init()`'s `_deps?.pushTop?.(STRIP_HEIGHT)` call, is removed along with the `pushTop` dep `content.js` passed into `sessions.init()`. The separate, pre-existing `:host(.ccb-strip-active) .panel`/full-pane-view CSS offset — which shifts only the extension's own shadow-DOM UI, not the host page — is untouched and continues to work exactly as before.

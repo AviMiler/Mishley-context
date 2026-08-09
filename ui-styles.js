@@ -1957,6 +1957,10 @@ window.__ccbCSS = (() => {
       transition: background var(--t-fast), color var(--t-fast);
     }
     .sessions-tab:hover { background: var(--bg-clear); }
+    /* Native tab's own pill, CSS-hidden (not removed — switchSession(NATIVE_ID)
+       stays fully callable, e.g. from showNativeTab()) whenever at least one
+       session tab exists (2026-08-09, at the user's explicit request). */
+    .sessions-tab-hidden { display: none; }
     /* Dark fill for the active tab — the same high-contrast
        background:var(--text-strong)/color:var(--bg-app) pairing already used
        for every other "selected" state in this panel (e.g. .fab, dropdown

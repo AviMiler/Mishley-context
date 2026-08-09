@@ -54,6 +54,11 @@
   // STORAGE_KEY's shape.
   const NATIVE_TITLE_KEY = "ccb_sessions_native_title";
   const NATIVE_TITLE_DEFAULT = "השיחה הנוכחית";
+  // Which tab was active, so a fresh page load can restore it instead of
+  // always landing on native — a separate key from STORAGE_KEY for the same
+  // reason NATIVE_TITLE_KEY is separate: one extra bit of strip state, not
+  // part of the sessions array's own shape (2026-08-09).
+  const LAST_ACTIVE_KEY = "ccb_sessions_last_active";
   // Must match .sessions-tabstrip's fixed height in ui-styles.js.
   const STRIP_HEIGHT = 40;
 
@@ -61,6 +66,7 @@
   let _sessions = []; // [{id, title, createdAt}] — iframe-backed tabs only
   let _nativeTitle = NATIVE_TITLE_DEFAULT;
   let _activeId = NATIVE_ID;
+  let _lastActiveId = null; // loaded from LAST_ACTIVE_KEY, used once at init
   let _iframes = new Map(); // id -> <iframe>
   let _loaded = false;
   // "Thinking" state per tab (2026-08-09) — whether that tab's own chat is
@@ -100,10 +106,13 @@
   async function loadSessions() {
     if (_loaded) return _sessions;
     try {
-      const data = await window.__ccbStorage.get([STORAGE_KEY, NATIVE_TITLE_KEY]);
+      const data = await window.__ccbStorage.get([STORAGE_KEY, NATIVE_TITLE_KEY, LAST_ACTIVE_KEY]);
       _sessions = Array.isArray(data[STORAGE_KEY]) ? data[STORAGE_KEY] : [];
       if (typeof data[NATIVE_TITLE_KEY] === "string" && data[NATIVE_TITLE_KEY].trim()) {
         _nativeTitle = data[NATIVE_TITLE_KEY];
+      }
+      if (typeof data[LAST_ACTIVE_KEY] === "string") {
+        _lastActiveId = data[LAST_ACTIVE_KEY];
       }
     } catch {
       _sessions = [];
@@ -157,9 +166,12 @@
   // a close-X that just switched tabs was reverted at the user's explicit
   // request in favor of no close button there at all. Rename and refresh
   // stay available on every tab, including native.
-  function buildTabPill(session, { canRename, canClose, canRefresh, thinking }) {
+  function buildTabPill(session, { canRename, canClose, canRefresh, thinking, hidden }) {
     const tab = document.createElement("div");
-    tab.className = "sessions-tab" + (session.id === _activeId ? " active" : "");
+    tab.className =
+      "sessions-tab" +
+      (session.id === _activeId ? " active" : "") +
+      (hidden ? " sessions-tab-hidden" : "");
     tab.dataset.id = session.id;
     tab.setAttribute("role", "tab");
     tab.tabIndex = 0;
@@ -267,7 +279,18 @@
       tabsEl.appendChild(
         buildTabPill(
           { id: NATIVE_ID, title: _nativeTitle },
-          { canRename: true, canClose: false, canRefresh: false, thinking: _nativeThinking },
+          {
+            canRename: true,
+            canClose: false,
+            canRefresh: false,
+            thinking: _nativeThinking,
+            // Hidden (CSS only — the pill still exists, switchSession(NATIVE_ID)
+            // stays fully callable, e.g. from showNativeTab()) whenever at
+            // least one session tab exists, at the user's explicit request —
+            // there's nothing to switch to on load but a session tab, once any
+            // exist. See init()'s auto-switch-to-last-active logic below.
+            hidden: _sessions.length > 0,
+          },
         ),
       );
       for (const s of _sessions) {
@@ -325,6 +348,13 @@
       ensureIframe(_sessions.find((s) => s.id === id));
     }
     render();
+    // Fire-and-forget — restoring the exact tab on the NEXT load is a nicety,
+    // not something worth blocking this switch on. Records every switch,
+    // native included, so visiting native and reloading correctly does NOT
+    // restore a session (see init()'s auto-switch: a remembered NATIVE_ID
+    // simply won't match anything in _sessions and falls through to the
+    // fallback there, same as no remembered id at all).
+    void window.__ccbStorage.set({ [LAST_ACTIVE_KEY]: id });
   }
 
   // Switches back to the native tab if a session's frame-container is
@@ -484,7 +514,21 @@
         // visually overlaps the top of the real page instead of sitting
         // above it.
         $shadow()?.host?.classList.add("ccb-strip-active");
-        render();
+        // Auto-land on a session tab, never native, whenever one exists — at
+        // the user's explicit request (the native pill is CSS-hidden in that
+        // same case, see render()'s `hidden` computation, so there'd be
+        // nothing to click back to it with anyway). Prefer the tab that was
+        // last active (_lastActiveId, loaded above) if it still exists;
+        // otherwise fall back to the most recently created session — this
+        // fallback default wasn't specified by the user, flagging it as a
+        // judgment call rather than a confirmed requirement.
+        if (_sessions.length > 0) {
+          const remembered = _sessions.find((s) => s.id === _lastActiveId);
+          const fallback = _sessions[_sessions.length - 1];
+          switchSession((remembered || fallback).id);
+        } else {
+          render();
+        }
       });
     },
     addSession,
