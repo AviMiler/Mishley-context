@@ -98,23 +98,32 @@
   // show in a Chrome "app mode" window (installed/standalone, no native
   // browser tab bar) — in a normal tabbed browser window, real Chrome tabs
   // already cover "multiple conversations," so our own internal strip would
-  // just be redundant clutter. `display-mode: standalone` is the standard
-  // Web App Manifest media feature for exactly this, runs synchronously with
-  // no extra permission (unlike `chrome.windows.get`, which content scripts
-  // can't call directly without message-passing to background.js). Two
-  // caveats, unverifiable without a real browser: (1) whether a raw
-  // `chrome.exe --app=URL` launch (not a formally installed PWA) reliably
-  // reports `standalone` the same way an installed app window does; (2)
-  // whether `display-mode` even propagates into a same-origin session
-  // iframe the same way — moot in practice, since isInsideOwnIframe()
-  // already unconditionally hides the strip for any iframe context before
-  // this check would ever run for one (see init()'s ladder).
+  // just be redundant clutter.
+  //
+  // 2026-08-09 (same-day fix, real-browser report): `display-mode: standalone`
+  // alone turned out NOT to match the user's actual test case — a page
+  // opened via Chrome's "Create shortcut… → Open as window" menu item on a
+  // site with no Web App Manifest. `display-mode` is derived from an
+  // INSTALLED web app's manifest `display` field; a manifest-less ad-hoc
+  // "open as window" shortcut has no such record, so Chrome apparently
+  // never reports it as `standalone` even though the window visually has no
+  // tab bar/URL bar — confirmed by the user forcing this function to return
+  // `true` and everything working correctly. Fixed by adding a second,
+  // independent signal for exactly that case: `window.locationbar.visible`
+  // (a legacy `BarProp`, spec'd since the earliest `window.open` days) is
+  // `false` for windows without their own address bar, which covers a
+  // manifest-less app-mode window that `display-mode` misses. Checked
+  // `display-mode` first since it's the more precise/intentional signal
+  // when it IS available (a real installed PWA); `locationbar.visible`
+  // is the fallback for the no-manifest case this codebase actually needs.
   function isAppMode() {
     try {
-      return window.matchMedia("(display-mode: standalone)").matches;
-    } catch {
-      return false;
-    }
+      if (window.matchMedia("(display-mode: standalone)").matches) return true;
+      if (window.matchMedia("(display-mode: minimal-ui)").matches) return true;
+      if (window.matchMedia("(display-mode: window-controls-overlay)").matches) return true;
+      if (window.locationbar && window.locationbar.visible === false) return true;
+    } catch {}
+    return false;
   }
 
   function genId() {
@@ -497,6 +506,44 @@
     });
   }
 
+  // Ctrl+Tab / Ctrl+Shift+Tab — the same shortcut real Chrome uses to cycle
+  // between browser tabs — cycles between SESSION tabs only (native
+  // excluded per the user's explicit choice: native's pill is already
+  // CSS-hidden whenever session tabs exist, so a cycle that could land on
+  // it would put the user on an invisible tab with no visible way back).
+  // Top-level frame only (installed alongside installThinkingListener(),
+  // not installF5Guard() — unlike F5, this is meaningless inside a session
+  // iframe, since cycling _activeId only makes sense where the strip
+  // itself is rendered). No-ops with 0-1 session tabs (nothing to cycle
+  // to). If native is currently active (not itself in _sessions), Ctrl+Tab
+  // lands on the first session and Ctrl+Shift+Tab on the last — a
+  // reasonable default for that edge case, not something the user was
+  // asked about directly.
+  //
+  // Same caveat as installF5Guard(): whether e.preventDefault() on a
+  // content-script keydown listener actually overrides Chrome's own
+  // reserved Ctrl+Tab binding is genuinely unverified without a live
+  // browser test — even in the app-mode window this feature requires (no
+  // visible tab bar), Ctrl+Tab may still be a browser-level shortcut a
+  // content script cannot intercept. Not yet browser-verified.
+  function installTabSwitchGuard() {
+    window.addEventListener("keydown", (e) => {
+      if (!e.ctrlKey || e.key !== "Tab") return;
+      if (_sessions.length < 2) return;
+      e.preventDefault();
+      const idx = _sessions.findIndex((s) => s.id === _activeId);
+      let nextIdx;
+      if (idx === -1) {
+        nextIdx = e.shiftKey ? _sessions.length - 1 : 0;
+      } else if (e.shiftKey) {
+        nextIdx = (idx - 1 + _sessions.length) % _sessions.length;
+      } else {
+        nextIdx = (idx + 1) % _sessions.length;
+      }
+      switchSession(_sessions[nextIdx].id);
+    });
+  }
+
   window.__ccbSessions = {
     /**
      * @param {{ getShadow: () => ShadowRoot, AUTO_OPEN_URLS: string[], IC: object, setStatus: (msg:string) => void, enabled: boolean }} deps
@@ -534,6 +581,7 @@
         return;
       }
       installThinkingListener();
+      installTabSwitchGuard();
       void loadSessions().then(() => {
         // Mishley's own panel lives in this same shadow root, unaffected by
         // any host-page styling, and would otherwise render its header

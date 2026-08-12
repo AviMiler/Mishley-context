@@ -2,6 +2,18 @@
 
 ## Unreleased (pending commit)
 
+### 2026-08-09 — Feature: Ctrl+Tab / Ctrl+Shift+Tab cycles between Parallel Sessions session tabs
+
+User request ("same shortcut Chrome itself uses to switch tabs"). Stage 1 (`spec-doc-agent`) flagged 3 genuine design ambiguities, resolved directly by the user via `AskUserQuestion`: (1) cycling scope is session tabs only — the native tab is deliberately excluded, even though `switchSession(NATIVE_ID)` stays reachable other ways; (2) key binding is Ctrl+Tab/Ctrl+Shift+Tab only, no Ctrl+1-9 jump shortcuts; (3) no-ops when fewer than 2 session tabs exist.
+
+New `sessions.js#installTabSwitchGuard()`, called from `init()` immediately after `installThinkingListener()` — inside the same top-level-frame + app-mode-gated branch as the rest of the strip's setup, so it only ever installs when the strip itself mounts. Cycles `_sessions` (creation order) forward/backward on Ctrl+Tab/Ctrl+Shift+Tab, wrapping around; a click on Shift+Ctrl+Tab from `_activeId === NATIVE_ID` (native currently active) jumps to the last session, forward jumps to the first — a reasonable default for that edge case, not explicitly specified by the user, flagged in the code's own comment. Carries the same unverified-`preventDefault()`-vs-Chrome's-reserved-shortcut caveat `installF5Guard()` already carries.
+
+`verify-agent` Go — confirmed cycling math for 2- and 3-session forward/backward wraparound and the native-active edge case in both directions; confirmed scoping matches `installThinkingListener()`'s gating exactly (read directly); confirmed no spurious firing during inline tab-rename (`startInlineRename()`'s input keydown already `stopPropagation()`s, bubble-phase); `node --check sessions.js` passes. Same standing not-yet-browser-verified caveat as the rest of Parallel Sessions — no harness applies to real keydown/DOM interaction.
+
+**Note:** `git diff sessions.js`/`config.js` at the start of this task already carried unrelated pre-existing local changes (an `isAppMode()` rework adding `minimal-ui`/`window-controls-overlay`/`locationbar.visible` signals, and `ACTIVE_SITE` toggled to `"internal"` for local dev) — neither touched or caused by this task. CLAUDE.md's `isAppMode()` description (still only mentions `display-mode: standalone`) is now stale relative to that code but is **not** updated here, since it's out of scope for this task's diff — flagged in AGENT_CONTEXT.md for a future task to reconcile.
+
+**Files:** `sessions.js`. See [CLAUDE.md](CLAUDE.md).
+
 ### 2026-08-09 — Style: session tabs widened 20% (150px → 180px)
 
 User request. `.sessions-tab`'s `width`/`flex-basis` changed from 150px to 180px in `ui-styles.js`; the adjacent `.sessions-tab-thinking` comment and CLAUDE.md's two mentions of the old fixed width (including the "~74px available label space" estimate, now ~104px) updated to match. No other rule references the old value — `.sessions-add-btn` has its own independent fixed 30px width.

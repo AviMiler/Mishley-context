@@ -46,7 +46,7 @@ const _INTERNAL_CHAT_SELECTORS = {
 };
 
 // ⬇ CHANGE: בחר איזה site להפעיל — "gemini" או "internal"
-const ACTIVE_SITE = "gemini";
+const ACTIVE_SITE = "internal";
 
 // ⬇ CHANGE: false מבטל לגמרי את פס הטאבים המקבילים (sessions.js) — אין FAB
 // חלופי, שום דבר לא מוצג, וגם F5 מתנהג רגיל. שאר הפאנל (בלוקים/פרויקטים/
