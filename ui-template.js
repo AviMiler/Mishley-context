@@ -27,6 +27,7 @@ window.__ccbTpl = (() => {
     star: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
     chevronUp: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>`,
     chevronDown: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`,
+    layers: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`,
   };
 
   const PANEL_HTML = `
@@ -703,6 +704,20 @@ window.__ccbTpl = (() => {
     <div id="msgNav" class="msg-nav">
       <button type="button" class="msg-nav-btn" id="msgNavPrev" title="הודעה קודמת" aria-label="הודעה קודמת">${IC.chevronUp}</button>
       <button type="button" class="msg-nav-btn" id="msgNavNext" title="הודעה הבאה" aria-label="הודעה הבאה">${IC.chevronDown}</button>
+    </div>
+
+    <div id="sessionsView">
+      <div class="sessions-tabstrip">
+        <div class="sessions-tabs" id="sessionsTabs"></div>
+        <button type="button" class="sessions-add-btn" id="sessionsAddBtn" title="שיחה מקבילה חדשה" aria-label="שיחה מקבילה חדשה">${IC.plus}</button>
+      </div>
+      <div class="sessions-frame-container" id="sessionsFrameContainer">
+        <div class="sessions-empty-hint" id="sessionsEmptyHint">
+          <div>${IC.layers}</div>
+          <div>אין שיחות מקבילות עדיין</div>
+          <div class="sessions-empty-sub">לחצו על "+" כדי לפתוח שיחה חדשה באותו אתר, בלי לעזוב את השיחה הנוכחית.</div>
+        </div>
+      </div>
     </div>
   `;
 

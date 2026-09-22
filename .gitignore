@@ -1,3 +1,6 @@
 # Local test fixtures for the code-project scanner / dependency graph.
 # Not part of the shipped extension — used only for manual testing.
 mishley-test-projects/
+
+# Scratch folder for files staged for manual sending/debugging — not project code.
+לשליחה/
