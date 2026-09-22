@@ -48,7 +48,9 @@
   const CSS = window.__ccbCSS;
   const { IC, PANEL_HTML } = window.__ccbTpl;
   const isActiveSitePage = () =>
-    CONFIG_PUBLIC.AUTO_OPEN_URLS.some((u) => location.href.startsWith(u));
+    CONFIG_PUBLIC.AUTO_OPEN_URLS.some((u) =>
+      location.href.replace(/^https?:\/\//, "").includes(u),
+    );
 
   // ============================================================
   // Shared state — modules receive a reference and mutate directly
